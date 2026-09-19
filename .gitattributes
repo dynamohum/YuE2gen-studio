@@ -1,0 +1,17 @@
+# Unix line endings for every text file, whatever the platform the repository is
+# cloned on.  Git on Windows otherwise converts to CRLF, and a shell script or a
+# Dockerfile with CRLF fails inside the Linux containers ("$'\r': command not found").
+* text=auto eol=lf
+
+# Files that are never text.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.flac binary
+*.mp3 binary
+*.wav binary
+*.safetensors binary
+*.pt binary
+*.pdf binary

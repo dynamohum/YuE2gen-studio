@@ -62,7 +62,8 @@ Writing a song from a prompt:
   smaller cards are usually slower chips and renders take longer.
 - Docker with the NVIDIA container toolkit, so containers can see the GPU.
 - About 35 GB of disk: 15 GB of images, 17 GB of models, and room for your songs.
-- Linux, or Windows with WSL2. Both work; WSL2 is what this was built on.
+- Linux, or Windows with WSL2 or Docker Desktop. WSL2 is what this was built on; Windows with
+  Docker Desktop needs a few settings, below.
 
 ## Quick start
 
@@ -87,6 +88,35 @@ Only localhost is published, and **there is no login**: anyone who can reach the
 app. To reach it from other machines, put it behind something that authenticates, and add the
 name or address you use to `ALLOWED_HOSTS` in compose.yml, or the app refuses the request. See
 Other ways to run it below.
+
+### Windows with Docker Desktop
+
+Docker Desktop runs the containers in the same WSL2 Linux system as WSL itself, so the app runs
+the same way. The setup around it needs care:
+
+1. **Use the WSL 2 engine.** In Docker Desktop, *Settings → General → Use the WSL 2 based engine*
+   must be on. The older Hyper-V engine cannot reach the GPU.
+2. **Install a current NVIDIA driver** for Windows. It includes WSL support; nothing is installed
+   inside Linux. Check with `docker run --rm --gpus all nvidia/cuda:12.8.0-base-ubuntu24.04 nvidia-smi`,
+   which should print the card.
+3. **Give WSL enough memory.** It is capped at part of the PC's RAM, and a render needs about
+   11 GB. Create `%UserProfile%\.wslconfig` with:
+
+   ```ini
+   [wsl2]
+   memory=14GB
+   ```
+
+   Set it to your RAM less 2 GB, then run `wsl --shutdown` and start Docker Desktop again.
+4. **Clone inside WSL, not on C:.** Open a WSL terminal (Ubuntu from the Store is the usual one)
+   and run the quick start there. A clone on `C:\` works, but the 17 GB of models and the library
+   then cross a slow bridge into Linux, and SQLite's locking is less dependable across it.
+5. **Run the fetch script in that WSL terminal**, or in Git Bash. PowerShell and Command Prompt
+   cannot run `sh`.
+
+The repository forces Unix line endings, so a clone on Windows keeps its scripts runnable. If
+`sh scripts/fetch-models.sh` still reports `$'\r': command not found`, the clone was made with a
+setting that overrides it: clone again from the WSL terminal.
 
 ## Updating
 
@@ -422,8 +452,9 @@ have to sit on the same machine. `ENGINE_URL` is the only setting that matters.
   rendering machine sleeps. Use `compose.split.yml` for the app. On the GPU box, publish the
   engine's port on the LAN rather than on 127.0.0.1, and set `ENGINE_URL` to it. Set
   `ALLOWED_HOSTS` to the names you reach the NAS by.
-- **Docker Desktop on Windows**: works, and publishes ports onto the Windows host so other
-  devices can reach the UI. Bind mounts must then use Windows or wsl$ paths.
+- **Docker Desktop on Windows**: works, with the settings in *Windows with Docker Desktop*
+  above. It publishes ports onto the Windows host, so other devices can reach the UI once
+  `ALLOWED_HOSTS` names them.
 - **Native Linux, no containers**: install ComfyUI with the YuE2 nodes and point `ENGINE_URL` at
   it. Install `requirements.txt`, ffmpeg and demucs, then run the app from the repository with
   `DATA_DIR=./data VERSION_FILE=./VERSION uvicorn app.main:app --port 8090`. Without those two
