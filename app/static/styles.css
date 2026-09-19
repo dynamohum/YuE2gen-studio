@@ -181,14 +181,33 @@ textarea.lyrics { min-height: 200px; font-family: ui-monospace, SFMono-Regular, 
 .chips .chip.active:hover { background: rgba(123, 92, 255, 0.28); }
 
 /* ---------------------------------------------------------------- settings */
+.brand-wrap { position: relative; display: inline-flex; align-items: center; }
 .brand {
   display: flex; align-items: center; gap: 9px; font: inherit; font-size: 15px;
   color: var(--text); background: none; border: 0; padding: 6px 10px; margin-left: -10px;
   border-radius: 11px; cursor: pointer;
 }
 .brand:hover { background: rgba(255, 255, 255, 0.06); }
-.brand .chev { width: 15px; height: 15px; color: var(--muted); margin-left: 1px; }
+.brand .chev { width: 15px; height: 15px; color: var(--muted); margin-left: 1px; transition: transform 0.18s ease, color 0.15s; }
 .brand:hover .chev { color: var(--text); }
+.brand[aria-expanded="true"] { background: rgba(255, 255, 255, 0.08); }
+.brand[aria-expanded="true"] .chev { transform: rotate(180deg); color: var(--text); }
+
+.brand-menu {
+  position: absolute; top: calc(100% + 6px); left: -10px; min-width: 175px; z-index: 50;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 6px;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(16px);
+}
+.brand-menu .menu-item {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 12px;
+  font: inherit; font-size: 13.5px; font-weight: 500; color: var(--text);
+  background: none; border: 0; border-radius: 8px; cursor: pointer; text-align: left;
+  transition: background 0.12s, color 0.12s;
+}
+.brand-menu .menu-item:hover { background: rgba(255, 255, 255, 0.08); }
+.brand-menu .menu-icon { width: 16px; height: 16px; color: var(--muted); flex-shrink: 0; }
+.brand-menu .menu-item:hover .menu-icon { color: var(--text); }
 .setting-row {
   display: flex; align-items: flex-start; gap: 18px; padding: 15px 0;
   border-top: 1px solid var(--line);
