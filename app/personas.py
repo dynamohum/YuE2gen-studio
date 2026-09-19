@@ -285,7 +285,9 @@ def key_and_tempo(abc: str) -> tuple[str | None, int | None]:
 
 def caption(trigger: str, description: str, voice: str, key: str | None, tempo: int | None) -> str:
     """The style caption a trainer reads: the trigger word first, then the sound."""
-    parts = [trigger.strip(), description.strip(), f"{voice} vocal" if voice else "", key or "",
+    # "key of X" and "N BPM" are the forms the FS_Audio dataset builder looks for; with
+    # them present it does not append its own, so the key is not stated twice.
+    parts = [trigger.strip(), description.strip(), f"{voice} vocal" if voice else "", f"key of {key}" if key else "",
              f"{tempo} BPM" if tempo else ""]
     return ", ".join(p for p in parts if p)
 

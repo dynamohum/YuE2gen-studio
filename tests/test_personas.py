@@ -58,7 +58,7 @@ def test_chunks_cut_at_quiet_points_and_skip_silence():
 def test_key_tempo_and_caption():
     assert personas.key_and_tempo("X:1\nQ:1/4=70\nK:Dm\n") == ("D minor", 70)
     assert personas.key_and_tempo("K:Bb\n") == ("Bb major", None)
-    assert personas.caption("pshields", "pop rock, guitars", "male", "D minor", 70) == "pshields, pop rock, guitars, male vocal, D minor, 70 BPM"
+    assert personas.caption("pshields", "pop rock, guitars", "male", "D minor", 70) == "pshields, pop rock, guitars, male vocal, key of D minor, 70 BPM"
 
 
 def test_score_sections_count_bars_by_time_signature():
