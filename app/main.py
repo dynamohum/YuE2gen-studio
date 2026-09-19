@@ -17,6 +17,8 @@ import hashlib
 import json
 import logging
 import os
+import re
+import subprocess
 import tempfile
 import time
 import uuid
@@ -31,7 +33,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 
-from . import config, instrumental, jobs, lyrics, score, stems
+from . import config, instrumental, jobs, lyrics, personas, score, stems
 from .db import DEFAULT_SPACE, execute, get_setting, migrate, one, rows, set_setting
 from .engine import stage_label
 from .jobs import (CURRENT, CURRENT_STEMS, ENGINE, HARMONY_STEPS, INTERPRETATION_NAMES, INTERPRETATIONS, LYRICS,
@@ -148,7 +150,13 @@ async def lifespan(app: FastAPI):
         except OSError as exc:
             log.warning("engine output folder not usable, renders stay in the engine: %s", exc)
     await ENGINE.start()
-    tasks = [asyncio.create_task(jobs.worker()), asyncio.create_task(jobs.stems_worker()), asyncio.create_task(jobs.keeper())]
+    # Persona analysis is not queued again after a restart: its states go back to
+    # none, and Analyse picks up whatever is left.
+    execute("""UPDATE persona_songs SET vocals_state = 'none' WHERE vocals_state IN ('queued', 'running')""")
+    for field in ("score_state", "lyrics_state", "style_state"):
+        execute(f"UPDATE persona_songs SET {field} = 'none' WHERE {field} IN ('queued', 'running')")
+    tasks = [asyncio.create_task(jobs.worker()), asyncio.create_task(jobs.stems_worker()), asyncio.create_task(jobs.keeper()),
+             asyncio.create_task(jobs.persona_worker())]
     log.info("YuE2 Studio %s up. engine=%s (%s) data=%s", config.VERSION, config.ENGINE_URL,
              "online" if ENGINE.online else "offline", config.DATA_DIR)
     try:
@@ -266,6 +274,30 @@ class InstrumentalIn(BaseModel):
     realaudio: bool = True
 
 
+class PersonaIn(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    trigger_word: str = Field(min_length=2, max_length=40)
+    description: str = Field("", max_length=400)
+    voice: str = Field("", max_length=20)
+    folder: str = Field(min_length=1, max_length=1000)
+    consent: bool = False
+
+
+class PersonaEdit(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=80)
+    trigger_word: str | None = Field(None, min_length=2, max_length=40)
+    description: str | None = Field(None, max_length=400)
+    voice: str | None = Field(None, max_length=20)
+
+
+class PersonaSongEdit(BaseModel):
+    include: bool | None = None
+    # This song's sound, when it differs from the persona's.  Empty means the persona's.
+    description: str | None = Field(None, max_length=400)
+    lyrics: str | None = Field(None, max_length=20_000)
+    lyrics_checked: bool | None = None
+
+
 class RenderIn(BaseModel):
     # Optional: an omitted interpretation keeps the take's own.
     interpretation: str | None = None
@@ -321,6 +353,10 @@ def health() -> dict:
 
 
 def _job_title(kind: str, ref_id: str) -> str | None:
+    if kind in jobs.PERSONA_FIELDS:
+        row = one("SELECT title FROM persona_songs WHERE id = ?", (ref_id,))
+        label = {"persona_score": "key and tempo", "persona_style": "style"}[kind]
+        return f"Persona {label}: {row['title']}" if row else None
     if kind == "lyrics":
         record = LYRICS.get(ref_id)
         return ("Lyrics: " + record["brief"][:60]) if record else None
@@ -351,7 +387,10 @@ def queue_view() -> list[dict]:
             item["note"] = "sent before the app restarted"
         items.append(item)
     for job in jobs.waiting_jobs():
-        if job["kind"] == "lyrics":
+        if job["kind"] in jobs.PERSONA_FIELDS:
+            song = one(f"SELECT {jobs.PERSONA_FIELDS[job['kind']]} AS status FROM persona_songs WHERE id = ?", (job["id"],))
+            row = {"title": _job_title(job["kind"], job["id"]), "status": song["status"]} if song else None
+        elif job["kind"] == "lyrics":
             draft = LYRICS.get(job["id"])
             row = {"title": _job_title("lyrics", job["id"]), "status": draft["status"]} if draft else None
         elif job["kind"] == "transcribe":
@@ -932,6 +971,197 @@ async def variations(take_id: str, body: VariationsIn) -> dict:
         await QUEUE.put({"kind": "render", "id": record["id"]})
         created.append({"id": record["id"], "title": record["title"], "interpretation": name})
     return {"created": created}
+
+
+# ---------------------------------------------------------------------- personas
+PERSONA_STEPS = ("vocals_state", "score_state", "lyrics_state", "style_state")
+
+
+def _persona(persona_id: str) -> dict:
+    persona = one("SELECT * FROM personas WHERE id = ?", (persona_id,))
+    if not persona:
+        raise HTTPException(404, "no such persona")
+    return persona
+
+
+def _persona_view(persona: dict) -> dict:
+    songs = rows("SELECT * FROM persona_songs WHERE persona_id = ? ORDER BY position", (persona["id"],))
+    for song in songs:
+        song["caption"] = personas.caption(persona["trigger_word"], song["description"] or persona["description"],
+                                           persona["voice"], song["key"], song["tempo"])
+    chosen = [s for s in songs if s["include"]]
+    busy = any(s[f] in ("queued", "running") for s in songs for f in PERSONA_STEPS)
+    return {**persona, "songs": songs, "busy": busy,
+            "summary": {"songs": len(songs), "included": len(chosen),
+                        "minutes": round(sum(s["duration"] or 0 for s in chosen) / 60, 1),
+                        "analysed": sum(1 for s in chosen if all(s[f] == "done" for f in PERSONA_STEPS)),
+                        "checked": sum(1 for s in chosen if s["lyrics_checked"])}}
+
+
+def _clean_trigger(word: str) -> str:
+    word = re.sub(r"[^a-z0-9]", "", word.lower())
+    if len(word) < 2:
+        raise HTTPException(400, "the trigger word needs at least two letters or digits")
+    return word
+
+
+@app.get("/api/import/browse")
+def import_browse(path: str | None = None) -> dict:
+    try:
+        return personas.browse(path)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.get("/api/personas")
+def list_personas() -> list[dict]:
+    return rows("""SELECT p.id, p.name, p.trigger_word, p.created_at, p.exported_at,
+                          COUNT(s.id) AS songs, SUM(s.include) AS included
+                   FROM personas p LEFT JOIN persona_songs s ON s.persona_id = p.id
+                   GROUP BY p.id ORDER BY p.created_at DESC""")
+
+
+@app.post("/api/personas")
+async def create_persona(body: PersonaIn) -> dict:
+    """Scan a folder of one singer's songs.  The folder is only read."""
+    if not body.consent:
+        raise HTTPException(400, "confirm that the voice is yours, or that the singer has given permission")
+    folder = Path(body.folder)
+    try:
+        found = await asyncio.to_thread(personas.scan, folder)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if not found:
+        raise HTTPException(400, "there are no songs in that folder")
+    persona_id = uuid.uuid4().hex[:12]
+    execute("""INSERT INTO personas(id, name, trigger_word, description, voice, folder, consent, created_at)
+               VALUES(?, ?, ?, ?, ?, ?, 1, ?)""",
+            (persona_id, body.name.strip(), _clean_trigger(body.trigger_word), body.description.strip(),
+             body.voice.strip().lower(), str(folder), time.time()))
+    for position, song in enumerate(found):
+        execute("""INSERT INTO persona_songs(id, persona_id, file, title, sha256, duration, bit_rate, include, flag, position)
+                   VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (uuid.uuid4().hex[:12], persona_id, song["file"], song["title"], song["sha256"], song["duration"],
+                 song["bit_rate"], 1 if song["include"] else 0, song["flag"], position))
+    return _persona_view(_persona(persona_id))
+
+
+@app.get("/api/personas/{persona_id}")
+def get_persona(persona_id: str) -> dict:
+    return _persona_view(_persona(persona_id))
+
+
+@app.put("/api/personas/{persona_id}")
+def edit_persona(persona_id: str, body: PersonaEdit) -> dict:
+    _persona(persona_id)
+    changes = {k: v.strip() for k, v in body.model_dump().items() if v is not None}
+    if "trigger_word" in changes:
+        changes["trigger_word"] = _clean_trigger(changes["trigger_word"])
+    if "voice" in changes:
+        changes["voice"] = changes["voice"].lower()
+    if changes:
+        execute(f"UPDATE personas SET {', '.join(f'{k} = ?' for k in changes)} WHERE id = ?", (*changes.values(), persona_id))
+    return _persona_view(_persona(persona_id))
+
+
+@app.delete("/api/personas/{persona_id}")
+async def delete_persona(persona_id: str) -> dict:
+    """Removes the persona and its copies in the library.  The original folder is untouched."""
+    _persona(persona_id)
+    execute("DELETE FROM persona_songs WHERE persona_id = ?", (persona_id,))
+    execute("DELETE FROM personas WHERE id = ?", (persona_id,))
+    await asyncio.to_thread(remove_tree, config.DATA_DIR / "personas" / persona_id)
+    return {"deleted": True}
+
+
+@app.put("/api/personas/{persona_id}/songs/{song_id}")
+def edit_persona_song(persona_id: str, song_id: str, body: PersonaSongEdit) -> dict:
+    song = one("SELECT * FROM persona_songs WHERE id = ? AND persona_id = ?", (song_id, persona_id))
+    if not song:
+        raise HTTPException(404, "no such song")
+    changes = {}
+    if body.include is not None:
+        changes["include"] = 1 if body.include else 0
+    if body.lyrics is not None:
+        changes["lyrics"] = body.lyrics.replace("\r\n", "\n")
+    if body.lyrics_checked is not None:
+        changes["lyrics_checked"] = 1 if body.lyrics_checked else 0
+    if body.description is not None:
+        changes["description"] = " ".join(body.description.split())
+    if changes:
+        jobs.set_song(song_id, **changes)
+    return one("SELECT * FROM persona_songs WHERE id = ?", (song_id,))
+
+
+@app.post("/api/personas/{persona_id}/analyse")
+async def analyse_persona(persona_id: str) -> dict:
+    """Queue every step not yet done for each included song.  Safe to press again:
+    finished steps are kept, failed ones are tried again."""
+    _persona(persona_id)
+    queued = 0
+    for song in rows("SELECT * FROM persona_songs WHERE persona_id = ? AND include = 1 ORDER BY position", (persona_id,)):
+        cpu = {f: "queued" for f in ("vocals_state", "lyrics_state") if song[f] in ("none", "failed")}
+        if cpu:
+            jobs.set_song(song["id"], **cpu, error=None)
+            await jobs.PERSONA_QUEUE.put({"id": song["id"]})
+            queued += 1
+        if song["vocals_state"] == "done":
+            for kind, field in jobs.PERSONA_FIELDS.items():
+                if song[field] in ("none", "failed"):
+                    jobs.set_song(song["id"], **{field: "queued"}, error=None)
+                    await QUEUE.put({"kind": kind, "id": song["id"]})
+                    queued += 1
+    return {"queued": queued}
+
+
+@app.get("/api/personas/{persona_id}/songs/{song_id}/audio")
+def persona_song_audio(persona_id: str, song_id: str, which: str = "original") -> FileResponse:
+    song = one("SELECT * FROM persona_songs WHERE id = ? AND persona_id = ?", (song_id, persona_id))
+    if not song or not song["stored_path"]:
+        raise HTTPException(404, "this song has not been copied in yet. Press Analyse.")
+    path = Path(song["stored_path"]) if which == "original" else Path(song["stored_path"]).parent / "vocals.wav"
+    if not path.is_file() or not inside(path, config.DATA_DIR):
+        raise HTTPException(404, "not there yet")
+    return FileResponse(path)
+
+
+@app.post("/api/personas/{persona_id}/export")
+async def export_persona(persona_id: str) -> dict:
+    """Write the training set: per included song, the audio as FLAC, its lyrics and
+    its style caption.  Songs without a copy yet are skipped and listed."""
+    persona = _persona(persona_id)
+    view = _persona_view(persona)
+    dest = config.DATA_DIR / "personas" / persona_id / "dataset"
+    await asyncio.to_thread(remove_tree, dest)
+    dest.mkdir(parents=True, exist_ok=True)
+    written, skipped, unchecked = [], [], []
+    for song in [s for s in view["songs"] if s["include"]]:
+        if not song["stored_path"] or not Path(song["stored_path"]).is_file() or not song["lyrics"].strip():
+            skipped.append(song["title"])
+            continue
+        name = personas.export_name(song)
+        await asyncio.to_thread(subprocess.run, ["ffmpeg", "-v", "error", "-y", "-i", song["stored_path"], str(dest / f"{name}.flac")],
+                                check=True, timeout=600)
+        (dest / f"{name}.lyrics.txt").write_text(song["lyrics"].strip() + "\n", encoding="utf-8")
+        (dest / f"{name}.txt").write_text(song["caption"] + "\n", encoding="utf-8")
+        written.append(song["title"])
+        if not song["lyrics_checked"]:
+            unchecked.append(song["title"])
+    manifest = {"persona": persona["name"], "trigger_word": persona["trigger_word"], "consent": True,
+                "songs": written, "unchecked_lyrics": unchecked, "exported_at": time.time(), "app": config.VERSION}
+    (dest / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    execute("UPDATE personas SET exported_at = ?, export_dir = ? WHERE id = ?", (time.time(), str(dest), persona_id))
+    return {"folder": _host_path(dest), "written": written, "skipped": skipped, "unchecked": unchecked}
+
+
+def _host_path(path: Path) -> str:
+    """A path under the data folder as the user sees it on the host, when known."""
+    if config.DATA_DIR_HOST:
+        try:
+            return config.DATA_DIR_HOST + "/" + str(path.relative_to(config.DATA_DIR))
+        except ValueError:
+            pass
+    return str(path)
 
 
 # ------------------------------------------------------------------------ lyrics

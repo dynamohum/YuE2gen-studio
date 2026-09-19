@@ -19,6 +19,9 @@ except OSError:
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))
 PORT = int(os.environ.get("PORT", "8090"))
 DB_PATH = DATA_DIR / "yue2.sqlite"
+# Where DATA_DIR is on the host, when the app runs in a container, so a folder the
+# app wrote can be named the way the user will find it.  Optional.
+DATA_DIR_HOST = os.environ.get("DATA_DIR_HOST", "").rstrip("/")
 STEMS_DIR = DATA_DIR / "stems"
 TAKES_DIR = DATA_DIR / "takes"
 SOURCES_DIR = DATA_DIR / "sources"
@@ -32,6 +35,10 @@ WORK_DIR = DATA_DIR / "tmp"
 ENGINE_OUTPUT_DIR = Path(os.environ["ENGINE_OUTPUT_DIR"]) if os.environ.get("ENGINE_OUTPUT_DIR") else None
 
 MAX_UPLOAD_MB = int(os.environ.get("MAX_UPLOAD_MB", "300"))
+
+# Folders the app may read songs from for a persona, as paths inside the container.
+# compose.yml mounts them read-only.  Nothing under them is ever written.
+IMPORT_ROOTS = [p.strip() for p in os.environ.get("IMPORT_ROOTS", "/import").split(",") if p.strip()]
 
 # Host names the app answers to.  Anything else is refused, which stops DNS
 # rebinding.  "*" turns the check off.
@@ -48,6 +55,7 @@ DEFAULT_STYLE = "English, warm indie rock, expressive lead vocal, drums, bass, g
 
 # How long a job may run once the engine has started it.  Time spent waiting in the
 # engine's queue does not count.
-TIMEOUTS = {"transcribe": 12 * 60, "plan": 10 * 60, "render": 25 * 60, "lyrics": 15 * 60}
+TIMEOUTS = {"transcribe": 12 * 60, "plan": 10 * 60, "render": 25 * 60, "lyrics": 15 * 60,
+            "persona_score": 12 * 60, "persona_style": 10 * 60}
 # Give up on a job when the engine has been unreachable this long.
 ENGINE_LOST_AFTER = 5 * 60

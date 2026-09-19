@@ -87,6 +87,42 @@ CREATE TABLE IF NOT EXISTS takes (
     feel TEXT NOT NULL DEFAULT 'steady',
     realaudio INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS personas (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    trigger_word TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    voice TEXT NOT NULL DEFAULT '',
+    folder TEXT NOT NULL,
+    consent INTEGER NOT NULL DEFAULT 0,
+    created_at REAL NOT NULL,
+    exported_at REAL,
+    export_dir TEXT
+);
+CREATE TABLE IF NOT EXISTS persona_songs (
+    id TEXT PRIMARY KEY,
+    persona_id TEXT NOT NULL,
+    file TEXT NOT NULL,
+    title TEXT NOT NULL,
+    sha256 TEXT NOT NULL,
+    duration REAL,
+    bit_rate INTEGER,
+    include INTEGER NOT NULL DEFAULT 1,
+    flag TEXT,
+    stored_path TEXT,
+    vocals_state TEXT NOT NULL DEFAULT 'none',
+    score_state TEXT NOT NULL DEFAULT 'none',
+    lyrics_state TEXT NOT NULL DEFAULT 'none',
+    style_state TEXT NOT NULL DEFAULT 'none',
+    error TEXT,
+    key TEXT,
+    tempo INTEGER,
+    lyrics TEXT NOT NULL DEFAULT '',
+    lyrics_checked INTEGER NOT NULL DEFAULT 0,
+    style_hint TEXT,
+    position INTEGER NOT NULL DEFAULT 0,
+    description TEXT NOT NULL DEFAULT ''
+);
 CREATE TABLE IF NOT EXISTS spaces (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -181,6 +217,16 @@ def _realaudio() -> None:
         execute("ALTER TABLE takes ADD COLUMN realaudio INTEGER NOT NULL DEFAULT 0")
 
 
+def _personas() -> None:
+    conn().executescript(BASE_SCHEMA)
+    execute("CREATE INDEX IF NOT EXISTS persona_songs_persona ON persona_songs(persona_id, position)")
+
+
+def _persona_song_description() -> None:
+    if "description" not in _columns("persona_songs"):
+        execute("ALTER TABLE persona_songs ADD COLUMN description TEXT NOT NULL DEFAULT ''")
+
+
 def _indexes() -> None:
     conn().executescript(
         """
@@ -202,6 +248,8 @@ MIGRATIONS = [
     _interpretation,                                                 # -> 5
     _feel,                                                           # -> 6
     _realaudio,                                                      # -> 7
+    _personas,                                                       # -> 8
+    _persona_song_description,                                       # -> 9
 ]
 
 

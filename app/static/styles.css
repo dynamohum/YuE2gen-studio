@@ -616,3 +616,45 @@ details.block[open] > summary { margin-bottom: 10px; }
 .structure-sent { margin-top: 9px; font-size: 12px; line-height: 1.5; }
 .structure-sent code { font: 11.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text);
   word-break: break-word; }
+
+/* ---------- personas ---------- */
+.personas-open { padding: 6px 14px; font-size: 13px; }
+.modal-box.personas { width: min(1180px, 100%); height: auto; max-height: 92vh; overflow: auto; }
+.persona-intro { color: var(--muted); font-size: 13.5px; margin: 10px 0 16px; max-width: 760px; }
+.persona-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; margin-top: 12px; }
+.persona-card { border: 1px solid var(--line); border-radius: 14px; background: var(--card); padding: 14px; cursor: pointer; }
+.persona-card:hover { border-color: rgba(123, 92, 255, 0.55); }
+.persona-card strong { display: block; font-size: 15px; }
+.persona-card .muted { font-size: 12.5px; }
+.persona-form { display: grid; grid-template-columns: 1fr 1fr; gap: 0 18px; max-width: 900px; }
+.persona-form .wide { grid-column: 1 / -1; }
+@media (max-width: 720px) { .persona-form { grid-template-columns: 1fr; } }
+.folder-pick { border: 1px solid var(--line); border-radius: 12px; background: var(--card); padding: 8px; max-height: 240px; overflow: auto; }
+.folder-pick .here { font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 4px 6px 8px; color: var(--text); word-break: break-all; }
+.folder-pick button { display: block; width: 100%; text-align: left; border: 0; background: transparent; color: var(--text);
+  font: inherit; font-size: 13px; padding: 6px 8px; border-radius: 8px; cursor: pointer; }
+.folder-pick button:hover { background: var(--card-2); }
+.persona-summary { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; margin: 12px 0; font-size: 13.5px; }
+.persona-summary .muted { font-size: 12.5px; }
+.persona-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 14px; }
+.persona-songs { width: 100%; border-collapse: collapse; font-size: 13px; }
+.persona-songs th { text-align: left; font-weight: 600; color: var(--muted); font-size: 12px; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.persona-songs td { padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.persona-songs tr.off td { opacity: 0.5; }
+.persona-songs .file { display: block; color: var(--muted); font-size: 11.5px; }
+.persona-songs .flag { display: inline-block; margin-top: 3px; font-size: 11px; color: #fbbf24; }
+.step { display: inline-block; font-size: 11px; padding: 2px 7px; border-radius: 999px; background: var(--card-2); color: var(--muted); margin: 0 3px 3px 0; white-space: nowrap; }
+.step.done { color: #34d399; }
+.step.running { color: #60a5fa; }
+.step.queued { color: #a1a1aa; }
+.step.failed { color: var(--bad); }
+.persona-detail td { background: rgba(255, 255, 255, 0.02); }
+.persona-detail .grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 16px; }
+@media (max-width: 860px) { .persona-detail .grid { grid-template-columns: 1fr; } }
+.persona-detail textarea { min-height: 260px; font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.persona-detail audio { width: 100%; margin-bottom: 8px; }
+.persona-detail .caption { font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-word; }
+.persona-export { margin-top: 12px; font-size: 13px; }
+.persona-export code { font-size: 12px; word-break: break-all; }
+.persona-form.hidden { display: none; }
+#persona-edit { margin: 4px 0 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); }

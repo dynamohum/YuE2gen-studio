@@ -8,3 +8,6 @@ python-multipart==0.0.32
 # demucs needs numpy but does not declare it, and torch will not expose the
 # tensor bridge without it.  The app also uses it for waveform peaks.
 numpy==2.5.3
+# Persona lyrics: Whisper, run on the CPU through CTranslate2.  The model is
+# downloaded into the data folder on first use.
+faster-whisper==1.2.1
