@@ -304,7 +304,7 @@ server-side change only.
   penalty 1.18) broke 6 of 6 test plans. Today's *wild* (1.15, 1.08) kept every test plan readable
   and still varies more than *bold*. A plan that does come out unreadable is marked failed, with a
   reason, instead of being stored and rendered.
-- **The weights are CC BY-NC 4.0**: non-commercial. Demucs is MIT, code and weights.
+- **The models have their own licences**, separate from this code. See License below.
 
 ## Layout
 
@@ -462,3 +462,15 @@ missing node or model shows in the header instead of failing a render.
 - [Demucs](https://github.com/facebookresearch/demucs) by Meta for stems. MIT.
 - [abcjs](https://github.com/paulrosen/abcjs) by Paul Rosen and Gregory Dyke, for staff notation.
   MIT, vendored in `app/static/` so it works offline.
+
+## License
+
+The code in this repository is licensed under the [Apache License 2.0](LICENSE).
+
+The models it runs are not part of the repository and carry their own terms, listed in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). The one that matters most for musicians: YuE2's
+weights are CC BY-NC 4.0 with an additional creator permission, under which personal users,
+content creators and musicians may monetise the music they generate, with no fees or royalties
+to the YuE2 authors. Commercial companies need a licence from them. Read the notices for the
+details, including the instrumental LoRA, whose author has not said anything about monetising
+its output.
