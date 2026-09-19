@@ -119,6 +119,17 @@ def build_plan_graph(take: dict) -> dict:
     return graph
 
 
+def with_realaudio_lora(graph: dict, loader: str = "10", lora: str | None = None, strength: float = 1.0) -> dict:
+    """Put the Realaudio decoder LoRA between the checkpoint and KSampler. The text/CLIP
+    side is left alone (strength 0.0), so the ABC planner and language model are untouched."""
+    lora_name = lora or config.REAL_AUDIO_LORA
+    graph["25"] = {"class_type": "LoraLoader", "inputs": {
+        "model": [loader, 0], "clip": [loader, 1], "lora_name": lora_name,
+        "strength_model": strength, "strength_clip": 0.0}}
+    graph["14"]["inputs"]["model"] = ["25", 0]
+    return graph
+
+
 def build_render_graph(take: dict) -> dict:
     graph = load_template("render.json")
     graph["10"]["inputs"]["ckpt_name"] = config.CHECKPOINT
@@ -135,6 +146,8 @@ def build_render_graph(take: dict) -> dict:
     # not changed and answers with the file it saved last time, which the app has
     # already taken and deleted.  With a new prefix only the save runs again.
     graph["16"]["inputs"]["filename_prefix"] = f"yue2studio/{take['id']}-{int(time.time() * 1000)}"
+    if take.get("realaudio"):
+        with_realaudio_lora(graph, "10", config.REAL_AUDIO_LORA)
     if take.get("kind") == "instrumental":
         node["mode"] = "full"
         instrumental.with_lora(graph, "10", config.INSTRUMENTAL_LORA, ("11",), feel_strength(take))

@@ -65,6 +65,7 @@ services:
     volumes:
       - ./data:/data
       - ./engine-state/output:/engine-output
+      - ./app:/app/app
     logging:
       driver: json-file
       options:

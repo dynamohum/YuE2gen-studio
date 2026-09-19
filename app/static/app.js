@@ -126,6 +126,14 @@ function paintOptions() {
   $('lyrics-write').disabled = !canWrite;
   $('lyrics-write').title = canWrite ? 'Draft lyrics from a short description'
     : 'The engine has no lyric writer. Run scripts/fetch-models.sh, then restart the engine.';
+  var canRealaudio = State.options.realaudio !== false;
+  $('realaudio').disabled = !canRealaudio;
+  if (!canRealaudio) {
+    $('realaudio').checked = false;
+    $('realaudio-field').title = 'The engine has no Realaudio LoRA. Run scripts/fetch-models.sh, then restart the engine.';
+  } else {
+    $('realaudio-field').title = '';
+  }
   var styleNode = $('style');
   var busy = document.activeElement === styleNode;
   if (!styleNode.value && !styleNode.dataset.touched && !busy && State.options.default_style) {
@@ -143,6 +151,7 @@ function saveForm() {
     FORM_FIELDS.forEach(function (id) { data[id] = $(id).value; });
     data.auto_render = $('auto-render').checked;
     data.seed_fixed = $('seed-fixed').checked;
+    data.realaudio = $('realaudio').checked;
     data.left_take = State.leftTakeId || '';
     data.structure = { kind: STRUCTURE.kind, sections: STRUCTURE.sections };
     data.feel = FEEL.value;
@@ -162,6 +171,7 @@ function loadForm() {
   paintVocals();
   if (typeof data.auto_render === 'boolean') { $('auto-render').checked = data.auto_render; }
   if (typeof data.seed_fixed === 'boolean') { $('seed-fixed').checked = data.seed_fixed; }
+  if (typeof data.realaudio === 'boolean') { $('realaudio').checked = data.realaudio; }
   if (data.style) { $('style').dataset.touched = '1'; }
   if (data.left_take) { State.leftTakeId = data.left_take; }
   if (FEELS[data.feel]) { FEEL.value = data.feel; }
@@ -1145,7 +1155,8 @@ async function doPlan() {
         auto_render: $('auto-render').checked,
         variety: $('variety').value,
         harmony: harmonyStep(),
-        space_id: State.spaceId
+        space_id: State.spaceId,
+        realaudio: $('realaudio').checked
       })
     });
     State.planTakeId = take.id;
@@ -1171,7 +1182,10 @@ async function doRenderTake() {
     // The Interpretation menu applies to this render.
     await api('/api/takes/' + id + '/render', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ interpretation: $('interpretation').value })
+      body: JSON.stringify({
+        interpretation: $('interpretation').value,
+        realaudio: $('realaudio').checked
+      })
     });
     State.planTakeId = null;
     statusLine('Rendering…');
@@ -1477,7 +1491,8 @@ async function doInstrumental() {
         auto_render: $('auto-render').checked,
         variety: $('variety').value,
         harmony: harmonyStep(),
-        space_id: State.spaceId
+        space_id: State.spaceId,
+        realaudio: $('realaudio').checked
       })
     });
     State.planTakeId = take.id;
@@ -1797,6 +1812,9 @@ function selectTake(take) {
     if (take.variety) { $('variety').value = take.variety; }
     paintHarmony();
   }
+  if (take.realaudio !== undefined) {
+    $('realaudio').checked = Boolean(take.realaudio);
+  }
   $('interpretation').value = INTERPRETATIONS[take.interpretation] ? take.interpretation : 'standard';
   paintInterpretation();
   // A cover's score belongs to its source, and a plan still being written belongs
@@ -1949,6 +1967,7 @@ function paintTakes() {
     if (take.duration) { meta.push(secs(take.duration)); }
     if (take.kind === 'instrumental' && take.feel === 'varied') { meta.push('varied'); }
     if ((take.kind === 'song' || take.kind === 'instrumental') && take.harmony) { meta.push(HARMONY_WORDS[take.harmony].toLowerCase() + ' harmony'); }
+    if (take.realaudio) { meta.push('realaudio'); }
     meta.push('seed ' + take.seed);
     if (take.interpretation && take.interpretation !== 'standard' && INTERPRETATIONS[take.interpretation]) {
       meta.push(INTERPRETATIONS[take.interpretation].name.toLowerCase());
@@ -2513,7 +2532,8 @@ async function doRender() {
     seed: seed,
     interpretation: $('interpretation').value,
     max_duration: parseFloat($('max-duration').value) || 360,
-    space_id: State.spaceId
+    space_id: State.spaceId,
+    realaudio: $('realaudio').checked
   };
   status.textContent = 'Queued\u2026';
   status.className = 'status';
@@ -2867,7 +2887,10 @@ function wire() {
     }
     if (act === 'render') {
       selectTake(takeById(id));
-      await api('/api/takes/' + id + '/render', { method: 'POST' });
+      await api('/api/takes/' + id + '/render', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ realaudio: $('realaudio').checked })
+      });
       loadTakes();
     }
     if (act === 'clear') {

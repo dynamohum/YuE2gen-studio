@@ -44,6 +44,14 @@ differ, the publisher's terms apply.
   Instrumental mode.
 - Official licence: as declared on its [model card](https://huggingface.co/Mothersuperior/YuE2-instrumental-cot-full-loras).
 
+### YuE2 Realaudio Tokenizer & Production LoRA (Realaudio polish & vocal persona)
+
+- By Mothersuperior. **CC BY-NC 4.0**, inherited from YuE2-3B.
+  Source: [Mothersuperior/yue2-mothersuperior-realaudio-tokenizer-v4](https://huggingface.co/Mothersuperior/yue2-mothersuperior-realaudio-tokenizer-v4).
+- Production LoRA (`nar_lora_joint_v9_comfyui.safetensors`) enhances rendering fidelity and frequency separation.
+- Audio Tokenizer head (`tokenizer_head_joint_v9.safetensors`) enables vocal token extraction in conjunction with MERT-v2.
+- User consent: only use audio recordings that are your own voice or with explicit written consent from the performer.
+
 ### Gemma 4 E4B (lyric drafts)
 
 - By Google. **Apache 2.0**.

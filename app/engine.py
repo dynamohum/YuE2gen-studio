@@ -235,7 +235,8 @@ class Engine:
                         "harmony": "YuE2GenerateABCHarmony" in info,
                         # Lyrics are optional: without Gemma or the node, the button is greyed out.
                         "lyrics": "TextGenerate" in info and config.LYRICS_MODEL in text_models,
-                        "instrumental": config.INSTRUMENTAL_LORA in loras}
+                        "instrumental": config.INSTRUMENTAL_LORA in loras,
+                        "realaudio": config.REAL_AUDIO_LORA in loras}
 
         needed = set()
         for graph in _TEMPLATES.values():

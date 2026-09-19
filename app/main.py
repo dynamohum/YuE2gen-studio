@@ -228,6 +228,7 @@ class SongIn(BaseModel):
     variety: str = "normal"
     harmony: int = Field(0, ge=0, le=len(HARMONY_STEPS) - 1)
     space_id: str = Field(DEFAULT_SPACE, max_length=64)
+    realaudio: bool = True
 
 
 class ReplanIn(BaseModel):
@@ -247,6 +248,7 @@ class TakeIn(BaseModel):
     max_duration: float = Field(360.0, ge=10, le=900)
     space_id: str = Field(DEFAULT_SPACE, max_length=64)
     interpretation: str = "standard"
+    realaudio: bool = True
 
 
 class InstrumentalIn(BaseModel):
@@ -261,15 +263,18 @@ class InstrumentalIn(BaseModel):
     space_id: str = Field(DEFAULT_SPACE, max_length=64)
     interpretation: str = "standard"
     feel: str = "steady"
+    realaudio: bool = True
 
 
 class RenderIn(BaseModel):
     # Optional: an omitted interpretation keeps the take's own.
     interpretation: str | None = None
+    realaudio: bool | None = None
 
 
 class VariationsIn(BaseModel):
     interpretations: list[str] = Field(min_length=1, max_length=len(INTERPRETATIONS))
+    realaudio: bool | None = None
 
 
 class LyricsIn(BaseModel):
@@ -407,6 +412,7 @@ def state() -> dict:
             "lyric_structures": [{"id": key, "sections": value} for key, value in lyrics.STRUCTURES.items()],
             "lyrics_available": ENGINE.options.get("lyrics", False),
             "instrumental_available": ENGINE.options.get("instrumental", False),
+            "realaudio": ENGINE.options.get("realaudio", False),
             "harmony_steps": HARMONY_STEPS,
             # Unknown until the engine has been read, so only a confirmed absence disables it.
             "harmony_available": ENGINE.options.get("harmony", False) or not ENGINE.options_loaded,
@@ -676,12 +682,13 @@ async def create_take(body: TakeIn) -> dict:
         "created_at": time.time(),
         "space_id": body.space_id,
         "interpretation": _interpretation(body.interpretation),
+        "realaudio": 1 if body.realaudio else 0,
     }
     execute(
         """INSERT INTO takes(id, source_id, title, style, lyrics, abc, mode, seed, checkpoint, max_duration, status, created_at,
-                             space_id, interpretation)
+                             space_id, interpretation, realaudio)
            VALUES(:id, :source_id, :title, :style, :lyrics, :abc, :mode, :seed, :checkpoint, :max_duration, 'queued', :created_at,
-                  :space_id, :interpretation)""",
+                  :space_id, :interpretation, :realaudio)""",
         record,
     )
     if record["mode"] == "full" and not record["abc"]:
@@ -738,12 +745,13 @@ async def _plan_new_take(kind: str, title: str, words: str, body: SongIn | Instr
         "space_id": body.space_id,
         "interpretation": _interpretation(body.interpretation),
         "feel": getattr(body, "feel", "steady"),
+        "realaudio": 1 if getattr(body, "realaudio", True) else 0,
     }
     execute(
         """INSERT INTO takes(id, kind, source_id, title, style, lyrics, abc, mode, seed, checkpoint,
-                             max_duration, status, created_at, auto_render, variety, harmony, space_id, interpretation, feel)
+                             max_duration, status, created_at, auto_render, variety, harmony, space_id, interpretation, feel, realaudio)
            VALUES(:id, :kind, NULL, :title, :style, :lyrics, '', :mode, :seed, :checkpoint,
-                  :max_duration, 'queued', :created_at, :auto_render, :variety, :harmony, :space_id, :interpretation, :feel)""",
+                  :max_duration, 'queued', :created_at, :auto_render, :variety, :harmony, :space_id, :interpretation, :feel, :realaudio)""",
         record,
     )
     await QUEUE.put({"kind": "plan", "id": take_id})
@@ -838,8 +846,9 @@ async def render_take(take_id: str, body: RenderIn | None = None) -> dict:
     _check_score(take["abc"], take["kind"])
     _checkpoint()
     interpretation = take["interpretation"] if body is None or body.interpretation is None else _interpretation(body.interpretation)
-    execute("UPDATE takes SET status = 'queued', error = NULL, stage = NULL, checkpoint = ?, interpretation = ? WHERE id = ?",
-            (config.CHECKPOINT, interpretation, take_id))
+    realaudio = take["realaudio"] if body is None or body.realaudio is None else (1 if body.realaudio else 0)
+    execute("UPDATE takes SET status = 'queued', error = NULL, stage = NULL, checkpoint = ?, interpretation = ?, realaudio = ? WHERE id = ?",
+            (config.CHECKPOINT, interpretation, realaudio, take_id))
     await QUEUE.put({"kind": "render", "id": take_id})
     return {"queued": True}
 
@@ -903,6 +912,7 @@ async def variations(take_id: str, body: VariationsIn) -> dict:
     base = _base_title(take["title"])
     now = time.time()
     created = []
+    realaudio = take.get("realaudio", 0) if body.realaudio is None else (1 if body.realaudio else 0)
     for offset, name in enumerate(wanted):
         record = {
             "id": uuid.uuid4().hex[:12], "kind": take["kind"], "source_id": take["source_id"],
@@ -910,12 +920,13 @@ async def variations(take_id: str, body: VariationsIn) -> dict:
             "abc": take["abc"], "mode": take["mode"], "seed": take["seed"], "checkpoint": config.CHECKPOINT,
             "max_duration": take["max_duration"], "created_at": now + offset * 0.001, "variety": take["variety"],
             "harmony": take["harmony"], "space_id": take["space_id"], "interpretation": name, "feel": take["feel"],
+            "realaudio": realaudio,
         }
         execute(
             """INSERT INTO takes(id, kind, source_id, title, style, lyrics, abc, mode, seed, checkpoint, max_duration,
-                                 status, created_at, variety, harmony, space_id, interpretation, feel)
+                                 status, created_at, variety, harmony, space_id, interpretation, feel, realaudio)
                VALUES(:id, :kind, :source_id, :title, :style, :lyrics, :abc, :mode, :seed, :checkpoint, :max_duration,
-                      'queued', :created_at, :variety, :harmony, :space_id, :interpretation, :feel)""",
+                      'queued', :created_at, :variety, :harmony, :space_id, :interpretation, :feel, :realaudio)""",
             record,
         )
         await QUEUE.put({"kind": "render", "id": record["id"]})
