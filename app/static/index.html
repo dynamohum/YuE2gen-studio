@@ -95,7 +95,17 @@
     </div>
 
     <div class="field" id="vocal-field">
-      <label>Vocal</label>
+      <div class="label-row">
+        <label>Vocal</label>
+        <div class="vocal-persona-wrap">
+          <label for="vocal-persona" class="muted">Persona:</label>
+          <select id="vocal-persona" title="Select a trained vocal persona">
+            <option value="">None (Stock Voice)</option>
+          </select>
+          <select id="vocal-persona-lora" class="hidden" title="Select LoRA checkpoint">
+          </select>
+        </div>
+      </div>
       <div id="vocal-sex" class="chips"></div>
       <div id="vocal-tone" class="chips"></div>
     </div>

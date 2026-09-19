@@ -125,15 +125,34 @@ def build_plan_graph(take: dict) -> dict:
     return graph
 
 
+def with_render_lora(graph: dict, node_id: str, lora: str, loader: str = "10", strength_model: float = 1.0, strength_clip: float = 0.0) -> dict:
+    """Put a LoRA between the current model upstream and KSampler. The text/CLIP
+    side is left alone (default 0.0), so the ABC planner and language model are untouched."""
+    current_model = graph["14"]["inputs"]["model"]
+    graph[node_id] = {
+        "class_type": "LoraLoader",
+        "inputs": {
+            "model": current_model,
+            "clip": [loader, 1],
+            "lora_name": lora,
+            "strength_model": strength_model,
+            "strength_clip": strength_clip,
+        },
+    }
+    graph["14"]["inputs"]["model"] = [node_id, 0]
+    return graph
+
+
 def with_realaudio_lora(graph: dict, loader: str = "10", lora: str | None = None, strength: float = 1.0) -> dict:
     """Put the Realaudio decoder LoRA between the checkpoint and KSampler. The text/CLIP
     side is left alone (strength 0.0), so the ABC planner and language model are untouched."""
     lora_name = lora or config.REAL_AUDIO_LORA
-    graph["25"] = {"class_type": "LoraLoader", "inputs": {
-        "model": [loader, 0], "clip": [loader, 1], "lora_name": lora_name,
-        "strength_model": strength, "strength_clip": 0.0}}
-    graph["14"]["inputs"]["model"] = ["25", 0]
-    return graph
+    return with_render_lora(graph, "25", lora_name, loader=loader, strength_model=strength, strength_clip=0.0)
+
+
+def with_persona_lora(graph: dict, lora: str, loader: str = "10", strength: float = 1.0) -> dict:
+    """Put the Persona voice LoRA between the checkpoint (or upstream LoRA) and KSampler."""
+    return with_render_lora(graph, "26", lora, loader=loader, strength_model=strength, strength_clip=0.0)
 
 
 def build_render_graph(take: dict) -> dict:
@@ -154,6 +173,10 @@ def build_render_graph(take: dict) -> dict:
     graph["16"]["inputs"]["filename_prefix"] = f"yue2studio/{take['id']}-{int(time.time() * 1000)}"
     if take.get("realaudio"):
         with_realaudio_lora(graph, "10", config.REAL_AUDIO_LORA)
+    voice_lora = take.get("voice_lora")
+    if voice_lora:
+        strength = float(take.get("voice_lora_strength") or 1.0)
+        with_persona_lora(graph, voice_lora, loader="10", strength=strength)
     if take.get("kind") == "instrumental":
         node["mode"] = "full"
         instrumental.with_lora(graph, "10", config.INSTRUMENTAL_LORA, ("11",), feel_strength(take))

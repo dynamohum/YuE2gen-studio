@@ -85,7 +85,10 @@ CREATE TABLE IF NOT EXISTS takes (
     space_id TEXT NOT NULL DEFAULT 'default',
     interpretation TEXT NOT NULL DEFAULT 'standard',
     feel TEXT NOT NULL DEFAULT 'steady',
-    realaudio INTEGER NOT NULL DEFAULT 0
+    realaudio INTEGER NOT NULL DEFAULT 0,
+    persona_id TEXT,
+    voice_lora TEXT,
+    voice_lora_strength REAL NOT NULL DEFAULT 1.0
 );
 CREATE TABLE IF NOT EXISTS personas (
     id TEXT PRIMARY KEY,
@@ -97,7 +100,8 @@ CREATE TABLE IF NOT EXISTS personas (
     consent INTEGER NOT NULL DEFAULT 0,
     created_at REAL NOT NULL,
     exported_at REAL,
-    export_dir TEXT
+    export_dir TEXT,
+    lora TEXT
 );
 CREATE TABLE IF NOT EXISTS persona_songs (
     id TEXT PRIMARY KEY,
@@ -227,6 +231,17 @@ def _persona_song_description() -> None:
         execute("ALTER TABLE persona_songs ADD COLUMN description TEXT NOT NULL DEFAULT ''")
 
 
+def _persona_loras() -> None:
+    if "lora" not in _columns("personas"):
+        execute("ALTER TABLE personas ADD COLUMN lora TEXT")
+    if "persona_id" not in _columns("takes"):
+        execute("ALTER TABLE takes ADD COLUMN persona_id TEXT")
+    if "voice_lora" not in _columns("takes"):
+        execute("ALTER TABLE takes ADD COLUMN voice_lora TEXT")
+    if "voice_lora_strength" not in _columns("takes"):
+        execute("ALTER TABLE takes ADD COLUMN voice_lora_strength REAL NOT NULL DEFAULT 1.0")
+
+
 def _indexes() -> None:
     conn().executescript(
         """
@@ -250,6 +265,7 @@ MIGRATIONS = [
     _realaudio,                                                      # -> 7
     _personas,                                                       # -> 8
     _persona_song_description,                                       # -> 9
+    _persona_loras,                                                  # -> 10
 ]
 
 

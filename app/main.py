@@ -237,6 +237,9 @@ class SongIn(BaseModel):
     harmony: int = Field(0, ge=0, le=len(HARMONY_STEPS) - 1)
     space_id: str = Field(DEFAULT_SPACE, max_length=64)
     realaudio: bool = True
+    persona_id: str | None = Field(None, max_length=64)
+    voice_lora: str | None = Field(None, max_length=200)
+    voice_lora_strength: float = 1.0
 
 
 class ReplanIn(BaseModel):
@@ -257,6 +260,9 @@ class TakeIn(BaseModel):
     space_id: str = Field(DEFAULT_SPACE, max_length=64)
     interpretation: str = "standard"
     realaudio: bool = True
+    persona_id: str | None = Field(None, max_length=64)
+    voice_lora: str | None = Field(None, max_length=200)
+    voice_lora_strength: float = 1.0
 
 
 class InstrumentalIn(BaseModel):
@@ -272,6 +278,9 @@ class InstrumentalIn(BaseModel):
     interpretation: str = "standard"
     feel: str = "steady"
     realaudio: bool = True
+    persona_id: str | None = Field(None, max_length=64)
+    voice_lora: str | None = Field(None, max_length=200)
+    voice_lora_strength: float = 1.0
 
 
 class PersonaIn(BaseModel):
@@ -281,6 +290,7 @@ class PersonaIn(BaseModel):
     voice: str = Field("", max_length=20)
     folder: str = Field(min_length=1, max_length=1000)
     consent: bool = False
+    lora: str | None = Field(None, max_length=200)
 
 
 class PersonaEdit(BaseModel):
@@ -288,6 +298,7 @@ class PersonaEdit(BaseModel):
     trigger_word: str | None = Field(None, min_length=2, max_length=40)
     description: str | None = Field(None, max_length=400)
     voice: str | None = Field(None, max_length=20)
+    lora: str | None = Field(None, max_length=200)
 
 
 class PersonaSongEdit(BaseModel):
@@ -302,11 +313,17 @@ class RenderIn(BaseModel):
     # Optional: an omitted interpretation keeps the take's own.
     interpretation: str | None = None
     realaudio: bool | None = None
+    persona_id: str | None = Field(None, max_length=64)
+    voice_lora: str | None = Field(None, max_length=200)
+    voice_lora_strength: float | None = None
 
 
 class VariationsIn(BaseModel):
     interpretations: list[str] = Field(min_length=1, max_length=len(INTERPRETATIONS))
     realaudio: bool | None = None
+    persona_id: str | None = Field(None, max_length=64)
+    voice_lora: str | None = Field(None, max_length=200)
+    voice_lora_strength: float | None = None
 
 
 class LyricsIn(BaseModel):
@@ -452,6 +469,7 @@ def state() -> dict:
             "lyrics_available": ENGINE.options.get("lyrics", False),
             "instrumental_available": ENGINE.options.get("instrumental", False),
             "realaudio": ENGINE.options.get("realaudio", False),
+            "loras": ENGINE.options.get("loras", []),
             "harmony_steps": HARMONY_STEPS,
             # Unknown until the engine has been read, so only a confirmed absence disables it.
             "harmony_available": ENGINE.options.get("harmony", False) or not ENGINE.options_loaded,
@@ -722,12 +740,15 @@ async def create_take(body: TakeIn) -> dict:
         "space_id": body.space_id,
         "interpretation": _interpretation(body.interpretation),
         "realaudio": 1 if body.realaudio else 0,
+        "persona_id": body.persona_id,
+        "voice_lora": body.voice_lora,
+        "voice_lora_strength": body.voice_lora_strength,
     }
     execute(
         """INSERT INTO takes(id, source_id, title, style, lyrics, abc, mode, seed, checkpoint, max_duration, status, created_at,
-                             space_id, interpretation, realaudio)
+                             space_id, interpretation, realaudio, persona_id, voice_lora, voice_lora_strength)
            VALUES(:id, :source_id, :title, :style, :lyrics, :abc, :mode, :seed, :checkpoint, :max_duration, 'queued', :created_at,
-                  :space_id, :interpretation, :realaudio)""",
+                  :space_id, :interpretation, :realaudio, :persona_id, :voice_lora, :voice_lora_strength)""",
         record,
     )
     if record["mode"] == "full" and not record["abc"]:
@@ -785,12 +806,17 @@ async def _plan_new_take(kind: str, title: str, words: str, body: SongIn | Instr
         "interpretation": _interpretation(body.interpretation),
         "feel": getattr(body, "feel", "steady"),
         "realaudio": 1 if getattr(body, "realaudio", True) else 0,
+        "persona_id": getattr(body, "persona_id", None),
+        "voice_lora": getattr(body, "voice_lora", None),
+        "voice_lora_strength": getattr(body, "voice_lora_strength", 1.0),
     }
     execute(
         """INSERT INTO takes(id, kind, source_id, title, style, lyrics, abc, mode, seed, checkpoint,
-                             max_duration, status, created_at, auto_render, variety, harmony, space_id, interpretation, feel, realaudio)
+                             max_duration, status, created_at, auto_render, variety, harmony, space_id, interpretation, feel, realaudio,
+                             persona_id, voice_lora, voice_lora_strength)
            VALUES(:id, :kind, NULL, :title, :style, :lyrics, '', :mode, :seed, :checkpoint,
-                  :max_duration, 'queued', :created_at, :auto_render, :variety, :harmony, :space_id, :interpretation, :feel, :realaudio)""",
+                  :max_duration, 'queued', :created_at, :auto_render, :variety, :harmony, :space_id, :interpretation, :feel, :realaudio,
+                  :persona_id, :voice_lora, :voice_lora_strength)""",
         record,
     )
     await QUEUE.put({"kind": "plan", "id": take_id})
@@ -886,8 +912,11 @@ async def render_take(take_id: str, body: RenderIn | None = None) -> dict:
     _checkpoint()
     interpretation = take["interpretation"] if body is None or body.interpretation is None else _interpretation(body.interpretation)
     realaudio = take["realaudio"] if body is None or body.realaudio is None else (1 if body.realaudio else 0)
-    execute("UPDATE takes SET status = 'queued', error = NULL, stage = NULL, checkpoint = ?, interpretation = ?, realaudio = ? WHERE id = ?",
-            (config.CHECKPOINT, interpretation, realaudio, take_id))
+    persona_id = take.get("persona_id") if body is None or body.persona_id is None else (body.persona_id or None)
+    voice_lora = take.get("voice_lora") if body is None or body.voice_lora is None else (body.voice_lora or None)
+    voice_lora_strength = take.get("voice_lora_strength", 1.0) if body is None or body.voice_lora_strength is None else body.voice_lora_strength
+    execute("UPDATE takes SET status = 'queued', error = NULL, stage = NULL, checkpoint = ?, interpretation = ?, realaudio = ?, persona_id = ?, voice_lora = ?, voice_lora_strength = ? WHERE id = ?",
+            (config.CHECKPOINT, interpretation, realaudio, persona_id, voice_lora, voice_lora_strength, take_id))
     await QUEUE.put({"kind": "render", "id": take_id})
     return {"queued": True}
 
@@ -952,6 +981,9 @@ async def variations(take_id: str, body: VariationsIn) -> dict:
     now = time.time()
     created = []
     realaudio = take.get("realaudio", 0) if body.realaudio is None else (1 if body.realaudio else 0)
+    persona_id = take.get("persona_id") if body.persona_id is None else (body.persona_id or None)
+    voice_lora = take.get("voice_lora") if body.voice_lora is None else (body.voice_lora or None)
+    voice_lora_strength = take.get("voice_lora_strength", 1.0) if body.voice_lora_strength is None else body.voice_lora_strength
     for offset, name in enumerate(wanted):
         record = {
             "id": uuid.uuid4().hex[:12], "kind": take["kind"], "source_id": take["source_id"],
@@ -959,13 +991,15 @@ async def variations(take_id: str, body: VariationsIn) -> dict:
             "abc": take["abc"], "mode": take["mode"], "seed": take["seed"], "checkpoint": config.CHECKPOINT,
             "max_duration": take["max_duration"], "created_at": now + offset * 0.001, "variety": take["variety"],
             "harmony": take["harmony"], "space_id": take["space_id"], "interpretation": name, "feel": take["feel"],
-            "realaudio": realaudio,
+            "realaudio": realaudio, "persona_id": persona_id, "voice_lora": voice_lora, "voice_lora_strength": voice_lora_strength,
         }
         execute(
             """INSERT INTO takes(id, kind, source_id, title, style, lyrics, abc, mode, seed, checkpoint, max_duration,
-                                 status, created_at, variety, harmony, space_id, interpretation, feel, realaudio)
+                                 status, created_at, variety, harmony, space_id, interpretation, feel, realaudio,
+                                 persona_id, voice_lora, voice_lora_strength)
                VALUES(:id, :kind, :source_id, :title, :style, :lyrics, :abc, :mode, :seed, :checkpoint, :max_duration,
-                      'queued', :created_at, :variety, :harmony, :space_id, :interpretation, :feel, :realaudio)""",
+                      'queued', :created_at, :variety, :harmony, :space_id, :interpretation, :feel, :realaudio,
+                      :persona_id, :voice_lora, :voice_lora_strength)""",
             record,
         )
         await QUEUE.put({"kind": "render", "id": record["id"]})
@@ -1015,7 +1049,7 @@ def import_browse(path: str | None = None) -> dict:
 
 @app.get("/api/personas")
 def list_personas() -> list[dict]:
-    return rows("""SELECT p.id, p.name, p.trigger_word, p.created_at, p.exported_at,
+    return rows("""SELECT p.id, p.name, p.trigger_word, p.voice, p.lora, p.created_at, p.exported_at,
                           COUNT(s.id) AS songs, SUM(s.include) AS included
                    FROM personas p LEFT JOIN persona_songs s ON s.persona_id = p.id
                    GROUP BY p.id ORDER BY p.created_at DESC""")
@@ -1034,10 +1068,10 @@ async def create_persona(body: PersonaIn) -> dict:
     if not found:
         raise HTTPException(400, "there are no songs in that folder")
     persona_id = uuid.uuid4().hex[:12]
-    execute("""INSERT INTO personas(id, name, trigger_word, description, voice, folder, consent, created_at)
-               VALUES(?, ?, ?, ?, ?, ?, 1, ?)""",
+    execute("""INSERT INTO personas(id, name, trigger_word, description, voice, folder, consent, created_at, lora)
+               VALUES(?, ?, ?, ?, ?, ?, 1, ?, ?)""",
             (persona_id, body.name.strip(), _clean_trigger(body.trigger_word), body.description.strip(),
-             body.voice.strip().lower(), str(folder), time.time()))
+             body.voice.strip().lower(), str(folder), time.time(), (body.lora or "").strip() or None))
     for position, song in enumerate(found):
         execute("""INSERT INTO persona_songs(id, persona_id, file, title, sha256, duration, bit_rate, include, flag, position)
                    VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",

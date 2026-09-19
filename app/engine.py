@@ -236,7 +236,8 @@ class Engine:
                         # Lyrics are optional: without Gemma or the node, the button is greyed out.
                         "lyrics": "TextGenerate" in info and config.LYRICS_MODEL in text_models,
                         "instrumental": config.INSTRUMENTAL_LORA in loras,
-                        "realaudio": config.REAL_AUDIO_LORA in loras}
+                        "realaudio": config.REAL_AUDIO_LORA in loras,
+                        "loras": loras}
 
         needed = set()
         for graph in _TEMPLATES.values():

@@ -152,6 +152,8 @@ function saveForm() {
     data.auto_render = $('auto-render').checked;
     data.seed_fixed = $('seed-fixed').checked;
     data.realaudio = $('realaudio').checked;
+    data.vocal_persona = $('vocal-persona') ? $('vocal-persona').value : '';
+    data.vocal_persona_lora = ($('vocal-persona-lora') && !$('vocal-persona-lora').classList.contains('hidden')) ? $('vocal-persona-lora').value : '';
     data.left_take = State.leftTakeId || '';
     data.structure = { kind: STRUCTURE.kind, sections: STRUCTURE.sections };
     data.feel = FEEL.value;
@@ -172,6 +174,8 @@ function loadForm() {
   if (typeof data.auto_render === 'boolean') { $('auto-render').checked = data.auto_render; }
   if (typeof data.seed_fixed === 'boolean') { $('seed-fixed').checked = data.seed_fixed; }
   if (typeof data.realaudio === 'boolean') { $('realaudio').checked = data.realaudio; }
+  if (typeof data.vocal_persona === 'string') { State.savedVocalPersona = data.vocal_persona; }
+  if (typeof data.vocal_persona_lora === 'string') { State.savedVocalPersonaLora = data.vocal_persona_lora; }
   if (data.style) { $('style').dataset.touched = '1'; }
   if (data.left_take) { State.leftTakeId = data.left_take; }
   if (FEELS[data.feel]) { FEEL.value = data.feel; }
@@ -738,6 +742,116 @@ function paintVocals() {
   }).join('');
 }
 
+var PERSONAS_LIST = [];
+
+async function loadVocalPersonas(preferredId, preferredLora) {
+  try {
+    PERSONAS_LIST = await api('/api/personas');
+  } catch (err) {
+    PERSONAS_LIST = [];
+  }
+  var targetId = preferredId !== undefined ? preferredId : (State.savedVocalPersona || '');
+  var targetLora = preferredLora !== undefined ? preferredLora : (State.savedVocalPersonaLora || '');
+  paintVocalPersonaSelect(targetId, targetLora);
+}
+
+function personaName(id) {
+  if (!id) { return null; }
+  for (var i = 0; i < PERSONAS_LIST.length; i++) {
+    if (PERSONAS_LIST[i].id === id) { return PERSONAS_LIST[i].name; }
+  }
+  return null;
+}
+
+function getPersonaLoRAs(persona) {
+  if (!persona) { return []; }
+  var allLoras = (State.options && State.options.loras) || [];
+  var trigger = (persona.trigger_word || '').toLowerCase();
+  var name = (persona.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  var matches = allLoras.filter(function (l) {
+    var lower = l.toLowerCase();
+    return (trigger && lower.indexOf(trigger) !== -1) || (name && lower.indexOf(name) !== -1);
+  });
+  matches.sort(function (a, b) {
+    var aBest = a.indexOf('_best') !== -1;
+    var bBest = b.indexOf('_best') !== -1;
+    if (aBest && !bBest) { return -1; }
+    if (!aBest && bBest) { return 1; }
+    var aStep = (a.match(/step(\d+)/) || [])[1];
+    var bStep = (b.match(/step(\d+)/) || [])[1];
+    if (aStep && bStep) { return parseInt(bStep, 10) - parseInt(aStep, 10); }
+    return a.localeCompare(b);
+  });
+  return matches;
+}
+
+function paintVocalPersonaSelect(currentPersonaId, currentLora) {
+  var sel = $('vocal-persona');
+  if (!sel) { return; }
+  var chosenId = currentPersonaId !== undefined ? currentPersonaId : sel.value;
+  var options = ['<option value="">None (Stock Voice)</option>'];
+  PERSONAS_LIST.forEach(function (p) {
+    var label = p.name + ' (' + p.trigger_word + ')';
+    options.push('<option value="' + esc(p.id) + '"' + (p.id === chosenId ? ' selected' : '') + '>' + esc(label) + '</option>');
+  });
+  sel.innerHTML = options.join('');
+  if (chosenId) { sel.value = chosenId; }
+  updatePersonaLoraSelect(currentLora);
+}
+
+function updatePersonaLoraSelect(currentLora) {
+  var sel = $('vocal-persona');
+  var loraSel = $('vocal-persona-lora');
+  if (!sel || !loraSel) { return; }
+  var persona = PERSONAS_LIST.filter(function (p) { return p.id === sel.value; })[0];
+  if (!persona) {
+    loraSel.classList.add('hidden');
+    loraSel.innerHTML = '';
+    return;
+  }
+  var loras = getPersonaLoRAs(persona);
+  if (!loras.length) {
+    loraSel.classList.add('hidden');
+    loraSel.innerHTML = '';
+    return;
+  }
+  var chosenLora = currentLora || persona.lora || loras[0];
+  var opts = loras.map(function (l) {
+    var label = l;
+    if (l.indexOf('_best') !== -1) {
+      label = 'Best';
+    } else {
+      var m = l.match(/step(\d+)/i);
+      if (m) { label = 'Step ' + m[1]; }
+    }
+    return '<option value="' + esc(l) + '"' + (l === chosenLora ? ' selected' : '') + '>' + esc(label) + '</option>';
+  });
+  loraSel.innerHTML = opts.join('');
+  loraSel.value = chosenLora;
+  loraSel.classList.remove('hidden');
+}
+
+function onVocalPersonaChange() {
+  var sel = $('vocal-persona');
+  var p = PERSONAS_LIST.filter(function (item) { return item.id === sel.value; })[0];
+  updatePersonaLoraSelect();
+  saveForm();
+  if (!p) { return; }
+  if (p.trigger_word) {
+    var style = $('style').value;
+    var tw = p.trigger_word.toLowerCase();
+    if (!styleHas(style, tw)) {
+      style = style ? tw + ', ' + style : tw;
+      $('style').value = tidyStyle(style);
+      $('style').dataset.touched = '1';
+      paintVocals();
+    }
+  }
+  if (p.voice && (p.voice === 'male' || p.voice === 'female') && currentVocalSex() === 'any') {
+    setVocalSex(p.voice);
+  }
+}
+
 /* ---------------------------------------------------------------- settings */
 function setting(key, fallback) {
   var value = (State.settings || {})[key];
@@ -1143,6 +1257,10 @@ async function doPlan() {
   }
   statusLine('Queued…');
   try {
+    var personaSel = $('vocal-persona');
+    var pId = personaSel ? personaSel.value : null;
+    var loraSel = $('vocal-persona-lora');
+    var vLora = (pId && loraSel && !loraSel.classList.contains('hidden')) ? loraSel.value : null;
     var take = await api('/api/songs', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1156,7 +1274,9 @@ async function doPlan() {
         variety: $('variety').value,
         harmony: harmonyStep(),
         space_id: State.spaceId,
-        realaudio: $('realaudio').checked
+        realaudio: $('realaudio').checked,
+        persona_id: pId || null,
+        voice_lora: vLora || null
       })
     });
     State.planTakeId = take.id;
@@ -1180,11 +1300,17 @@ async function doRenderTake() {
       body: JSON.stringify({ abc: $('abc').value })
     });
     // The Interpretation menu applies to this render.
+    var personaSel = $('vocal-persona');
+    var pId = personaSel ? personaSel.value : null;
+    var loraSel = $('vocal-persona-lora');
+    var vLora = (pId && loraSel && !loraSel.classList.contains('hidden')) ? loraSel.value : null;
     await api('/api/takes/' + id + '/render', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         interpretation: $('interpretation').value,
-        realaudio: $('realaudio').checked
+        realaudio: $('realaudio').checked,
+        persona_id: pId || null,
+        voice_lora: vLora || null
       })
     });
     State.planTakeId = null;
@@ -1738,6 +1864,7 @@ function closePersonas() {
   document.body.style.overflow = '';
   clearTimeout(PERSONA.timer);
   PERSONA.timer = null;
+  loadVocalPersonas();
 }
 
 async function showPersonaList() {
@@ -2156,6 +2283,9 @@ function selectTake(take) {
   if (take.realaudio !== undefined) {
     $('realaudio').checked = Boolean(take.realaudio);
   }
+  if (take.persona_id !== undefined) {
+    paintVocalPersonaSelect(take.persona_id || '', take.voice_lora || '');
+  }
   $('interpretation').value = INTERPRETATIONS[take.interpretation] ? take.interpretation : 'standard';
   paintInterpretation();
   // A cover's score belongs to its source, and a plan still being written belongs
@@ -2309,6 +2439,9 @@ function paintTakes() {
     if (take.kind === 'instrumental' && take.feel === 'varied') { meta.push('varied'); }
     if ((take.kind === 'song' || take.kind === 'instrumental') && take.harmony) { meta.push(HARMONY_WORDS[take.harmony].toLowerCase() + ' harmony'); }
     if (take.realaudio) { meta.push('realaudio'); }
+    if (take.persona_id || take.voice_lora) {
+      meta.push(personaName(take.persona_id) || 'persona');
+    }
     meta.push('seed ' + take.seed);
     if (take.interpretation && take.interpretation !== 'standard' && INTERPRETATIONS[take.interpretation]) {
       meta.push(INTERPRETATIONS[take.interpretation].name.toLowerCase());
@@ -2863,6 +2996,10 @@ async function doRender() {
     seed = Math.floor(Math.random() * 4294967295);
     $('seed').value = seed;
   }
+  var personaSel = $('vocal-persona');
+  var pId = personaSel ? personaSel.value : null;
+  var loraSel = $('vocal-persona-lora');
+  var vLora = (pId && loraSel && !loraSel.classList.contains('hidden')) ? loraSel.value : null;
   var body = {
     source_id: source.id,
     title: $('title').value.trim() || guessTitle($('lyrics').value) || source.title,
@@ -2874,7 +3011,9 @@ async function doRender() {
     interpretation: $('interpretation').value,
     max_duration: parseFloat($('max-duration').value) || 360,
     space_id: State.spaceId,
-    realaudio: $('realaudio').checked
+    realaudio: $('realaudio').checked,
+    persona_id: pId || null,
+    voice_lora: vLora || null
   };
   status.textContent = 'Queued\u2026';
   status.className = 'status';
@@ -2999,6 +3138,8 @@ function wire() {
     var button = event.target.closest('[data-tone]');
     if (button) { toggleVocalTone(button.dataset.tone); }
   });
+  $('vocal-persona').addEventListener('change', onVocalPersonaChange);
+  $('vocal-persona-lora').addEventListener('change', saveForm);
   $('style').addEventListener('input', paintVocals);
   $('harmony').addEventListener('input', paintHarmony);
 
@@ -3290,6 +3431,7 @@ function wire() {
   wireWave();
   wireTransport();
   paintVocals();
+  loadVocalPersonas();
 
   FORM_FIELDS.forEach(function (id) {
     $(id).addEventListener('input', function () {
