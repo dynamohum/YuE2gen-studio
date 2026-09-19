@@ -91,6 +91,12 @@ def test_api_needs_consent_scans_and_queues(client, tmp_path, monkeypatch):
     song = next(s for s in made["songs"] if s["include"])
     assert song["caption"].startswith("pshields, pop rock, male vocal")
     assert client.put(f"/api/personas/{made['id']}/songs/{song['id']}", json={"lyrics": "[Verse]\nla", "lyrics_checked": True}).status_code == 200
+    client.put(f"/api/personas/{made['id']}/songs/{song['id']}", json={"description": "  stripped back,   acoustic guitar "})
+    view = client.get(f"/api/personas/{made['id']}").json()
+    caption = next(s["caption"] for s in view["songs"] if s["id"] == song["id"])
+    assert caption.startswith("pshields, stripped back, acoustic guitar, male vocal")     # this song's own sound
+    other = next(s for s in view["songs"] if s["include"] and s["id"] != song["id"])
+    assert other["caption"].startswith("pshields, pop rock, male vocal")                  # the rest keep the persona's
     while not PERSONA_QUEUE.empty():
         PERSONA_QUEUE.get_nowait()
     assert client.post(f"/api/personas/{made['id']}/analyse").json() == {"queued": 2}

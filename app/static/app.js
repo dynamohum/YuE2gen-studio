@@ -1855,9 +1855,13 @@ function songDetail(song) {
       '<div class="label-row"><label>Lyrics' + (song.lyrics_state === 'done' && !song.lyrics_checked ? ' <span class="muted">(a draft: correct it)</span>' : '') +
       '</label><label class="check"><input type="checkbox" data-checked="' + song.id + '"' + (song.lyrics_checked ? ' checked' : '') + '> checked</label></div>' +
       '<textarea data-lyrics="' + song.id + '" spellcheck="false" placeholder="[Verse]&#10;...">' + esc(song.lyrics || '') + '</textarea>' +
-      '<div class="row" style="margin-top:6px"><button class="ghost" data-save="' + song.id + '">Save lyrics</button>' +
+      '<div class="row" style="margin-top:6px"><button class="ghost" data-save="' + song.id + '">Save</button>' +
       '<span class="status" data-saved="' + song.id + '"></span></div>' +
     '</div><div>' + players +
+      '<div class="field" style="margin:10px 0 0"><label for="pd-' + song.id + '">This song\u2019s sound</label>' +
+      '<input id="pd-' + song.id + '" type="text" maxlength="400" data-description="' + song.id + '" value="' + esc(song.description || '') + '" ' +
+      'placeholder="' + esc((PERSONA.data && PERSONA.data.description) || 'the persona\u2019s description') + '">' +
+      '<div class="hint">Only where it differs from the rest, say stripped back or acoustic. Blank uses the persona\u2019s. Saved with Save.</div></div>' +
       '<div class="muted" style="margin-top:8px">Style caption</div><div class="caption" data-caption="' + song.id + '">' + esc(song.caption) + '</div>' +
       (song.style_hint ? '<div class="muted" style="margin-top:8px">What Gemma heard (a suggestion only)</div><div class="caption">' + esc(song.style_hint) + '</div>' : '') +
       (song.error ? '<div class="status bad" style="margin-top:8px">' + esc(song.error) + '</div>' : '') +
@@ -1938,11 +1942,14 @@ async function personaClick(event) {
     var box = document.querySelector('[data-lyrics="' + sid + '"]');
     var note = document.querySelector('[data-saved="' + sid + '"]');
     try {
+      var sound = document.querySelector('[data-description="' + sid + '"]');
       await api('/api/personas/' + PERSONA.id + '/songs/' + sid, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lyrics: box.value })
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lyrics: box.value, description: sound ? sound.value : undefined })
       });
       delete box.dataset.edited;
       note.textContent = 'Saved.';
+      pollPersona();
       note.className = 'status good';
     } catch (err) { note.textContent = err.message; note.className = 'status bad'; }
     return;

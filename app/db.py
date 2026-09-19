@@ -119,7 +119,8 @@ CREATE TABLE IF NOT EXISTS persona_songs (
     lyrics TEXT NOT NULL DEFAULT '',
     lyrics_checked INTEGER NOT NULL DEFAULT 0,
     style_hint TEXT,
-    position INTEGER NOT NULL DEFAULT 0
+    position INTEGER NOT NULL DEFAULT 0,
+    description TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS spaces (
     id TEXT PRIMARY KEY,
@@ -215,6 +216,11 @@ def _personas() -> None:
     execute("CREATE INDEX IF NOT EXISTS persona_songs_persona ON persona_songs(persona_id, position)")
 
 
+def _persona_song_description() -> None:
+    if "description" not in _columns("persona_songs"):
+        execute("ALTER TABLE persona_songs ADD COLUMN description TEXT NOT NULL DEFAULT ''")
+
+
 def _indexes() -> None:
     conn().executescript(
         """
@@ -236,6 +242,7 @@ MIGRATIONS = [
     _interpretation,                                                 # -> 5
     _feel,                                                           # -> 6
     _personas,                                                       # -> 7
+    _persona_song_description,                                       # -> 8
 ]
 
 

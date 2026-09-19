@@ -289,6 +289,8 @@ class PersonaEdit(BaseModel):
 
 class PersonaSongEdit(BaseModel):
     include: bool | None = None
+    # This song's sound, when it differs from the persona's.  Empty means the persona's.
+    description: str | None = Field(None, max_length=400)
     lyrics: str | None = Field(None, max_length=20_000)
     lyrics_checked: bool | None = None
 
@@ -974,7 +976,8 @@ def _persona(persona_id: str) -> dict:
 def _persona_view(persona: dict) -> dict:
     songs = rows("SELECT * FROM persona_songs WHERE persona_id = ? ORDER BY position", (persona["id"],))
     for song in songs:
-        song["caption"] = personas.caption(persona["trigger_word"], persona["description"], persona["voice"], song["key"], song["tempo"])
+        song["caption"] = personas.caption(persona["trigger_word"], song["description"] or persona["description"],
+                                           persona["voice"], song["key"], song["tempo"])
     chosen = [s for s in songs if s["include"]]
     busy = any(s[f] in ("queued", "running") for s in songs for f in PERSONA_STEPS)
     return {**persona, "songs": songs, "busy": busy,
@@ -1072,6 +1075,8 @@ def edit_persona_song(persona_id: str, song_id: str, body: PersonaSongEdit) -> d
         changes["lyrics"] = body.lyrics.replace("\r\n", "\n")
     if body.lyrics_checked is not None:
         changes["lyrics_checked"] = 1 if body.lyrics_checked else 0
+    if body.description is not None:
+        changes["description"] = " ".join(body.description.split())
     if changes:
         jobs.set_song(song_id, **changes)
     return one("SELECT * FROM persona_songs WHERE id = ?", (song_id,))
