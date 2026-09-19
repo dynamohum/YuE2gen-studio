@@ -35,7 +35,7 @@ Writing a song from a prompt:
   song. The Harmony slider, from Familiar to Outside, pushes the planner towards chords it has not
   just used, without breaking the song's structure.
 - **Draft lyrics from a sentence.** Say what the song is about and pick a structure. Gemma 4
-  writes a first draft in YuE2's section layout, on the same engine, in about 40 seconds.
+  writes a first draft in YuE2's section layout, on the same engine.
 - **Choose the interpretation.** Six ways to render the same score, from Tight to Wide, and
   **Variations** renders one take in the others, so you can compare them by ear.
 - **Choose the voice.** Chips set female, male or duet and a voice character. YuE2 has no vocal
@@ -161,7 +161,7 @@ engine the slider is greyed out, and plans are written as before.
 **Write lyrics**, beside the lyrics box in *Song from a prompt*, asks what the song is about and which
 structure it should have: verse and chorus with a bridge, verse and chorus only, with an intro and
 outro, or a story with two verses up front. The Style above sets the mood. Gemma 4 E4B writes the
-draft on the engine, in about 40 seconds on a 12 GB card or larger, and it lands in the lyrics box
+draft on the engine, and it lands in the lyrics box
 with a title if the title was empty. You can close the window while it writes.
 
 It is a first draft. The lines scan and rhyme, but a model reaches for familiar images, and nothing
@@ -237,8 +237,7 @@ The keys do nothing while you are typing in a box. The system media keys work to
 ### Stems
 
 Press the **Stems** tile on any take, or **Stems** beside a recording. Choose a model, tick the
-stems you want, pick a format, and run. Separation happens on CPU, at roughly 1.3x realtime on
-four threads, so a four minute song takes about three minutes and never competes with a render
+stems you want, pick a format, and run. Separation happens on CPU, so it never competes with a render
 for the GPU. *Fine tuned* runs four models in turn and takes about four times as long.
 
 Stems land in `data/stems/<title>-<id>/` and stay there until you delete them.

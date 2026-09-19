@@ -19,7 +19,7 @@ cannot creep back in.
 ## 0.0.2 - 2026-09-19
 
 - **Write lyrics.** In *Song from a prompt*, say what the song is about and pick a structure. Gemma 4
-  E4B writes a draft on the engine in about 40 seconds, and it lands in the lyrics box, with a title
+  E4B writes a draft on the engine, and it lands in the lyrics box, with a title
   if the title was empty.
 - **Interpretation.** Six ways to render the same score, under *Advanced*, for covers and songs:
   Standard, Tight, Loose, Settled, Restless and Wide. The take keeps its interpretation and the card
