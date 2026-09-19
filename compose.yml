@@ -62,10 +62,13 @@ services:
       # Host names the page may be reached by.  Add a LAN name or address here if
       # you publish the port beyond localhost.
       ALLOWED_HOSTS: localhost,127.0.0.1,::1
+      IMPORT_ROOTS: /import,/mnt/h
     volumes:
       - ./data:/data
       - ./engine-state/output:/engine-output
       - ./app:/app/app
+      - /mnt/h:/mnt/h:ro
+      - /mnt/h:/import:ro
     logging:
       driver: json-file
       options:
