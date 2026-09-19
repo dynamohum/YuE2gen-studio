@@ -1,0 +1,10 @@
+# Pinned to the versions this release was built and tested with.  Change one
+# deliberately, rebuild, and run the tests (see README, Tests).
+fastapi==0.141.1
+uvicorn[standard]==0.53.0
+httpx==0.28.1
+websockets==17.1
+python-multipart==0.0.32
+# demucs needs numpy but does not declare it, and torch will not expose the
+# tensor bridge without it.  The app also uses it for waveform peaks.
+numpy==2.5.3

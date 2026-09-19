@@ -1,0 +1,161 @@
+"""Stem separation with demucs, on CPU, inside the app container.
+
+htdemucs runs at roughly 1.3 seconds of audio per second of wall clock on four
+CPU threads, so a four-minute song takes about three minutes.  That is why stems
+do not use the GPU: they would be faster there, but they would fight YuE2 for VRAM.
+"""
+from __future__ import annotations
+
+import asyncio
+import os
+import re
+import shutil
+import tempfile
+import time
+from pathlib import Path
+from typing import Callable
+
+# Model -> the stems it produces, and how many models it runs one after another.
+# htdemucs_ft is a bag of four fine-tuned models, and each draws its own progress
+# bar.  htdemucs_6s adds guitar and piano, which are noticeably weaker.
+MODELS: dict[str, dict] = {
+    "htdemucs": {"label": "Fast, four stems", "stems": ["vocals", "drums", "bass", "other"], "passes": 1},
+    "htdemucs_ft": {"label": "Fine tuned, four stems, slower", "stems": ["vocals", "drums", "bass", "other"], "passes": 4},
+    "htdemucs_6s": {"label": "Six stems (adds guitar and piano)", "stems": ["vocals", "drums", "bass", "other", "guitar", "piano"], "passes": 1},
+}
+
+FORMATS = ["wav", "flac", "mp3"]
+
+# demucs encodes these itself.  MP3 is the only lossy choice, so it is pinned to
+# 320 kbps rather than left to the encoder's default.
+FORMAT_FLAGS = {
+    "wav": [],
+    "flac": ["--flac"],
+    "mp3": ["--mp3", "--mp3-bitrate", "320"],
+}
+
+# Half the machine by default, so separation never starves the rest of it.
+DEFAULT_THREADS = int(os.environ.get("STEMS_THREADS") or max(1, (os.cpu_count() or 2) // 2))
+
+PROGRESS_RE = re.compile(rb"(\d{1,3})%\|")
+
+
+def _env() -> dict:
+    env = dict(os.environ)
+    for key in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
+        env[key] = str(DEFAULT_THREADS)
+    env["TORCH_HOME"] = env.get("TORCH_HOME", "/data/models/torch")
+    return env
+
+
+class Progress:
+    """Turns the percentages demucs prints into one rising figure.  A bag of models
+    draws a bar per model; after the last model, demucs draws more bars while it
+    writes each stem.  A bar that starts again means the next model, or, after the
+    last one, the writing.  Separation maps onto 5-95 per cent, and writing is 96."""
+
+    def __init__(self, passes: int) -> None:
+        self.passes = max(1, passes)
+        self.pass_index = 0
+        self.last = -1
+        self.writing = False
+
+    def feed(self, pct: int) -> tuple[float, str] | None:
+        if pct == self.last:
+            return None
+        if pct < self.last:
+            if self.pass_index < self.passes - 1:
+                self.pass_index += 1
+            elif not self.writing:
+                self.writing = True
+                self.last = pct
+                return 0.96, "Writing the stems"
+        self.last = pct
+        if self.writing:
+            return None   # one bar per stem; nothing worth reporting
+        done = (self.pass_index + pct / 100.0) / self.passes
+        label = f"Separating {pct}%" if self.passes == 1 else f"Separating, model {self.pass_index + 1} of {self.passes}, {pct}%"
+        return round(0.05 + 0.90 * max(0.0, min(1.0, done)), 4), label
+
+
+async def separate(
+    src: Path,
+    dest_dir: Path,
+    model: str,
+    wanted: list[str],
+    fmt: str,
+    on_progress: Callable[[float, str], None] | None = None,
+    work_root: Path | None = None,
+) -> dict:
+    """Run demucs and keep only the requested stems.  Cancelling the task kills
+    demucs.  work_root should share a filesystem with dest_dir, so the finished
+    stems are moved into place with a rename."""
+    if model not in MODELS:
+        raise ValueError(f"unknown model {model!r}")
+    available = MODELS[model]["stems"]
+    passes = MODELS[model]["passes"]
+    keep = [s for s in wanted if s in available] or available
+    fmt = fmt if fmt in FORMATS else "wav"
+
+    if work_root:
+        work_root.mkdir(parents=True, exist_ok=True)
+    work = Path(tempfile.mkdtemp(prefix="stems-", dir=work_root))
+    started = time.time()
+
+    def report(frac: float, stage: str) -> None:
+        if on_progress:
+            on_progress(max(0.0, min(1.0, frac)), stage)
+
+    proc = None
+    try:
+        report(0.02, "Loading the model")
+        cmd = ["demucs", "-n", model, "-o", str(work), "--filename", "{stem}.{ext}", *FORMAT_FLAGS[fmt], str(src)]
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT, env=_env()
+        )
+        assert proc.stdout is not None
+        # demucs draws its progress bar with carriage returns and no newlines, so
+        # read raw chunks and scan for percentages rather than iterating lines.
+        parser = Progress(passes)
+        recent = b""
+        while True:
+            chunk = await proc.stdout.read(1024)
+            if not chunk:
+                break
+            recent = (recent + chunk)[-4096:]
+            for match in PROGRESS_RE.finditer(chunk):
+                step = parser.feed(int(match.group(1)))
+                if step:
+                    report(*step)
+        tail = recent.decode("utf-8", "replace").replace("\r", "\n").splitlines()[-10:]
+        code = await proc.wait()
+        if code != 0:
+            raise RuntimeError("demucs failed: " + " / ".join(tail[-4:]))
+
+        # demucs writes <work>/<model>/<track name>/<stem>.<ext>
+        produced = {path.stem: path for path in work.rglob(f"*.{fmt}") if path.stem in available}
+        if not produced:
+            raise RuntimeError("demucs produced no stems: " + " / ".join(tail[-4:]))
+
+        report(0.98, "Collecting the stems")
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        out: dict[str, str] = {}
+        for name in keep:
+            source = produced.get(name)
+            if source:
+                target = dest_dir / f"{name}.{fmt}"
+                shutil.move(str(source), str(target))
+                out[name] = str(target)
+        report(1.0, "Done")
+        return {"stems": out, "model": model, "format": fmt, "seconds": round(time.time() - started, 1)}
+    except asyncio.CancelledError:
+        if proc and proc.returncode is None:
+            proc.kill()
+            await proc.wait()
+        raise
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def installed() -> bool:
+    return shutil.which("demucs") is not None

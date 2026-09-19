@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.venv/
+data/
+models/
+engine-state/
+*.log
+# Release notes belong in CHANGELOG.md and on the GitHub release, not in the tree.
+RELEASE-NOTES-*.md
+.kuma-insert.sql
+# Reports such as the audit PDFs live beside the repo, not in it.
+/*.pdf

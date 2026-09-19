@@ -1,0 +1,36 @@
+{
+  "1": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "__CHECKPOINT__"
+    }
+  },
+  "2": {
+    "class_type": "YuE2GenerateABC",
+    "inputs": {
+      "clip": [
+        "1",
+        1
+      ],
+      "style": "__STYLE__",
+      "lyrics": "__LYRICS__",
+      "seed": 0,
+      "mode": "full",
+      "max_abc_tokens": 8192,
+      "temperature": 0.7,
+      "top_p": 0.9,
+      "top_k": 30,
+      "repetition_penalty": 1.005,
+      "penalty_window": 100
+    }
+  },
+  "3": {
+    "class_type": "PreviewAny",
+    "inputs": {
+      "source": [
+        "2",
+        0
+      ]
+    }
+  }
+}

@@ -1,0 +1,38 @@
+#!/bin/sh
+# Refuse a push to GitHub that would carry a PDF in the top-level folder.  Pushes
+# to any other remote, such as the author's own server, are not checked.  Every
+# commit being pushed is checked, not only the newest, so a PDF added and later
+# deleted is still caught.  Enabled with:
+#   git config core.hooksPath tools/git-hooks
+
+remote="$1"
+url="$2"
+case "$url" in
+  *github.com*) ;;
+  *) exit 0 ;;
+esac
+zero=0000000000000000000000000000000000000000
+status=0
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  case "$local_sha" in "$zero") continue ;; esac   # deleting a remote ref
+  if [ "$remote_sha" = "$zero" ]; then
+    range="$local_sha --not --remotes=$remote"      # new ref: what the remote lacks
+  else
+    range="$remote_sha..$local_sha"
+  fi
+  for commit in $(git rev-list $range 2>/dev/null); do
+    pdfs=$(git diff-tree --root --no-commit-id --name-only -r --diff-filter=AMR "$commit" | grep -i -E '^[^/]+\.pdf$')
+    if [ -n "$pdfs" ]; then
+      echo "pre-push: $local_ref would push a top-level PDF to $remote:" >&2
+      echo "  $(git log -1 --format='%h %s' "$commit")" >&2
+      echo "$pdfs" | sed 's/^/    /' >&2
+      status=1
+    fi
+  done
+done
+
+if [ "$status" -ne 0 ]; then
+  echo "pre-push: push refused. Remove the PDF from those commits first." >&2
+fi
+exit $status

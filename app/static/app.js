@@ -1,0 +1,2633 @@
+'use strict';
+
+/* Who owns the left column:
+     editorTakeId   the take whose score is in the box (Render and Replan act on it)
+     editorSourceId the recording whose score is in the box, in cover mode
+     leftTakeId     the take the form describes, and whose card is highlighted
+     planTakeId     a take whose plan is being written; it owns nothing until it lands */
+var State = { sources: [], takes: [], options: {}, filter: 'all', playing: null, busy: false, mode: 'cover',
+  planTakeId: null, layout: 'compact', editorTakeId: null, editorSourceId: null, leftTakeId: null,
+  takesRaw: '', takesTotal: 0, takeLimit: 300, takesAt: 0, paintedAt: 0, draft: null,
+  formEdited: false, spaces: [], spaceId: 'default', moveTakeId: null };
+var LAYOUT_KEY = 'yue2.layout';
+var SPACE_KEY = 'yue2.space';
+
+function applyLayout(mode) {
+  State.layout = mode === 'comfy' ? 'comfy' : 'compact';
+  var wide = State.layout === 'comfy';
+  $('takes').classList.toggle('comfy', wide);
+  var button = $('layout-toggle');
+  button.textContent = wide ? 'Comfy' : 'Compact';
+  button.title = wide
+    ? 'Wide cards, full titles and prompts. Click for compact.'
+    : 'Compact cards, three across. Click for wide.';
+  try { localStorage.setItem(LAYOUT_KEY, State.layout); } catch (err) { /* private mode */ }
+}
+
+function loadLayout() {
+  var saved = null;
+  try { saved = localStorage.getItem(LAYOUT_KEY); } catch (err) { saved = null; }
+  applyLayout(saved === 'comfy' ? 'comfy' : 'compact');
+}
+
+function $(id) { return document.getElementById(id); }
+function esc(text) {
+  return String(text == null ? '' : text)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+function secs(value) {
+  if (!value && value !== 0) { return '--:--'; }
+  var total = Math.round(value);
+  var m = Math.floor(total / 60);
+  var s = total % 60;
+  return m + ':' + (s < 10 ? '0' : '') + s;
+}
+function age(ts) {
+  var d = Math.floor(Date.now() / 1000 - ts);
+  if (d < 60) { return 'just now'; }
+  if (d < 3600) { return Math.floor(d / 60) + ' min ago'; }
+  if (d < 86400) { return Math.floor(d / 3600) + ' h ago'; }
+  return Math.floor(d / 86400) + ' d ago';
+}
+function initials(text) {
+  var clean = String(text || '?').trim();
+  return clean ? clean[0].toUpperCase() : '?';
+}
+
+async function api(path, options) {
+  var response = await fetch(path, options);
+  if (!response.ok) {
+    var detail = await response.text();
+    try {
+      var parsed = JSON.parse(detail);
+      if (typeof parsed.detail === 'string') { detail = parsed.detail; }
+      else if (Array.isArray(parsed.detail)) {
+        detail = parsed.detail.map(function (item) { return (item.loc || []).slice(-1)[0] + ': ' + item.msg; }).join('; ');
+      }
+    } catch (err) { /* plain text */ }
+    throw new Error(String(detail).slice(0, 300));
+  }
+  var type = response.headers.get('content-type') || '';
+  return type.indexOf('application/json') >= 0 ? response.json() : response.text();
+}
+
+/* ------------------------------------------------------------------ state */
+async function pollState() {
+  try {
+    var data = await api('/api/state');
+    var pill = $('engine-pill');
+    var engine = data.engine;
+    State.options = data.options || {};
+    if (engine.online && engine.compat && engine.compat.ok) {
+      pill.className = 'pill pill-on';
+      pill.textContent = 'Engine ready' + (engine.gpu ? ' \u00b7 ' + Math.round(engine.gpu.vram_free / 1073741824) + ' GB free' : '');
+    } else if (engine.online) {
+      pill.className = 'pill pill-off';
+      pill.textContent = 'Engine incompatible: ' + ((engine.compat.missing || []).join(', ') || (engine.compat.notes || []).join('; '));
+    } else {
+      pill.className = 'pill pill-off';
+      pill.textContent = 'Engine offline';
+    }
+    State.stemsOptions = data.stems || State.stemsOptions || {};
+    if (data.settings) { adoptSettings(data.settings); }
+    if (data.version) { $('app-version').textContent = 'v' + data.version; }
+    paintOptions();
+    paintJob(data.current, data.queue || [], data.options);
+    watchPlan();
+  } catch (err) {
+    $('engine-pill').className = 'pill pill-off';
+    $('engine-pill').textContent = 'App unreachable';
+  }
+}
+
+function paintOptions() {
+  paintHarmony();
+  var checkpoints = State.options.checkpoints || [];
+  var select = $('checkpoint');
+  if (select.dataset.count !== String(checkpoints.length) || select.dataset.first !== String(checkpoints[0])) {
+    select.innerHTML = checkpoints.map(function (name) {
+      var note = name.indexOf('bf16') >= 0 ? ' (best quality, ~14 GB VRAM)' : ' (faster, ~10 GB VRAM)';
+      return '<option value="' + esc(name) + '">' + esc(name) + note + '</option>';
+    }).join('');
+    select.dataset.count = String(checkpoints.length);
+    select.dataset.first = String(checkpoints[0]);
+    var preferred = State.options.default_checkpoint;
+    if (preferred) { select.value = preferred; }
+  }
+  var styleNode = $('style');
+  var busy = document.activeElement === styleNode;
+  if (!styleNode.value && !styleNode.dataset.touched && !busy && State.options.default_style) {
+    styleNode.value = State.options.default_style;
+  }
+}
+
+/* The form survives a reload. Nothing here is precious, but losing a verse is annoying. */
+var FORM_KEY = 'yue2.form.v1';
+var FORM_FIELDS = ['title', 'style', 'lyrics', 'mode', 'seed', 'checkpoint', 'max-duration', 'variety', 'harmony'];
+
+function saveForm() {
+  try {
+    var data = {};
+    FORM_FIELDS.forEach(function (id) { data[id] = $(id).value; });
+    data.auto_render = $('auto-render').checked;
+    data.seed_fixed = $('seed-fixed').checked;
+    data.left_take = State.leftTakeId || '';
+    localStorage.setItem(FORM_KEY, JSON.stringify(data));
+  } catch (err) { /* private mode, or storage full. Not worth a message. */ }
+}
+
+function loadForm() {
+  var raw;
+  try { raw = localStorage.getItem(FORM_KEY); } catch (err) { return; }
+  if (!raw) { return; }
+  var data;
+  try { data = JSON.parse(raw); } catch (err) { return; }
+  FORM_FIELDS.forEach(function (id) {
+    if (typeof data[id] === 'string' && data[id]) { $(id).value = data[id]; }
+  });
+  paintVocals();
+  if (typeof data.auto_render === 'boolean') { $('auto-render').checked = data.auto_render; }
+  if (typeof data.seed_fixed === 'boolean') { $('seed-fixed').checked = data.seed_fixed; }
+  if (data.style) { $('style').dataset.touched = '1'; }
+  if (data.left_take) { State.leftTakeId = data.left_take; }
+}
+
+/* A title from the first real lyric line. Section tags and genre tags do not count. */
+function guessTitle(lyrics) {
+  var lines = String(lyrics || '').split('\n');
+  for (var i = 0; i < lines.length; i++) {
+    var text = lines[i].trim();
+    if (!text) { continue; }
+    if (text.charAt(0) === '[' || text.charAt(0) === '(' || text.charAt(0) === '#') { continue; }
+    return text.slice(0, 60);
+  }
+  return '';
+}
+
+/* ------------------------------------------------------------ lyrics editor */
+function lyricsStats(text) {
+  var lines = String(text || '').split('\n');
+  var words = String(text || '').trim() ? String(text).trim().split(/\s+/).length : 0;
+  return { lines: lines.length, words: words, chars: String(text || '').length };
+}
+
+function updateLyricsCount() {
+  var stats = lyricsStats($('lyrics-big').value);
+  $('lyrics-count').textContent = stats.words + ' words \u00b7 ' + stats.lines + ' lines \u00b7 ' + stats.chars + ' characters';
+}
+
+/* The score gets the same full size editor as the lyrics, for long ABC. */
+function updateScoreCount() {
+  var text = $('score-big').value;
+  var bars = text.split('\n').length;
+  $('score-count').textContent = text.length + ' characters, ' + bars + ' lines';
+}
+
+/* Three ways to read the score: the chord chart, real staves, and the lyrics
+   with each section's chords. The lyrics view stops at the section on purpose:
+   measured words per melody note runs from 0.41 to 1.25 between sections, so a
+   word-by-word alignment would drift. */
+/* Undo for the score text. A global chord replace cannot be undone by the browser,
+   because setting .value directly drops its own history. Kept per editing session and
+   reset when a different score is loaded. Typing runs coalesce; a replace does not. */
+var SCORE_HISTORY_LIMIT = 120;
+var scoreStack = { items: [], index: -1, at: 0, applying: false };
+
+function pushScoreHistory(text) {
+  if (scoreStack.applying) { return; }
+  var now = Date.now();
+  var top = scoreStack.items[scoreStack.index];
+  if (top === text) { return; }
+  // Coalesce a typing run, but never the entry the editor opened on, and never
+  // when there is a redo tail to cut off.
+  var atTip = scoreStack.index === scoreStack.items.length - 1;
+  var smallEdit = atTip && scoreStack.index > 0 && typeof top === 'string' &&
+                  Math.abs(top.length - text.length) <= 3 && now - scoreStack.at < 900;
+  if (smallEdit) {
+    scoreStack.items[scoreStack.index] = text;
+  } else {
+    scoreStack.items = scoreStack.items.slice(0, scoreStack.index + 1);
+    scoreStack.items.push(text);
+    if (scoreStack.items.length > SCORE_HISTORY_LIMIT) { scoreStack.items.shift(); }
+    scoreStack.index = scoreStack.items.length - 1;
+  }
+  scoreStack.at = now;
+  paintScoreHistory();
+}
+
+function scoreReset(text) {
+  scoreStack.items = [text];
+  scoreStack.index = 0;
+  scoreStack.at = Date.now();
+  paintScoreHistory();
+}
+
+function paintScoreHistory() {
+  if ($('score-undo')) { $('score-undo').disabled = scoreStack.index <= 0; }
+  if ($('score-redo')) { $('score-redo').disabled = scoreStack.index >= scoreStack.items.length - 1; }
+}
+
+function applyScoreHistory() {
+  var text = scoreStack.items[scoreStack.index];
+  scoreStack.applying = true;
+  $('abc').value = text;
+  $('score-big').value = text;
+  $('abc').dispatchEvent(new Event('input'));
+  scoreStack.applying = false;
+  scoreStack.at = Date.now();
+  paintScoreHistory();
+}
+
+function undoScore() {
+  if (scoreStack.index <= 0) { return; }
+  scoreStack.index -= 1;
+  applyScoreHistory();
+}
+
+function redoScore() {
+  if (scoreStack.index >= scoreStack.items.length - 1) { return; }
+  scoreStack.index += 1;
+  applyScoreHistory();
+}
+
+var SCORE_VIEW_KEY = 'yue2.scoreview';
+
+function scoreView() {
+  return State.scoreView || 'chart';
+}
+
+function abcSections(abc) {
+  var sections = [];
+  var current = null;
+  var voice = null;
+  (abc || '').split('\n').forEach(function (raw) {
+    var line = raw.trim();
+    if (!line) { return; }
+    if (line.charAt(0) === '%') {
+      current = { name: line.replace(/^%\s*/, ''), bars: [] };
+      sections.push(current);
+      return;
+    }
+    var v = line.match(/^V:\s*(\S+)/);
+    if (v) { voice = v[1]; return; }
+    if (!current) { current = { name: 'song', bars: [] }; sections.push(current); }
+    if (voice !== 'Vocal' && voice !== 'Ins') { return; }
+    line.split('|').forEach(function (chunk) {
+      if (!chunk.trim()) { return; }
+      var chords = chunk.match(/"([^"]+)"/g);
+      current.bars.push(chords ? chords.map(function (c) { return c.replace(/"/g, ''); }) : []);
+    });
+  });
+  return sections;
+}
+
+function sectionChords(section) {
+  var out = [];
+  section.bars.forEach(function (bar) {
+    bar.forEach(function (chord) {
+      if (out[out.length - 1] !== chord) { out.push(chord); }
+    });
+  });
+  return out;
+}
+
+function renderNotationView() {
+  var host = $('notation-big');
+  var abc = ($('score-big').value || '').trim();
+  if (!abc || typeof ABCJS === 'undefined') {
+    host.innerHTML = '<p class="hint">No score yet.</p>';
+    return;
+  }
+  // Rebuild the header: our own title, the score's own musical settings.
+  var body = abc.split('\n').filter(function (line) {
+    return !/^[XTM LQK]:/.test(line.trim());
+  }).join('\n');
+  var pick = function (key, fallback) {
+    var m = abc.match(new RegExp('^' + key + ':\\s*(.*)$', 'm'));
+    return m ? m[1] : fallback;
+  };
+  var full = 'X:1\nT:' + ($('title').value || 'Score') + '\n' +
+    'M:' + pick('M', '4/4') + '\nL:' + pick('L', '1/8') + '\n' +
+    'Q:' + pick('Q', '1/4=100') + '\nK:' + pick('K', 'C') + '\n' + body;
+  try {
+    // No responsive mode: abcjs then positions the SVG in the flow, so it scrolls
+    // inside its pane instead of painting over the editor.
+    ABCJS.renderAbc('notation-big', full, {
+      scale: 1.15, staffwidth: 980,
+      foregroundColor: '#f4f4f7', staffColor: '#9b9ba8'
+    });
+  } catch (err) {
+    host.innerHTML = '<p class="hint">This score will not render as notation.</p>';
+  }
+}
+
+function renderLyricsView() {
+  var host = $('lyrics-view');
+  var lyrics = ($('lyrics-big').value || $('lyrics').value || '').trim();
+  if (!lyrics) {
+    host.innerHTML = '<p class="hint">No lyrics yet.</p>';
+    return;
+  }
+  var sections = abcSections($('score-big').value || '');
+  var out = [];
+  var current = null;
+  lyrics.split('\n').forEach(function (raw) {
+    var line = raw.trim();
+    if (!line) { return; }
+    var tag = line.match(/^\[(.+)\]$/);
+    if (tag) {
+      current = tag[1];
+      var key = current.toLowerCase().replace(/\s*\d+$/, '');
+      var match = null;
+      for (var i = 0; i < sections.length; i++) {
+        var name = sections[i].name.toLowerCase();
+        if (name === key || name === current.toLowerCase()) { match = sections[i]; }
+      }
+      var chords = match ? sectionChords(match) : [];
+      out.push('<div class="lyric-section"><span class="lyric-head">' + esc(current) + '</span>' +
+        (chords.length ? '<span class="lyric-chords">' + esc(chords.join('  ')) + '</span>' : '') + '</div>');
+      return;
+    }
+    out.push('<div class="lyric-line">' + esc(line) + '</div>');
+  });
+  $('score-view-note').textContent =
+    'Chords are per section, from the bars of that section. The model does not place words on notes, so no word level alignment is claimed.';
+  host.innerHTML = out.join('');
+}
+
+function paintScoreView() {
+  var view = scoreView();
+  Array.prototype.forEach.call(document.querySelectorAll('#score-views .chip'), function (chip) {
+    chip.classList.toggle('active', chip.dataset.view === view);
+  });
+  ['chart', 'notation', 'lyrics'].forEach(function (name) {
+    var box = $('view-' + name);
+    if (box) { box.classList.toggle('hidden', name !== view); }
+  });
+  if (view === 'chart') {
+    $('chart-big').textContent = chordChart($('score-big').value || '') || '';
+    $('score-view-note').textContent = '';
+  } else if (view === 'notation') {
+    $('score-view-note').textContent = 'Drawn from the ABC with abcjs. It follows your edits.';
+    renderNotationView();
+  } else {
+    renderLyricsView();
+  }
+}
+
+function setScoreView(name) {
+  State.scoreView = name;
+  try { localStorage.setItem(SCORE_VIEW_KEY, name); } catch (err) { /* private mode */ }
+  paintScoreView();
+}
+
+function openScoreEditor(view) {
+  $('score-big').value = $('abc').value;
+  if (scoreStack.items[scoreStack.index] !== $('abc').value) { scoreReset($('abc').value); }
+  if (view) { State.scoreView = view; }
+  paintScoreView();
+  updateScoreCount();
+  $('score-modal').classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+  setTimeout(function () { $('score-big').focus(); }, 30);
+}
+
+function closeScoreEditor() {
+  $('score-modal').classList.add('hidden');
+  document.body.style.overflow = '';
+  $('abc').focus();
+}
+
+function syncScoreFromBig() {
+  $('abc').value = $('score-big').value;
+  // Fire the event the small box would, so the chart, the length and the save all run.
+  $('abc').dispatchEvent(new Event('input'));
+  paintScoreView();
+  updateScoreCount();
+}
+
+function openLyricsEditor() {
+  $('lyrics-big').value = $('lyrics').value;
+  updateLyricsCount();
+  $('lyrics-modal').classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+  setTimeout(function () { $('lyrics-big').focus(); }, 30);
+}
+
+function closeLyricsEditor() {
+  $('lyrics-modal').classList.add('hidden');
+  document.body.style.overflow = '';
+  $('lyrics').focus();
+}
+
+function syncLyricsFromBig() {
+  $('lyrics').value = $('lyrics-big').value;
+  // Fire the same event the small box would, so saving and the title hint still run.
+  $('lyrics').dispatchEvent(new Event('input'));
+  updateLyricsCount();
+}
+
+function insertTag(tag) {
+  var box = $('lyrics-big');
+  var text = box.value;
+  var start = box.selectionStart;
+  var before = text.slice(0, start);
+  var prefix = (!before || before.endsWith('\n')) ? '' : '\n';
+  var insert = prefix + tag + '\n';
+  box.value = before + insert + text.slice(start);
+  box.selectionStart = box.selectionEnd = start + insert.length;
+  box.focus();
+  syncLyricsFromBig();
+}
+
+function refreshTitleHint() {
+  var guess = guessTitle($('lyrics').value);
+  $('title').placeholder = guess ? 'Leave blank to use: ' + guess : 'Leave blank and the first lyric line is used';
+}
+
+var JOB_KINDS = { render: 'Render', plan: 'Score plan', transcribe: 'Transcription', text: 'Text generation', other: 'Engine job' };
+
+function queueWhat(item) {
+  var kind = '<span class="q-kind">' + esc(JOB_KINDS[item.kind] || 'Engine job') + '</span>';
+  if (item.outside) {
+    return kind + ' <span class="q-outside">from outside the app' + (item.client ? ' (' + esc(item.client) + ')' : '') + '</span>';
+  }
+  if (!item.title) {
+    return kind + ' <span class="q-outside">' + esc(item.note || 'from the app') + '</span>';
+  }
+  return kind + ' \u00b7 ' + esc(item.title);
+}
+
+function queueWhen(item) {
+  if (item.state === 'running') { return 'running ' + secs(item.seconds || 0); }
+  if (item.state === 'pending') { return 'sent' + (item.seconds ? ', waiting ' + secs(item.seconds) : ''); }
+  return 'queued in the app';
+}
+
+/* The card shows the job the GPU is on, whoever sent it, and lists what follows.
+   The engine shares live progress only with the app that sent a job, so a job from
+   outside the app gets a time estimate instead of a stage. */
+function paintJob(current, queue, options) {
+  var card = $('job-card');
+  if (!current && !queue.length) {
+    if (State.busy) { State.busy = false; loadTakes(); loadSources(); }
+    card.className = 'job hidden';
+    return;
+  }
+  if (current) { State.busy = true; }
+  card.className = 'job';
+  var head = queue[0] && queue[0].state === 'running' ? queue[0] : null;
+  var mineRunning = current && head && !head.outside && head.id === current.id;
+  var titles = { render: 'Rendering your song', plan: 'Writing the score plan', transcribe: 'Transcribing the recording' };
+  var average = function (kind) {
+    return kind === 'render' ? (options.avg_render_seconds || 0) : (kind === 'plan' ? 25 : (kind === 'transcribe' ? 45 : 0));
+  };
+  var rest = queue;
+  $('job-stop').style.display = current ? '' : 'none';
+  if (current && (mineRunning || !head)) {
+    rest = head ? queue.slice(1) : queue.filter(function (item) { return item.id !== current.id; });
+    $('job-title').textContent = (titles[current.kind] || 'Working') + (head && head.title ? ': ' + head.title : '');
+    var avg = average(current.kind);
+    var eta = avg > 0 ? Math.max(0, avg - (current.elapsed || 0)) : 0;
+    $('job-time').textContent = secs(current.elapsed) + (eta ? ' / about ' + secs(avg) : '');
+    $('job-bar').style.width = Math.max(3, Math.round((current.progress || 0) * 100)) + '%';
+    var label = head ? (current.label || 'Starting') : 'Waiting for the engine';
+    if (current.value && current.max) { label += ' \u00b7 ' + current.value + '/' + current.max; }
+    $('job-stage').textContent = label;
+  } else if (head) {
+    rest = queue.slice(1);
+    $('job-title').textContent = head.outside
+      ? 'Engine busy: ' + (JOB_KINDS[head.kind] || 'Engine job').toLowerCase() + ' from outside the app'
+      : (titles[head.kind] || 'Working') + (head.title ? ': ' + head.title : '');
+    var guess = average(head.kind);
+    $('job-time').textContent = secs(head.seconds || 0) + (guess ? ' / about ' + secs(guess) : '');
+    $('job-bar').style.width = (guess ? Math.max(3, Math.min(95, Math.round(100 * (head.seconds || 0) / guess))) : 3) + '%';
+    $('job-stage').textContent = head.outside
+      ? 'Sent by ' + (head.client || 'another program') + '. Its progress is estimated from your average ' + (JOB_KINDS[head.kind] || 'job').toLowerCase() + ' time.'
+      : (head.note || 'Working');
+  } else {
+    $('job-title').textContent = 'Queued';
+    $('job-time').textContent = '';
+    $('job-bar').style.width = '0%';
+    $('job-stage').textContent = 'Waiting for the engine';
+  }
+  $('job-next').classList.toggle('hidden', !rest.length);
+  var html = rest.map(function (item) {
+    return '<li><span class="q-what">' + queueWhat(item) + '</span><span class="q-when">' + esc(queueWhen(item)) + '</span></li>';
+  }).join('');
+  if ($('job-queue').dataset.html !== html) {
+    $('job-queue').innerHTML = html;
+    $('job-queue').dataset.html = html;
+  }
+}
+
+/* --------------------------------------------------------------- sources */
+async function loadSources() {
+  State.sources = await api('/api/sources');
+  var select = $('source-select');
+  var previous = select.value;
+  select.innerHTML = '<option value="">Choose a recording\u2026</option>' + State.sources.map(function (source) {
+    var mark = source.has_score ? ' \u2713 score' : '';
+    return '<option value="' + source.id + '">' + esc(source.title) + mark + '</option>';
+  }).join('');
+  if (previous) { select.value = previous; }
+  if (!select.value && State.sources.length) { select.value = State.sources[0].id; }
+  paintSource();
+}
+
+function currentSource() {
+  var id = $('source-select').value;
+  for (var i = 0; i < State.sources.length; i++) { if (State.sources[i].id === id) { return State.sources[i]; } }
+  return null;
+}
+
+function paintSource() {
+  var source = currentSource();
+  var status = $('source-status');
+  var badge = $('score-badge');
+  if (!source) {
+    status.textContent = '';
+    status.className = 'status';
+    badge.textContent = 'no score';
+    badge.className = 'badge';
+    return;
+  }
+  badge.className = 'badge' + (source.has_score ? ' ok' : '');
+  badge.textContent = source.has_score ? 'score ready' : 'no score';
+  var map = { none: 'Not transcribed yet.', queued: 'Queued for transcription.', running: 'Transcribing\u2026', done: 'Transcribed. The score is ready to edit.', failed: 'Transcription failed: ' + (source.transcribe_error || 'unknown error') };
+  status.textContent = map[source.transcribe_state] || '';
+  status.className = 'status' + (source.transcribe_state === 'failed' ? ' bad' : (source.transcribe_state === 'done' ? ' good' : ''));
+  if (State.mode === 'cover' && source.transcribe_state === 'done' && !State.editorTakeId && !State.editorSourceId) {
+    loadScore();
+  }
+}
+
+/* Stems made from the selected recording, shown under it. */
+async function loadSourceStems() {
+  var source = currentSource();
+  var host = $('source-stems-list');
+  if (!host) { return; }
+  if (!source || State.mode !== 'cover') { host.innerHTML = ''; return; }
+  try {
+    var sets = await api('/api/stem-sets?source_id=' + encodeURIComponent(source.id));
+    if (currentSource() !== source) { return; }
+    host.innerHTML = stemsBlock({ stem_sets: sets });
+  } catch (err) { /* leave what is shown */ }
+}
+
+async function deleteSource() {
+  var source = currentSource();
+  if (!source) { return; }
+  var covers = source.take_count ? ' Its ' + source.take_count + ' cover take(s) keep their audio and score, but cannot be rendered again from it.' : '';
+  if (!confirm('Delete the recording \u201c' + source.title + '\u201d and its stems?' + covers)) { return; }
+  try {
+    await api('/api/sources/' + source.id, { method: 'DELETE' });
+  } catch (err) {
+    $('source-status').textContent = 'Could not delete: ' + err.message;
+    $('source-status').className = 'status bad';
+    return;
+  }
+  $('source-select').value = '';
+  if (State.editorSourceId === source.id) {
+    $('abc').value = '';
+    scoreBaseline('');
+    setChart('');
+  }
+  claimEditorFor(null);
+  await loadSources();
+  loadSourceStems();
+}
+
+async function loadScore() {
+  var source = currentSource();
+  if (!source) { return; }
+  // A take in the editor outranks a source transcription.  Without this guard a
+  // finished job (paintJob reloads the sources) overwrites the plan that just
+  // landed, and the render button then has nothing to point at.
+  if (State.editorTakeId) { return; }
+  var selected = State.leftTakeId;
+  var full = await api('/api/sources/' + source.id);
+  // Selecting a cover take switches to cover mode, which starts this load, and the
+  // take is loaded into the column before the score arrives.  The take wins.  Going
+  // on here cleared leftTakeId, and the next card click then took the take's own
+  // words for an unsaved draft.
+  if (State.editorTakeId || State.editorSourceId || State.leftTakeId !== selected || currentSource() !== source) { return; }
+  $('abc').value = full.abc || '';
+  scoreBaseline(full.abc || '');
+  State.editorTakeId = null;
+  State.editorSourceId = source.id;
+  State.leftTakeId = null;
+  setChart('');
+  syncEditor();
+}
+
+/* ------------------------------------------------------------------ vocal ---
+   YuE2 has no vocal parameter: the model reads a [Tags] block, which is the style
+   field, and a [Lyrics] block. So these chips edit the style text itself. That way
+   the take stores the choice and a re-render reproduces it. */
+var VOCAL_SEX = [
+  { value: 'any', label: 'Any', phrase: '' },
+  { value: 'female', label: 'Female', phrase: 'female vocal' },
+  { value: 'male', label: 'Male', phrase: 'male vocal' },
+  { value: 'duet', label: 'Duet', phrase: 'duet, male and female voices' }
+];
+var VOCAL_TONE = ['breathy', 'raspy', 'powerful', 'soft', 'deep', 'youthful', 'airy', 'gritty'];
+
+function styleHas(text, word) {
+  return new RegExp('\\b' + word + '\\b', 'i').test(text);
+}
+
+function tidyStyle(text) {
+  return text
+    .replace(/\s*,\s*,+/g, ', ')
+    .replace(/^[\s,]+/, '')
+    .replace(/[\s,]+$/, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+function currentVocalSex() {
+  var style = $('style').value;
+  if (/\bduet\b/i.test(style)) { return 'duet'; }
+  if (styleHas(style, 'female')) { return 'female'; }
+  if (styleHas(style, 'male')) { return 'male'; }
+  return 'any';
+}
+
+function setVocalSex(value) {
+  var option = VOCAL_SEX.filter(function (item) { return item.value === value; })[0] || VOCAL_SEX[0];
+  var style = $('style').value
+    .replace(/\s*,?\s*(male|female)\s+(vocal|vocals|voice|voices)\b/gi, '')
+    .replace(/\s*,?\s*duet\b[^,]*/gi, '');
+  style = tidyStyle(style);
+  if (option.phrase) { style = style ? style + ', ' + option.phrase : option.phrase; }
+  $('style').value = style;
+  paintVocals();
+}
+
+function toggleVocalTone(word) {
+  var style = $('style').value;
+  if (styleHas(style, word)) {
+    style = style.replace(new RegExp('\\s*,?\\s*' + word + '\\b', 'i'), '');
+  } else {
+    style = style ? style + ', ' + word : word;
+  }
+  $('style').value = tidyStyle(style);
+  paintVocals();
+}
+
+function paintVocals() {
+  var sex = currentVocalSex();
+  var style = $('style').value;
+  $('vocal-sex').innerHTML = VOCAL_SEX.map(function (item) {
+    return '<button class="chip' + (item.value === sex ? ' active' : '') + '" data-sex="' + item.value + '">' +
+      esc(item.label) + '</button>';
+  }).join('');
+  $('vocal-tone').innerHTML = VOCAL_TONE.map(function (word) {
+    return '<button class="chip' + (styleHas(style, word) ? ' active' : '') + '" data-tone="' + word + '">' +
+      esc(word) + '</button>';
+  }).join('');
+}
+
+/* ---------------------------------------------------------------- settings */
+function setting(key, fallback) {
+  var value = (State.settings || {})[key];
+  return value === undefined || value === null || value === '' ? fallback : value;
+}
+
+function paintSettings() {
+  var list = State.settingSpec || [];
+  $('settings-list').innerHTML = list.map(function (item) {
+    var control;
+    if (item.type === 'select') {
+      control = '<select data-key="' + esc(item.key) + '">' + item.options.map(function (option) {
+        return '<option value="' + esc(option.value) + '"' +
+          (option.value === item.value ? ' selected' : '') + '>' + esc(option.label) + '</option>';
+      }).join('') + '</select>';
+    } else {
+      control = '<input type="text" spellcheck="false" data-key="' + esc(item.key) + '" value="' + esc(item.value) + '">';
+    }
+    return '<div class="setting-row">' +
+      '<div class="setting-text">' +
+        '<div class="setting-label">' + esc(item.label) + '</div>' +
+        '<div class="setting-help">' + esc(item.help || '') + '</div>' +
+      '</div>' +
+      '<div class="setting-control">' + control + '<span class="saved" data-saved="' + esc(item.key) + '"></span></div>' +
+    '</div>';
+  }).join('');
+}
+
+async function saveSetting(input) {
+  var key = input.dataset.key;
+  var mark = $('settings-list').querySelector('[data-saved="' + key + '"]');
+  try {
+    var data = await api('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: key, value: input.value })
+    });
+    adoptSettings(data.settings);
+    if (mark) {
+      mark.textContent = 'saved';
+      setTimeout(function () { if (mark) { mark.textContent = ''; } }, 1800);
+    }
+  } catch (err) {
+    if (mark) { mark.textContent = err.message; mark.style.color = 'var(--bad)'; }
+  }
+}
+
+function adoptSettings(spec) {
+  State.settingSpec = spec || [];
+  var values = {};
+  State.settingSpec.forEach(function (item) { values[item.key] = item.value; });
+  State.settings = values;
+}
+
+function openSettings() {
+  paintSettings();
+  $('settings-note').textContent = '';
+  $('settings-modal').classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeSettings() {
+  $('settings-modal').classList.add('hidden');
+  document.body.style.overflow = '';
+}
+
+/* ------------------------------------------------------------------- stems */
+/* Builds the model and format lists, then the stem checkboxes for the chosen model.
+   Preferred values come from Settings when the sheet opens, and are left alone when
+   the user changes the model by hand. The lists must exist before a value is set on
+   them, or the assignment is silently dropped. */
+function paintStemChoices(preferred) {
+  var options = State.stemsOptions || {};
+  var models = options.models || [];
+  var select = $('stems-model');
+  var formatSelect = $('stems-format');
+  var firstFill = select.dataset.filled !== '1';
+  if (firstFill) {
+    select.innerHTML = models.map(function (m) {
+      return '<option value="' + esc(m.id) + '">' + esc(m.label) + '</option>';
+    }).join('');
+    formatSelect.innerHTML = (options.formats || ['wav']).map(function (f) {
+      return '<option value="' + esc(f) + '">' + (f === 'mp3' ? 'mp3, 320 kbps' : esc(f)) + '</option>';
+    }).join('');
+    select.dataset.filled = '1';
+  }
+  if (preferred && preferred.model) {
+    select.value = preferred.model;
+  } else if (firstFill) {
+    select.value = setting('stems.model', options.default_model || 'htdemucs');
+  }
+  if (preferred && preferred.format) {
+    formatSelect.value = preferred.format;
+  } else if (firstFill) {
+    formatSelect.value = setting('stems.format', options.default_format || 'wav');
+  }
+  var chosen = null;
+  for (var i = 0; i < models.length; i++) { if (models[i].id === select.value) { chosen = models[i]; } }
+  if (!chosen) { chosen = models[0] || { stems: [] }; }
+  var all = [];
+  models.forEach(function (m) { m.stems.forEach(function (s) { if (all.indexOf(s) < 0) { all.push(s); } }); });
+  $('stems-list').innerHTML = all.map(function (name) {
+    var on = chosen.stems.indexOf(name) >= 0;
+    return '<label class="stem-choice' + (on ? '' : ' off') + '">' +
+      '<input type="checkbox" value="' + esc(name) + '"' + (on ? ' checked' : ' disabled') + '> ' + esc(name) + '</label>';
+  }).join('');
+}
+
+/* target: { kind: 'take' | 'source', id, title } */
+function openStemsModal(target) {
+  var options = State.stemsOptions || {};
+  if (!options.available) {
+    statusLine('Stem separation is not available in this container.', 'bad');
+    return;
+  }
+  State.stemsTarget = target;
+  $('stems-heading').textContent = 'Extract stems: ' + target.title;
+  // Settings decide what a new run starts with; the sheet can still override.
+  $('stems-dir').value = setting('stems.folder', options.default_dir || '/data/stems');
+  paintStemChoices({
+    model: setting('stems.model', options.default_model || 'htdemucs'),
+    format: setting('stems.format', options.default_format || 'wav')
+  });
+  var estimate = options.avg_seconds
+    ? 'The last run took ' + Math.round(options.avg_seconds) + ' seconds.'
+    : 'A four minute song takes about three minutes.';
+  $('stems-note').textContent = 'Runs on this machine on ' + (options.threads || 4) + ' CPU threads, so the GPU stays free for renders. ' + estimate;
+  $('stems-modal').classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeStemsModal() {
+  $('stems-modal').classList.add('hidden');
+  document.body.style.overflow = '';
+  State.stemsTarget = null;
+}
+
+async function runStems() {
+  var target = State.stemsTarget;
+  if (!target) { return; }
+  var wanted = Array.prototype.slice.call($('stems-list').querySelectorAll('input:checked'))
+    .map(function (box) { return box.value; });
+  if (!wanted.length) {
+    $('stems-note').textContent = 'Choose at least one stem.';
+    return;
+  }
+  $('stems-run').disabled = true;
+  try {
+    var base = target.kind === 'source' ? '/api/sources/' : '/api/takes/';
+    await api(base + target.id + '/stems', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: $('stems-model').value,
+        stems: wanted,
+        format: $('stems-format').value,
+        save_dir: $('stems-dir').value
+      })
+    });
+    closeStemsModal();
+    if (target.kind === 'source') { loadSourceStems(); } else { loadTakes(); }
+  } catch (err) {
+    $('stems-note').textContent = 'Could not start: ' + err.message;
+  } finally {
+    $('stems-run').disabled = false;
+  }
+}
+
+function playStem(setId, file) {
+  var audio = $('audio');
+  State.loadedId = null;   // a stem is not a take, so Play must not resume a take
+  State.playing = null;
+  wave.kind = null;        // and it gets the neutral tone
+  audio.src = '/api/stem-sets/' + setId + '/' + encodeURIComponent(file);
+  audio.play().catch(function () {});
+  $('np-title').textContent = file.replace(/\.[a-z0-9]+$/i, '');
+  $('np-meta').textContent = 'stem from take ' + setId;
+  $('np-cover').className = 'np-cover grad-cover';
+  loadWave(audio.src, '/api/stem-sets/' + setId + '/' + encodeURIComponent(file) + '/peaks');
+}
+
+/* ------------------------------------------------------ song mode and plans */
+function statusLine(message, kind) {
+  var node = $('render-status');
+  node.textContent = message;
+  node.className = 'status' + (kind ? ' ' + kind : '');
+}
+
+/* ---------------------------------------------------------------- harmony ---
+   How predictable the chords of a score plan are. Each step is a setting of the
+   engine's yue2_harmony node; the server holds the mapping, and these are only the
+   words. Songs from a prompt only: a cover takes its chords from the recording. */
+var HARMONY_WORDS = ['Familiar', 'Varied', 'Colourful', 'Adventurous', 'Outside'];
+var HARMONY_HINTS = [
+  'YuE2\u2019s own chords. Often one four-chord loop for the whole song.',
+  'Avoids repeating the same chords. Stays in the key.',
+  'Verse and chorus get different progressions, with richer chords.',
+  'Keeps the harmony moving, and borrows chords from outside the key.',
+  'Adventurous, and reaches further outside the key.'
+];
+
+function harmonyStep() {
+  var step = parseInt($('harmony').value, 10);
+  return isNaN(step) ? 0 : Math.max(0, Math.min(HARMONY_WORDS.length - 1, step));
+}
+
+function paintHarmony() {
+  var available = State.options.harmony_available !== false;
+  var step = harmonyStep();
+  $('harmony').disabled = !available;
+  $('harmony-word').textContent = HARMONY_WORDS[step];
+  $('harmony-hint').textContent = available
+    ? HARMONY_HINTS[step]
+    : 'The engine has no harmony node. Rebuild the engine to use this.';
+}
+
+function setMode(mode) {
+  State.mode = mode;
+  Array.prototype.forEach.call(document.querySelectorAll('.modes .mode'), function (button) {
+    button.classList.toggle('active', button.dataset.mode === mode);
+  });
+  var cover = mode === 'cover';
+  $('cover-only').style.display = cover ? '' : 'none';
+  $('auto-wrap').style.display = cover ? 'none' : '';
+  // Both steer the score writer, which a cover never uses: its score is the transcription.
+  $('harmony-field').style.display = cover ? 'none' : '';
+  $('variety-field').style.display = cover ? 'none' : '';
+  $('plan-actions').style.display = cover ? 'none' : '';
+  $('headline').textContent = cover ? 'Cover a song' : 'Write a song';
+  $('sub').textContent = cover
+    ? 'Your own recording in. A new arrangement, new vocals, and an editable score out.'
+    : 'Style and lyrics in. YuE2 writes the melody and the chords, then sings it.';
+  $('score-label').textContent = cover ? 'Score' : 'Score plan';
+  $('create-cover').style.display = cover ? '' : 'none';
+  $('create-song').style.display = cover ? 'none' : '';
+  $('start-fresh').textContent = cover ? 'New cover' : 'New song';
+  $('source-status').textContent = '';
+  var ownedByTake = Boolean(takeIdInEditor());
+  if (cover) {
+    claimEditorFor(null);
+    $('score-badge').textContent = 'no score';
+    $('score-badge').className = 'badge';
+    paintSource();
+  } else if (!ownedByTake) {
+    // The editor held a transcription of an uploaded recording. A song must not reuse it.
+    $('abc').value = '';
+    State.planTakeId = null;
+    claimEditorFor(null);
+    $('score-badge').textContent = 'no plan yet';
+    $('score-badge').className = 'badge';
+    setChart('');
+    statusLine('Write a score plan to start a song from scratch.');
+  }
+}
+
+/* The working score and the take it belongs to survive a reload, so the render
+   button still knows what it is rendering. */
+function saveWorkingScore() {
+  try {
+    localStorage.setItem('yue2.abc', $('abc').value);
+    localStorage.setItem('yue2.take', takeIdInEditor() || '');
+  } catch (err) { /* private mode */ }
+}
+
+function loadWorkingScore() {
+  var abc = null;
+  var id = null;
+  try {
+    abc = localStorage.getItem('yue2.abc');
+    id = localStorage.getItem('yue2.take');
+  } catch (err) { return; }
+  if (abc) { $('abc').value = abc; scoreBaseline(abc); }
+  if (id) {
+    State.editorTakeId = id;
+    State.planTakeId = id;
+  }
+}
+
+/* Say why the buttons are unusable instead of doing nothing when clicked. */
+/* The Save score button says when there is something to save, and says so when it
+   has saved. The baseline is the text the editor last loaded or saved, so a plan
+   that arrives from the engine counts as already saved. */
+function scoreBaseline(text) {
+  State.savedAbc = text || '';
+  paintScoreDirty();
+}
+
+function scoreIsDirty() {
+  if (!State.savedAbc) { return false; }
+  return ($('abc').value || '') !== State.savedAbc;
+}
+
+function paintScoreDirty() {
+  var button = $('save-score');
+  if (!button || button.dataset.confirming === '1') { return; }
+  var dirty = scoreIsDirty();
+  button.classList.toggle('needs-save', dirty);
+  button.textContent = dirty ? 'Save score' : 'Saved';
+  button.title = dirty ? 'This score has changes that are not saved yet'
+                       : 'No changes since the last save';
+  button.disabled = !dirty;
+}
+
+function confirmScoreSaved() {
+  var button = $('save-score');
+  button.dataset.confirming = '1';
+  button.classList.remove('needs-save');
+  button.textContent = 'Saved';
+  button.disabled = true;
+  setTimeout(function () {
+    delete button.dataset.confirming;
+    paintScoreDirty();
+  }, 1600);
+}
+
+function setScoreActions() {
+  var enabled = Boolean(takeIdInEditor());
+  ['render-take', 'reroll'].forEach(function (name) {
+    var node = $(name);
+    node.disabled = !enabled;
+    node.style.opacity = enabled ? '' : '0.45';
+    node.style.cursor = enabled ? '' : 'not-allowed';
+  });
+  $('score-note').textContent = enabled
+    ? 'Render this score makes audio from the score above, keeping its melody and chords. Write a new plan asks YuE2 for a different melody, same words.'
+    : 'Nothing to render yet. Write a score plan, or press Score on a take in the library.';
+}
+
+function syncEditor() {
+  saveWorkingScore();
+  setScoreActions();
+}
+
+/* Which take owns the score currently in the box.  A take we are still waiting on
+   (planTakeId) does NOT own the editor: there is nothing to render until its score
+   arrives, and watchPlan only fills the box for a take that does not own it. */
+function takeIdInEditor() {
+  return State.editorTakeId || '';
+}
+
+function claimEditorFor(takeId) {
+  State.editorTakeId = takeId || null;
+  State.editorSourceId = null;
+  syncEditor();
+  paintTakes();   // move the highlight to the card that now owns the left column
+}
+
+async function watchPlan() {
+  if (!State.planTakeId) { return; }
+  var take;
+  try {
+    take = await api('/api/takes/' + State.planTakeId);
+  } catch (err) {
+    State.planTakeId = null;
+    return;
+  }
+  if (take.abc && take.abc.length > 50 && takeIdInEditor() !== take.id) {
+    $('abc').value = take.abc;
+    scoreBaseline(take.abc);
+    claimEditorFor(take.id);
+    $('score-badge').textContent = 'plan ready';
+    $('score-badge').className = 'badge ok';
+    $('score-box').open = true;
+    setChart(chordChart(take.abc));
+    showPlanLength(take.abc);
+    statusLine('Plan ready. Edit it, or press render.', 'good');
+  }
+  if (take.status === 'failed') {
+    statusLine('Plan failed: ' + (take.error || 'unknown error'), 'bad');
+    State.planTakeId = null;
+  } else if (take.status === 'planned') {
+    State.planTakeId = null;
+    loadTakes();
+  } else if (take.status === 'done') {
+    State.planTakeId = null;
+    loadTakes();
+  }
+}
+
+async function doPlan() {
+  if (!$('lyrics').value.trim()) {
+    statusLine('Write some lyrics first. The planner needs words to shape the melody.', 'bad');
+    return;
+  }
+  var seed = parseInt($('seed').value, 10);
+  if (!($('seed-fixed').checked) || isNaN(seed)) {
+    seed = Math.floor(Math.random() * 4294967295);
+    $('seed').value = seed;
+  }
+  statusLine('Queued…');
+  try {
+    var take = await api('/api/songs', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: $('title').value.trim() || guessTitle($('lyrics').value),
+        style: $('style').value,
+        lyrics: $('lyrics').value,
+        seed: seed,
+        checkpoint: $('checkpoint').value,
+        max_duration: parseFloat($('max-duration').value) || 360,
+        auto_render: $('auto-render').checked,
+        variety: $('variety').value,
+        harmony: harmonyStep(),
+        space_id: State.spaceId
+      })
+    });
+    State.planTakeId = take.id;
+    statusLine('Writing the score plan…');
+    loadTakes();
+  } catch (err) {
+    statusLine('Could not start: ' + err.message, 'bad');
+  }
+}
+
+async function doRenderTake() {
+  var id = takeIdInEditor();
+  if (!id) {
+    statusLine('Nothing to render yet. Write a score plan first.', 'bad');
+    $('score-note').textContent = 'Nothing to render yet. Write a score plan, or press Score on a take in the library.';
+    return;
+  }
+  try {
+    await api('/api/takes/' + id + '/score', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ abc: $('abc').value })
+    });
+    await api('/api/takes/' + id + '/render', { method: 'POST' });
+    State.planTakeId = null;
+    statusLine('Rendering…');
+    loadTakes();
+  } catch (err) {
+    statusLine('Could not render: ' + err.message, 'bad');
+  }
+}
+
+/* A new plan is on its way for this take.  The old score leaves the box and the
+   take gives up the editor, so watchPlan loads the new plan when it lands instead
+   of treating the old one as current. */
+function awaitNewPlan(id) {
+  $('abc').value = '';
+  scoreBaseline('');
+  claimEditorFor(null);
+  State.leftTakeId = id;
+  State.planTakeId = id;
+  $('score-badge').textContent = 'writing a new plan';
+  $('score-badge').className = 'badge';
+  setChart('');
+  showPlanLength('');
+  paintTakes();
+}
+
+async function doReroll() {
+  var id = takeIdInEditor();
+  if (!id) { statusLine('Nothing to replan yet.', 'bad'); setScoreActions(); return; }
+  try {
+    // The slider and the variety menu apply to the new plan.
+    await api('/api/takes/' + id + '/replan', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ harmony: harmonyStep(), variety: $('variety').value })
+    });
+    awaitNewPlan(id);
+    statusLine('Writing a new plan for the same words\u2026');
+    loadTakes();
+  } catch (err) {
+    statusLine('Could not replan: ' + err.message, 'bad');
+  }
+}
+
+/* ------------------------------------------------------------------ takes */
+async function loadTakes() {
+  var space = State.spaceId;
+  var url = '/api/takes?limit=' + State.takeLimit + '&space_id=' + encodeURIComponent(space) +
+    (State.filter === 'favourite' ? '&favourite=true' : '');
+  var response = await fetch(url, { cache: 'no-cache' });   // revalidates: unchanged is a 304
+  if (!response.ok) { return; }
+  var text = await response.text();
+  // The space changed while this was on its way: the answer belongs to the old one.
+  if (space !== State.spaceId) { return; }
+  if (text !== State.takesRaw) { loadSpaces(); }   // the counts in the menu may have moved
+  State.takesAt = Date.now();
+  State.takesTotal = parseInt(response.headers.get('X-Total-Count') || '0', 10) || 0;
+  // Nothing new: leave the cards alone, so hover, focus and the play pulse survive.
+  // Repaint once a minute anyway, so "2 min ago" keeps moving.
+  if (text === State.takesRaw && Date.now() - State.paintedAt < 60000) { return; }
+  State.takesRaw = text;
+  State.takes = JSON.parse(text);
+  paintTakes();
+}
+
+/* ----------------------------------------------------------------- spaces
+   Each take lives in one space. Which space is on show is this browser's choice. */
+async function loadSpaces() {
+  var spaces = await api('/api/spaces');
+  State.spaces = spaces;
+  if (!spaces.some(function (space) { return space.id === State.spaceId; })) {
+    showSpace('default');   // deleted elsewhere, or never existed here
+  }
+  paintSpaces();
+}
+
+function currentSpace() {
+  return State.spaces.filter(function (space) { return space.id === State.spaceId; })[0] || null;
+}
+
+function paintSpaces() {
+  var select = $('space');
+  var html = State.spaces.map(function (space) {
+    return '<option value="' + esc(space.id) + '">' + esc(space.name) + ' (' + space.takes + ')</option>';
+  }).join('');
+  if (select.dataset.html !== html) {
+    select.innerHTML = html;
+    select.dataset.html = html;
+  }
+  select.value = State.spaceId;
+  $('space-delete').disabled = State.spaceId === 'default';
+  var space = currentSpace();
+  $('takes-heading').textContent = space ? space.name : 'Your takes';
+}
+
+function showSpace(id) {
+  if (id === State.spaceId) { return; }
+  State.spaceId = id;
+  try { localStorage.setItem(SPACE_KEY, id); } catch (err) { /* private mode */ }
+  State.takes = [];
+  State.takesRaw = '';
+  State.takesTotal = 0;
+  State.takeLimit = 300;
+  paintSpaces();
+  paintTakes();
+  loadTakes();
+}
+
+function loadSpaceChoice() {
+  try { State.spaceId = localStorage.getItem(SPACE_KEY) || 'default'; } catch (err) { State.spaceId = 'default'; }
+}
+
+async function newSpace() {
+  var name = prompt('Name the new space');
+  if (name === null || !name.trim()) { return; }
+  try {
+    var space = await api('/api/spaces', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name })
+    });
+    State.spaces.push(space);
+    showSpace(space.id);
+    await loadSpaces();
+    statusLine('New space ' + space.name + '. Takes you create now land here.', 'good');
+  } catch (err) {
+    statusLine('Could not create the space: ' + err.message, 'bad');
+  }
+}
+
+async function renameSpace() {
+  var space = currentSpace();
+  if (!space) { return; }
+  var name = prompt('Rename the space', space.name);
+  if (name === null || !name.trim() || name.trim() === space.name) { return; }
+  try {
+    await api('/api/spaces/' + space.id, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name })
+    });
+    await loadSpaces();
+  } catch (err) {
+    statusLine('Could not rename the space: ' + err.message, 'bad');
+  }
+}
+
+async function deleteSpace() {
+  var space = currentSpace();
+  if (!space || space.id === 'default') { return; }
+  var held = space.takes ? ' Its ' + space.takes + ' take' + (space.takes === 1 ? '' : 's') + ' move to Default.' : '';
+  if (!confirm('Delete the space \u201c' + space.name + '\u201d?' + held)) { return; }
+  try {
+    await api('/api/spaces/' + space.id, { method: 'DELETE' });
+    showSpace('default');
+    await loadSpaces();
+  } catch (err) {
+    statusLine('Could not delete the space: ' + err.message, 'bad');
+  }
+}
+
+function openMoveModal(take) {
+  State.moveTakeId = take.id;
+  $('move-heading').textContent = 'Move \u201c' + take.title + '\u201d to';
+  $('move-name').value = '';
+  $('move-status').textContent = '';
+  $('move-list').innerHTML = State.spaces.map(function (space) {
+    var here = space.id === take.space_id;
+    return '<button class="ghost" data-space="' + esc(space.id) + '"' + (here ? ' disabled' : '') + '>' +
+      '<span>' + esc(space.name) + '</span><span class="muted">' +
+      (here ? 'here now' : space.takes + ' take' + (space.takes === 1 ? '' : 's')) + '</span></button>';
+  }).join('');
+  $('move-modal').classList.remove('hidden');
+}
+
+function closeMoveModal() {
+  State.moveTakeId = null;
+  $('move-modal').classList.add('hidden');
+}
+
+async function moveTake(spaceId) {
+  var id = State.moveTakeId;
+  if (!id) { return; }
+  var moved = await api('/api/takes/' + id + '/move', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ space_id: spaceId })
+  });
+  closeMoveModal();
+  statusLine('Moved to ' + moved.name + '.', 'good');
+  loadTakes();
+  loadSpaces();
+}
+
+/* Action tiles. Colour carries meaning: green acts, violet inspects, blue keeps,
+   amber reworks, gold remembers, red removes. */
+var ICONS = {
+  play: '<path d="M8 5.4v13.2L19 12z" fill="currentColor" stroke="none"/>',
+  pause: '<path d="M9 5.5v13M15 5.5v13" stroke-width="2.4" stroke-linecap="round"/>',
+  render: '<path d="M12 3.5v11m0 0l-4-4m4 4l4-4M5 19.5h14"/>',
+  score: '<circle cx="7" cy="17.6" r="2.2"/><circle cx="17" cy="15.6" r="2.2"/><path d="M9.2 17.6V6l10-2v11.4"/>',
+  save: '<path d="M12 4v10m0 0l-4-4m4 4l4-4M5 19h14"/>',
+  again: '<path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 4.2v3.9h-3.9"/>',
+  star: '<path d="M12 3.6l2.6 5.5 6.1.9-4.4 4.3 1 6-5.3-2.9-5.3 2.9 1-6L3.4 10l6-.9z"/>',
+  check: '<path d="M20 6.5L9.5 17 4 11.5"/>',
+  trash: '<path d="M4.5 7h15M9.5 7V4.8h5V7M6.5 7l1 12.2h9l1-12.2"/>',
+  stems: '<path d="M12 3.2l8 4.2-8 4.2-8-4.2z"/><path d="M4 12.4l8 4.2 8-4.2"/><path d="M4 16.6l8 4.2 8-4.2"/>',
+  move: '<path d="M3.5 7.5V18a1.5 1.5 0 0 0 1.5 1.5h14a1.5 1.5 0 0 0 1.5-1.5V9.5A1.5 1.5 0 0 0 19 8h-7l-2-2.5H5A1.5 1.5 0 0 0 3.5 7v.5"/><path d="M10 13.5h6m0 0l-2.5-2.5m2.5 2.5L13.5 16"/>',
+  stop: '<rect x="6.5" y="6.5" width="11" height="11" rx="1.6"/>'
+};
+
+function icon(name) {
+  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" ' +
+    'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + ICONS[name] + '</svg>';
+}
+
+function tile(kind, iconName, label, attrs) {
+  return '<button class="act ' + kind + '" ' + (attrs || '') + ' title="' + label + '">' +
+    icon(iconName) + '<span>' + label + '</span></button>';
+}
+
+function downloadTile(take) {
+  return '<a class="act save" href="/api/takes/' + take.id + '/audio" download' +
+    ' title="Download the audio file" aria-label="Download the audio file">' +
+    icon('save') + '<span>Save</span></a>';
+}
+
+function stemsBlock(take) {
+  var sets = take.stem_sets || [];
+  if (!sets.length) { return ''; }
+  var rows = sets.map(function (set) {
+    var busy = set.status === 'queued' || set.status === 'running';
+    var remove = '<button class="stem-chip" data-act="stem-del" data-set="' + set.id + '" title="' +
+      (busy ? 'Stop and delete these stems' : 'Delete these stems') + '">x</button>';
+    if (set.status === 'done') {
+      var chips = (set.files || []).map(function (file) {
+        return '<button class="stem-chip" data-act="stem-play" data-set="' + set.id + '" data-file="' + esc(file.file) + '">' +
+          esc(file.name) + '</button>';
+      }).join('');
+      return '<div class="stem-row"><span class="stem-label">stems</span>' + chips +
+        '<a class="stem-chip" href="/api/stem-sets/' + set.id + '/zip" download>zip</a>' + remove + '</div>';
+    }
+    if (set.status === 'failed') {
+      return '<div class="stem-row"><span class="stem-label" style="color:var(--bad)">stems failed: ' +
+        esc((set.error || '').slice(0, 70)) + '</span>' + remove + '</div>';
+    }
+    var pct = Math.round((set.progress || 0) * 100);
+    return '<div class="stem-row"><span class="stem-label">stems: ' + esc(set.stage || set.status) + ' ' + pct + '%</span>' + remove + '</div>';
+  });
+  return '<div class="take-stems">' + rows.join('') + '</div>';
+}
+
+/* Load a take into the left column: the matching mode, its title, style, lyrics,
+   score and settings, and the highlight on its card. Every tile that acts on a
+   take calls this first, so the panel always describes the take you just touched. */
+function selectTake(take) {
+  if (!take) { return; }
+  if (take.id !== State.leftTakeId && formIsDraft()) { stashDraft(); }
+  var isSong = take.kind === 'song';
+  var hasScore = Boolean(take.abc && take.abc.length > 50);
+  var planning = isSong && !hasScore && (take.status === 'queued' || take.status === 'running');
+  setMode(isSong ? 'song' : 'cover');
+  if (!isSong && take.source_id) { $('source-select').value = take.source_id; }
+  $('title').value = take.title;
+  $('style').value = take.style || '';
+  $('style').dataset.touched = '1';
+  $('lyrics').value = take.lyrics || '';
+  $('abc').value = take.abc || '';
+  scoreBaseline(take.abc || '');
+  if (take.mode) { $('mode').value = take.mode; }
+  if (isSong) {
+    $('harmony').value = take.harmony || 0;
+    if (take.variety) { $('variety').value = take.variety; }
+    paintHarmony();
+  }
+  if (take.checkpoint) { $('checkpoint').value = take.checkpoint; }
+  // A cover's score belongs to its source, and a plan still being written belongs
+  // to nobody until it lands.
+  claimEditorFor(isSong && !planning ? take.id : null);
+  State.leftTakeId = take.id;
+  // Marks the box as holding this cover's score, so paintSource does not replace it
+  // with the recording's transcription.
+  if (!isSong) { State.editorSourceId = take.source_id || 'take:' + take.id; }
+  State.planTakeId = isSong ? take.id : null;
+  $('score-badge').textContent = take.abc
+    ? (take.status === 'planned' ? 'plan ready' : 'saved score')
+    : 'no plan yet';
+  $('score-badge').className = take.abc ? 'badge ok' : 'badge';
+  if (take.abc) { $('score-box').open = true; }
+  setChart(chordChart(take.abc || ''));
+  showPlanLength(take.abc || '');
+  syncEditor();
+  refreshTitleHint();
+  paintSource();
+  State.formEdited = false;
+  saveForm();
+  paintTakes();
+}
+
+/* One click on a card replaces the form.  If the form holds words that are not
+   simply the take it already shows, keep them, so a click cannot lose a verse. */
+function formIsDraft() {
+  // Moving between takes must not look like an unsaved draft.  Only words the user
+  // typed, or took back with Restore, count; loading a take or a recording clears it.
+  if (!State.formEdited) { return false; }
+  // A text box turns \r\n into \n, so compare text the way the box holds it.
+  var same = function (a, b) { return String(a || '').replace(/\r\n?/g, '\n') === String(b || '').replace(/\r\n?/g, '\n'); };
+  var title = $('title').value;
+  var style = $('style').value;
+  var lyrics = $('lyrics').value;
+  if (!lyrics.trim() && !title.trim()) { return false; }
+  var shown = State.leftTakeId ? takeById(State.leftTakeId) : null;
+  if (!shown) { return Boolean(lyrics.trim()); }
+  return !same(title, shown.title) || !same(style, shown.style) || !same(lyrics, shown.lyrics);
+}
+
+function stashDraft() {
+  var next = { mode: State.mode, title: $('title').value, style: $('style').value, lyrics: $('lyrics').value };
+  var current = State.draft;
+  // The words may be stashed again on the next card click.  Only keep one copy, so
+  // the bar does not churn through the same verse.
+  if (current && current.title === next.title && current.style === next.style && current.lyrics === next.lyrics) { return; }
+  State.draft = next;
+  paintDraft();
+}
+
+function paintDraft() {
+  var bar = $('draft-bar');
+  if (!bar) { return; }
+  bar.classList.toggle('hidden', !State.draft);
+  if (State.draft) {
+    var words = (State.draft.title || State.draft.lyrics || '').trim().split('\n')[0].slice(0, 40);
+    $('draft-text').textContent = 'Your unsaved words were kept' + (words ? ': \u201c' + words + '\u201d' : '') + '.';
+  }
+}
+
+function restoreDraft() {
+  var draft = State.draft;
+  if (!draft) { return; }
+  setMode(draft.mode === 'song' ? 'song' : 'cover');
+  claimEditorFor(null);
+  State.leftTakeId = null;
+  State.planTakeId = null;
+  $('title').value = draft.title || '';
+  $('style').value = draft.style || '';
+  $('lyrics').value = draft.lyrics || '';
+  dismissDraft();
+  paintVocals();
+  refreshTitleHint();
+  // The words are back in the form and nowhere else, so a later card click must
+  // offer them again rather than drop them.
+  State.formEdited = true;
+  saveForm();
+  paintTakes();
+  statusLine('Your words are back.', 'good');
+}
+
+function dismissDraft() {
+  State.draft = null;
+  paintDraft();
+}
+
+/* Start a new song, or a new cover, from the take on show.  The words and the score
+   go; the settings stay (style, vocal, Harmony, plan variety, length, checkpoint,
+   seed), so the next song can be in the same vein.  The loaded take lets go of the
+   column, so Render and Replan cannot act on it by mistake.  A cover keeps its
+   recording and goes back to that recording's own transcription. */
+function startFresh() {
+  if (scoreIsDirty() && !confirm('The score has changes that are not saved. Start a new ' +
+      (State.mode === 'cover' ? 'cover' : 'song') + ' and discard them?')) {
+    return;
+  }
+  if (formIsDraft()) { stashDraft(); }
+  var cover = State.mode === 'cover';
+  claimEditorFor(null);
+  State.leftTakeId = null;
+  State.planTakeId = null;
+  $('title').value = '';
+  $('lyrics').value = '';
+  $('abc').value = '';
+  scoreBaseline('');
+  setChart('');
+  showPlanLength('');
+  if (cover) {
+    paintSource();   // loads the recording's transcription back into the box, if it has one
+  } else {
+    $('score-badge').textContent = 'no plan yet';
+    $('score-badge').className = 'badge';
+  }
+  State.formEdited = false;
+  refreshTitleHint();
+  syncEditor();
+  saveForm();
+  paintTakes();
+  statusLine(cover
+    ? 'New cover. The recording stays selected: add a title and lyrics, then Create cover.'
+    : 'New song. Write a title, style and lyrics, then Write score plan.', 'good');
+  $('title').focus();
+}
+
+function takeById(id) {
+  return State.takes.filter(function (take) { return take.id === id; })[0] || null;
+}
+
+function paintTakes() {
+  var list = State.takes.filter(function (take) {
+    return State.filter === 'all' || (State.filter === 'favourite' && take.favourite);
+  });
+  State.paintedAt = Date.now();
+  $('empty').style.display = list.length ? 'none' : 'block';
+  var others = State.spaces.some(function (space) { return space.id !== State.spaceId && space.takes; });
+  $('empty').textContent = State.filter === 'favourite' ? 'No starred takes in this space.'
+    : others ? 'This space is empty. Create a take while it is on show, or move takes here with Move.'
+    : 'Nothing yet. Load a recording, write some lyrics, and press create.';
+  var more = State.takesTotal - State.takes.length;
+  $('takes-more').classList.toggle('hidden', more <= 0);
+  $('takes-more').textContent = 'Show ' + Math.min(more, 300) + ' more of ' + more + ' older takes';
+  $('takes').innerHTML = list.map(function (take) {
+    var status = take.status;
+    var meta = [];
+    meta.push(take.kind === 'song' ? 'from a prompt' : 'cover');
+    if (take.duration) { meta.push(secs(take.duration)); }
+    if (take.kind === 'song' && take.harmony) { meta.push(HARMONY_WORDS[take.harmony].toLowerCase() + ' harmony'); }
+    meta.push('seed ' + take.seed);
+    meta.push(take.checkpoint.replace('yue2_3b_', '').replace('.safetensors', ''));
+    meta.push(age(take.created_at));
+    var live = '';
+    if (status === 'running' && take.live) {
+      live = '<div class="take-meta">' + esc(take.live.label || 'working') + ' \u00b7 ' + Math.round((take.live.progress || 0) * 100) + '%</div>';
+    } else if (status === 'failed') {
+      live = '<div class="take-status failed">' + esc((take.error || 'failed').slice(0, 120)) + '</div>';
+    } else if (status === 'planned') {
+      live = '<div class="take-status ready">plan ready</div>';
+    } else if (status !== 'done') {
+      live = '<div class="take-meta">' + esc(status === 'queued' ? 'waiting for the engine' : status) + '</div>';
+    }
+    var id = ' data-id="' + take.id + '"';
+    var actions = '';
+    if (status === 'queued' || status === 'running') {
+      actions += tile('del', 'stop', 'Cancel', 'data-act="cancel"' + id);
+    }
+    if (status === 'planned') {
+      actions += tile('go', 'render', 'Render', 'data-act="render"' + id);
+      actions += tile('again', 'again', 'Replan', 'data-act="replan"' + id);
+    }
+    if (status === 'failed') {
+      // A failure leaves a dead end unless it can be retried. A take with a score
+      // failed while rendering; one without failed while planning.
+      if (take.abc && take.abc.length > 50) {
+        actions += tile('go', 'render', 'Render', 'data-act="render"' + id);
+      } else {
+        actions += tile('again', 'again', 'Replan', 'data-act="replan"' + id);
+      }
+      // A restarted job leaves a take that often still holds its audio or its score.
+      // Clear puts it back to whatever it reached, without another run.
+      actions += tile('go', 'check', 'Clear', 'data-act="clear"' + id);
+      // Again comes from the branches below when there is audio, and from here when
+      // there is not, so a failed take never shows it twice.
+      if (!take.has_audio) {
+        actions += tile('again', 'again', 'Again', 'data-act="again"' + id);
+      }
+    }
+    if (take.abc && take.abc.length > 50) {
+      actions += tile('score', 'score', 'Score', 'data-act="open"' + id);
+    }
+    if (take.has_audio) {
+      // Named carefully: `live` above already holds the status line for this card,
+      // and var is function scoped, so reusing the name printed true or false there.
+      var isLive = State.playing === take.id;
+      actions += tile('play' + (isLive ? ' playing' : ''), isLive ? 'pause' : 'play',
+                      isLive ? 'Pause' : 'Play', 'data-act="play"' + id);
+      actions += downloadTile(take);
+      actions += tile('stems', 'stems', 'Stems', 'data-act="stems"' + id);
+      actions += tile('again', 'again', 'Again', 'data-act="again"' + id);
+    }
+    actions += tile('star' + (take.favourite ? ' on' : ''), 'star', take.favourite ? 'Starred' : 'Star', 'data-act="star"' + id);
+    actions += tile('del', 'trash', 'Delete', 'data-act="del"' + id);
+    var classes = 'take';
+    if (State.playing === take.id) { classes += ' playing'; }
+    // The left column points at a take either through the editor, or through a
+    // cover retake, where the score in the box belongs to the source.
+    if ((State.leftTakeId || takeIdInEditor()) === take.id) {
+      // tone-*, not song/cover: a plain .cover class belongs to the 46px tile.
+      classes += take.kind === 'song' ? ' editing tone-song' : ' editing tone-cover';
+    }
+    return '<article class="' + classes + '" data-id="' + take.id + '">' +
+      '<div class="take-head">' +
+        '<div class="cover ' + (take.kind === 'song' ? 'grad-song' : 'grad-cover') + '">' + initials(take.title) + '</div>' +
+        '<div class="take-headtext">' +
+          '<div class="take-title" title="' + esc(take.title) + '">' + esc(take.title) + '</div>' +
+          '<div class="take-meta" title="' + esc(meta.join(' \u00b7 ')) + '">' + esc(meta.join(' \u00b7 ')) + '</div>' +
+        '</div>' +
+        // Occasional, so a small corner button rather than a tile in an already full row.
+        '<button class="take-move" data-act="move"' + id + ' title="Move to another space" aria-label="Move to another space">' +
+          icon('move') + '</button>' +
+      '</div>' +
+      '<div class="take-style">' + esc(take.style) + '</div>' +
+      live +
+      '<div class="take-actions">' + actions + '</div>' +
+      stemsBlock(take) +
+    '</article>';
+  }).join('');
+}
+
+/* The play tile is a toggle. The active one pulses, shows a pause icon, and stops
+   the audio when pressed again, so the live take is obvious at a glance. */
+function togglePlay(id) {
+  var audio = $('audio');
+  if (State.playing === id && !audio.paused) {
+    audio.pause();          // keeps currentTime, so Play resumes where it stopped
+    State.playing = null;
+    paintTakes();
+    paintTransport();
+    return;
+  }
+  playTake(id);
+}
+
+function playTake(id) {
+  var take = State.takes.filter(function (t) { return t.id === id; })[0];
+  if (!take) { return; }
+  State.playing = id;
+  State.playRequestedAt = Date.now();
+  wave.kind = take.kind;   // the waveform takes the colour of what is playing
+  var audio = $('audio');
+  var url = '/api/takes/' + id + '/audio';
+  if (State.loadedId === id && audio.src) {
+    // Same take: resume.  Assigning src again would reload the media and throw the
+    // position away, which is what made Pause behave like Stop.
+    if (audio.ended) { audio.currentTime = 0; }
+    audio.play().catch(function () {});
+  } else {
+    State.loadedId = id;
+    audio.src = url;
+    audio.play().catch(function () {});
+    loadWave(url, '/api/takes/' + id + '/peaks');
+  }
+  $('np-title').textContent = take.title;
+  var position = takePosition(id);
+  $('np-meta').textContent = (position ? 'take ' + position.index + ' of ' + position.total + ' \u00b7 ' : '') +
+    (take.duration ? secs(take.duration) : take.style.slice(0, 60));
+  $('np-cover').className = 'np-cover ' + (take.kind === 'song' ? 'grad-song' : 'grad-cover');
+  updateMediaSession(take);
+  paintTransport();
+  paintTakes();
+}
+
+/* ------------------------------------------------------------- transport ---
+   The bar is the only way to control playback: the native audio element is
+   hidden, so these buttons are it. Previous and next walk the library in the
+   order the cards are shown. */
+var SPEEDS = [0.75, 1, 1.25, 1.5];
+var SPEED_LABELS = ['0.75x', '1.0x', '1.25x', '1.5x'];
+var speedIndex = 1;
+
+function playableTakes() {
+  return State.takes.filter(function (take) { return take.has_audio; });
+}
+
+function currentTakeId() {
+  return State.playing || State.loadedId || null;
+}
+
+function currentTake() {
+  var id = currentTakeId();
+  for (var i = 0; i < State.takes.length; i++) {
+    if (State.takes[i].id === id) { return State.takes[i]; }
+  }
+  return null;
+}
+
+function takePosition(id) {
+  var list = playableTakes();
+  for (var i = 0; i < list.length; i++) {
+    if (list[i].id === id) { return { index: i + 1, total: list.length }; }
+  }
+  return null;
+}
+
+function stepTake(delta) {
+  var list = playableTakes();
+  if (!list.length) { return; }
+  var id = currentTakeId();
+  var index = -1;
+  for (var i = 0; i < list.length; i++) { if (list[i].id === id) { index = i; } }
+  var next = index === -1 ? 0 : (index + delta + list.length) % list.length;
+  playTake(list[next].id);
+}
+
+function nudge(seconds) {
+  var audio = $('audio');
+  if (!audio.duration || !isFinite(audio.duration)) { return; }
+  audio.currentTime = Math.max(0, Math.min(audio.duration, audio.currentTime + seconds));
+}
+
+function updateTimes() {
+  var audio = $('audio');
+  $('t-now').textContent = secs(audio.currentTime || 0);
+  $('t-total').textContent = (audio.duration && isFinite(audio.duration)) ? secs(audio.duration) : '--:--';
+}
+
+function paintTransport() {
+  var audio = $('audio');
+  var hasTake = Boolean(currentTakeId());
+  var playing = hasTake && !audio.paused && !audio.ended;
+  $('btn-play').innerHTML = playing
+    ? '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9 5h2.6v14H9zM13.4 5H16v14h-2.6z"/></svg>'
+    : '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.4v13.2L19 12z"/></svg>';
+  $('btn-play').title = playing ? 'Pause' : 'Play';
+  $('btn-play').setAttribute('aria-label', playing ? 'Pause' : 'Play');
+  $('btn-repeat').classList.toggle('on', Boolean(audio.loop));
+  var take = currentTake();
+  $('btn-star').disabled = !take;
+  $('btn-star').classList.toggle('on', Boolean(take && take.favourite));
+  $('btn-prev').disabled = playableTakes().length < 2;
+  $('btn-next').disabled = playableTakes().length < 2;
+  $('btn-mute').classList.toggle('on', Boolean(audio.muted || audio.volume === 0));
+}
+
+function updateMediaSession(take) {
+  if (!('mediaSession' in navigator) || typeof MediaMetadata === 'undefined') { return; }
+  try {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: take.title,
+      artist: (take.style || '').split(',')[0],
+      album: 'YuE2 Studio'
+    });
+  } catch (err) { /* older browsers */ }
+}
+
+/* ------------------------------------------------------------- waveform ---
+   Drawn from the decoded audio. Click or drag anywhere to seek, and the played
+   part fills in as the song runs. */
+var audioCtx = null;
+var wave = { peaks: null, ratio: 0, raf: null, seeking: false };
+// One column per device pixel at draw time, sampled from a fixed 1024 column
+// analysis, so a window resize does not re-decode the audio.
+var WAVE_COLS = 1024;
+var WAVE_HEIGHT = 56;
+
+function waveCanvas() {
+  var canvas = $('wave');
+  var dpr = window.devicePixelRatio || 1;
+  var width = Math.max(120, canvas.clientWidth || 600);
+  var targetW = Math.round(width * dpr);
+  var targetH = Math.round(WAVE_HEIGHT * dpr);
+  if (canvas.width !== targetW || canvas.height !== targetH) {
+    canvas.width = targetW;
+    canvas.height = targetH;
+  }
+  return canvas;
+}
+
+function drawWave() {
+  var canvas = waveCanvas();
+  var ctx = canvas.getContext('2d');
+  var w = canvas.width;
+  var h = canvas.height;
+  var dpr = window.devicePixelRatio || 1;
+  ctx.clearRect(0, 0, w, h);
+  if (!wave.peaks) { return; }
+
+  // A mirrored envelope from the peak values, with an inner body from the RMS.
+  // The outline shows transients, the body shows loudness, which is what makes a
+  // thin or squashed mix visible before you listen to it.
+  var columns = Math.max(1, Math.floor(w / dpr));
+  var mid = h / 2;
+  var amp = h * 0.46;
+  var outline = new Path2D();
+  var body = new Path2D();
+  var i;
+  var x;
+  var p;
+  var r;
+  for (i = 0; i < columns; i++) {
+    p = column(wave.peaks, i, columns) * amp;
+    r = column(wave.rmss, i, columns) * amp;
+    x = i * dpr;
+    if (i === 0) {
+      outline.moveTo(x, mid - p);
+      body.moveTo(x, mid - r);
+    } else {
+      outline.lineTo(x, mid - p);
+      body.lineTo(x, mid - r);
+    }
+  }
+  for (i = columns - 1; i >= 0; i--) {
+    p = column(wave.peaks, i, columns) * amp;
+    r = column(wave.rmss, i, columns) * amp;
+    x = i * dpr;
+    outline.lineTo(x, mid + p);
+    body.lineTo(x, mid + r);
+  }
+  outline.closePath();
+  body.closePath();
+
+  // The played part wears the take's own colour: blue for a song from a prompt,
+  // pink for a cover. Stems and anything else keep the neutral violet.
+  var tone = waveTone();
+  function paint(played) {
+    ctx.fillStyle = played ? tone.outline : 'rgba(255, 255, 255, 0.10)';
+    ctx.fill(outline);
+    ctx.fillStyle = played ? tone.body : 'rgba(255, 255, 255, 0.24)';
+    ctx.fill(body);
+  }
+
+  paint(false);
+  var head = Math.round(wave.ratio * w);
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, 0, head, h);
+  ctx.clip();
+  paint(true);
+  ctx.restore();
+
+  // White, so the playhead stays visible on a pink waveform as well as a blue one.
+  ctx.fillStyle = '#f4f4f7';
+  ctx.fillRect(Math.max(0, Math.min(w - 2, head - 1)), 0, Math.max(2, 2 * dpr), h);
+}
+
+function waveTone() {
+  if (wave.kind === 'song') { return { body: '#38bdf8', outline: 'rgba(56, 189, 248, 0.42)' }; }
+  if (wave.kind === 'cover') { return { body: '#ff4d94', outline: 'rgba(255, 77, 148, 0.42)' }; }
+  return { body: '#a78bfa', outline: 'rgba(167, 139, 250, 0.45)' };
+}
+
+function normalise(values) {
+  var max = 0;
+  for (var i = 0; i < values.length; i++) { if (values[i] > max) { max = values[i]; } }
+  if (!max) { return values; }
+  return values.map(function (v) { return v / max; });
+}
+
+/* The server computes the waveform once and caches it.  Decoding the file here is
+   the fallback, for a server that cannot. */
+async function loadWave(url, peaksUrl) {
+  wave.peaks = null;
+  wave.rmss = null;
+  wave.ratio = 0;
+  wave.token = (wave.token || 0) + 1;
+  var token = wave.token;
+  drawWave();
+  if (peaksUrl) {
+    try {
+      var cached = await api(peaksUrl);
+      if (token !== wave.token) { return; }   // another take started meanwhile
+      if (cached && cached.peaks && cached.peaks.length) {
+        wave.peaks = cached.peaks;
+        wave.rmss = cached.rms;
+        drawWave();
+        return;
+      }
+    } catch (err) { /* decode it here instead */ }
+  }
+  try {
+    var response = await fetch(url);
+    var buffer = await response.arrayBuffer();
+    if (!audioCtx) { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+    if (audioCtx.state === 'suspended') { audioCtx.resume(); }
+    var decoded = await audioCtx.decodeAudioData(buffer.slice(0));
+    var data = decoded.getChannelData(0);
+    var per = Math.max(1, Math.floor(data.length / WAVE_COLS));
+    var peaks = [];
+    var rmss = [];
+    for (var i = 0; i < WAVE_COLS; i++) {
+      var start = i * per;
+      var peak = 0;
+      var sum = 0;
+      var count = 0;
+      for (var j = 0; j < per; j += 16) {
+        var value = data[start + j] || 0;
+        var magnitude = value < 0 ? -value : value;
+        if (magnitude > peak) { peak = magnitude; }
+        sum += value * value;
+        count += 1;
+      }
+      peaks.push(peak);
+      rmss.push(count ? Math.sqrt(sum / count) : 0);
+    }
+    if (token !== wave.token) { return; }
+    wave.peaks = normalise(peaks);
+    wave.rmss = normalise(rmss);
+    drawWave();
+  } catch (err) { /* the waveform is optional. The player still works. */ }
+}
+
+function column(values, index, columns) {
+  if (!values) { return 0; }
+  return values[Math.min(values.length - 1, Math.floor(index * values.length / columns))];
+}
+
+function syncWaveRatio() {
+  var audio = $('audio');
+  if (audio.duration && isFinite(audio.duration)) {
+    wave.ratio = Math.max(0, Math.min(1, audio.currentTime / audio.duration));
+  }
+}
+
+function waveLoop() {
+  syncWaveRatio();
+  drawWave();
+  if (!$('audio').paused && !$('audio').ended) {
+    wave.raf = requestAnimationFrame(waveLoop);
+  } else {
+    wave.raf = null;
+  }
+}
+
+function startWaveLoop() {
+  if (wave.raf === null) { wave.raf = requestAnimationFrame(waveLoop); }
+}
+
+function stopWaveLoop() {
+  if (wave.raf !== null) { cancelAnimationFrame(wave.raf); wave.raf = null; }
+  syncWaveRatio();
+  drawWave();
+}
+
+function seekFromPointer(event) {
+  var canvas = $('wave');
+  var audio = $('audio');
+  var rect = canvas.getBoundingClientRect();
+  if (!rect.width || !audio.duration || !isFinite(audio.duration)) { return; }
+  var ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+  audio.currentTime = ratio * audio.duration;
+  wave.ratio = ratio;
+  drawWave();
+}
+
+function wireTransport() {
+  var audio = $('audio');
+  $('btn-play').addEventListener('click', function () {
+    var id = currentTakeId();
+    if (id) { togglePlay(id); return; }
+    var list = playableTakes();
+    if (list.length) { playTake(list[0].id); }
+  });
+  $('btn-prev').addEventListener('click', function () { stepTake(-1); });
+  $('btn-next').addEventListener('click', function () { stepTake(1); });
+  $('btn-back').addEventListener('click', function () { nudge(-10); });
+  $('btn-fwd').addEventListener('click', function () { nudge(10); });
+  $('btn-repeat').addEventListener('click', function () {
+    audio.loop = !audio.loop;
+    paintTransport();
+  });
+  $('btn-speed').addEventListener('click', function () {
+    speedIndex = (speedIndex + 1) % SPEEDS.length;
+    audio.playbackRate = SPEEDS[speedIndex];
+    $('btn-speed').textContent = SPEED_LABELS[speedIndex];
+    $('btn-speed').classList.toggle('on', SPEEDS[speedIndex] !== 1);
+  });
+  $('btn-star').addEventListener('click', async function () {
+    var take = currentTake();
+    if (!take) { return; }
+    try {
+      await api('/api/takes/' + take.id + '/favourite?value=' + (take.favourite ? 'false' : 'true'), { method: 'POST' });
+      take.favourite = take.favourite ? 0 : 1;
+      paintTransport();
+      loadTakes();
+    } catch (err) { /* leave the star as it was */ }
+  });
+  $('btn-mute').addEventListener('click', function () {
+    audio.muted = !audio.muted;
+    paintTransport();
+  });
+  $('volume').addEventListener('input', function () {
+    audio.volume = Number($('volume').value) / 100;
+    audio.muted = false;
+    try { localStorage.setItem('yue2.volume', $('volume').value); } catch (err) { /* private mode */ }
+    paintTransport();
+  });
+  var saved = null;
+  try { saved = localStorage.getItem('yue2.volume'); } catch (err) { saved = null; }
+  if (saved !== null) {
+    $('volume').value = saved;
+    audio.volume = Number(saved) / 100;
+  }
+
+  if ('mediaSession' in navigator) {
+    var handlers = {
+      play: function () { var id = currentTakeId(); if (id && audio.paused) { togglePlay(id); } },
+      pause: function () { var id = currentTakeId(); if (id && !audio.paused) { togglePlay(id); } },
+      previoustrack: function () { stepTake(-1); },
+      nexttrack: function () { stepTake(1); },
+      seekbackward: function () { nudge(-10); },
+      seekforward: function () { nudge(10); }
+    };
+    Object.keys(handlers).forEach(function (name) {
+      try { navigator.mediaSession.setActionHandler(name, handlers[name]); } catch (err) { /* unsupported action */ }
+    });
+  }
+
+  ['play', 'pause', 'ended', 'loadedmetadata', 'durationchange', 'seeking'].forEach(function (name) {
+    audio.addEventListener(name, function () { updateTimes(); paintTransport(); });
+  });
+  paintTransport();
+}
+
+function wireWave() {
+  var canvas = $('wave');
+  canvas.addEventListener('pointerdown', function (event) {
+    wave.seeking = true;
+    try { canvas.setPointerCapture(event.pointerId); } catch (err) { /* older browsers */ }
+    seekFromPointer(event);
+  });
+  canvas.addEventListener('pointermove', function (event) {
+    if (wave.seeking) { seekFromPointer(event); }
+  });
+  canvas.addEventListener('pointerup', function () { wave.seeking = false; });
+  canvas.addEventListener('pointercancel', function () { wave.seeking = false; });
+  window.addEventListener('resize', function () { drawWave(); });
+  var audio = $('audio');
+  audio.addEventListener('play', startWaveLoop);
+  audio.addEventListener('playing', startWaveLoop);
+  audio.addEventListener('pause', stopWaveLoop);
+  audio.addEventListener('ended', function () { stopWaveLoop(); wave.ratio = 1; drawWave(); State.playing = null; paintTakes(); paintTransport(); });
+  audio.addEventListener('pause', function () {
+    // Ignore the pause that fires while a new track is being loaded.
+    if (Date.now() - (State.playRequestedAt || 0) < 800) { return; }
+    if (State.playing) { State.playing = null; paintTakes(); paintTransport(); }
+  });
+  audio.addEventListener('seeking', function () { syncWaveRatio(); drawWave(); });
+  audio.addEventListener('timeupdate', function () { syncWaveRatio(); drawWave(); });
+}
+
+/* ------------------------------------------------------------------- form */
+async function uploadFile(file) {
+  if (!file) { return; }
+  $('source-status').textContent = 'Uploading ' + file.name + '\u2026';
+  $('source-status').className = 'status';
+  var form = new FormData();
+  form.append('file', file);
+  try {
+    var source = await api('/api/sources', { method: 'POST', body: form });
+    await loadSources();
+    $('source-select').value = source.id;
+    State.editorSourceId = null;
+    paintSource();
+    $('source-status').textContent = source.duplicate ? 'That recording is already in the library.' : 'Uploaded. Transcribe it to get a score.';
+    $('source-status').className = 'status good';
+  } catch (err) {
+    $('source-status').textContent = 'Upload failed: ' + err.message;
+    $('source-status').className = 'status bad';
+  }
+}
+
+async function doTranscribe() {
+  var source = currentSource();
+  if (!source) { $('source-status').textContent = 'Choose a recording first.'; return; }
+  try {
+    await api('/api/sources/' + source.id + '/transcribe', { method: 'POST' });
+    source.transcribe_state = 'queued';
+    paintSource();
+  } catch (err) {
+    $('source-status').textContent = 'Could not start: ' + err.message;
+    $('source-status').className = 'status bad';
+  }
+}
+
+async function doRender() {
+  var source = currentSource();
+  var status = $('render-status');
+  if (!source) { status.textContent = 'Choose a recording first.'; status.className = 'status bad'; return; }
+  var seed = parseInt($('seed').value, 10);
+  if (!($('seed-fixed').checked) || isNaN(seed)) {
+    seed = Math.floor(Math.random() * 4294967295);
+    $('seed').value = seed;
+  }
+  var body = {
+    source_id: source.id,
+    title: $('title').value.trim() || guessTitle($('lyrics').value) || source.title,
+    style: $('style').value,
+    lyrics: $('lyrics').value,
+    abc: $('abc').value,
+    mode: $('mode').value,
+    seed: seed,
+    checkpoint: $('checkpoint').value,
+    max_duration: parseFloat($('max-duration').value) || 360,
+    space_id: State.spaceId
+  };
+  status.textContent = 'Queued\u2026';
+  status.className = 'status';
+  try {
+    await api('/api/takes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    status.textContent = '';
+    loadTakes();
+  } catch (err) {
+    status.textContent = 'Could not queue: ' + err.message;
+    status.className = 'status bad';
+  }
+}
+
+/* The score itself decides the length: bars, meter and tempo. Measured against six
+   finished renders, this lands within about 5 per cent, unless the cap cuts the song short. */
+function planLength(abc) {
+  if (!abc) { return null; }
+  var meter = /^M:(\d+)\/(\d+)/m.exec(abc);
+  var beats = meter ? parseInt(meter[1], 10) : 4;
+  var tempo = /^Q:1\/4=(\d+)/m.exec(abc);
+  var bpm = tempo ? parseInt(tempo[1], 10) : 120;
+  var totals = {};
+  var voice = null;
+  abc.split('\n').forEach(function (raw) {
+    var line = raw.trim();
+    if (line.indexOf('V:') === 0) { voice = line.slice(2).trim().split(/\s+/)[0]; return; }
+    if (!line || line.charAt(0) === '%' || /^[XTMLQK]:/.test(line) || !voice) { return; }
+    totals[voice] = (totals[voice] || 0) + (line.split('|').length - 1);
+  });
+  var best = 0;
+  Object.keys(totals).forEach(function (name) { if (totals[name] > best) { best = totals[name]; } });
+  if (!best) { return null; }
+  return { bars: best, bpm: bpm, seconds: best * beats * 60 / bpm };
+}
+
+/* The chart is a toggle. The button says what the next click will do. */
+function setChart(text) {
+  var hasChart = Boolean(text);
+  $('chart').textContent = hasChart ? text : '';
+  $('chord-chart').textContent = hasChart ? 'Hide chart' : 'Chord chart';
+}
+
+function showPlanLength(abc) {
+  var node = $('plan-length');
+  if (!node) { return; }
+  var info = planLength(abc);
+  if (!info) { node.textContent = ''; return; }
+  var cap = parseFloat($('max-duration').value) || 360;
+  var text = 'Score is ' + info.bars + ' bars at ' + info.bpm + ' BPM, so about ' + secs(info.seconds);
+  if (info.seconds > cap) {
+    text += '. Your cap of ' + secs(cap) + ' will cut it short.';
+  } else {
+    text += '. Cap ' + secs(cap) + ', so it will fit.';
+  }
+  node.textContent = text;
+}
+
+function chordChart(abc) {
+  var section = 'song';
+  var voice = null;
+  var chart = {};
+  var order = [];
+  abc.split('\n').forEach(function (raw) {
+    var line = raw.trim();
+    if (line.charAt(0) === '%') { section = line.replace(/^%\s*/, '') || 'section'; return; }
+    if (line.indexOf('V:') === 0) { voice = line.slice(2).trim().split(/\s+/)[0]; return; }
+    if (!line || voice !== 'Vocal' || /^[XTM LQK]:/.test(line)) { return; }
+    var last = null;
+    line.split('|').forEach(function (bar) {
+      if (!bar.trim()) { return; }
+      // Any symbol that starts with a note: Cmaj7, Bm7b5, and slash chords such as C7/Bb.
+      var found = bar.match(/"([A-G][#b]?[^"\s]*)"/g);
+      // One bar can carry more than one chord, for example "F#"z8"E"z8. Keep every symbol.
+      var list = found ? found.map(function (chord) { return chord.replace(/"/g, ''); })
+                       : (last === null ? [] : [last]);
+      list.forEach(function (chord) {
+        if (!chart[section]) { chart[section] = []; order.push(section); }
+        chart[section].push(chord);
+        last = chord;
+      });
+    });
+  });
+  if (!order.length) {
+    return State.mode === 'song'
+      ? 'No chord symbols in this score. The plan may have come out broken: write a new plan, or choose a calmer Plan variety.'
+      : 'No chord symbols in this score. Use full mode when you transcribe to get chords.';
+  }
+  var total = 0;
+  var lines = order.map(function (name) {
+    var bars = chart[name];
+    total += bars.length;
+    var folded = [];
+    for (var i = 0; i < bars.length; i++) {
+      var count = 1;
+      while (i + 1 < bars.length && bars[i + 1] === bars[i]) { count += 1; i += 1; }
+      folded.push(count > 1 ? bars[i] + ' x' + count : bars[i]);
+    }
+    var padded = (name + '            ').slice(0, 12);
+    return padded + '| ' + folded.join('  ');
+  });
+  var distinct = {};
+  order.forEach(function (name) { chart[name].forEach(function (chord) { distinct[chord] = 1; }); });
+  lines.push('');
+  lines.push(total + ' bars, ' + Object.keys(distinct).length + ' different chords. ' + (State.mode === 'song'
+    ? 'A short loop that repeats all song is the model being lazy. Raise Harmony, or edit the symbols.'
+    : 'These are the recording\u2019s chords. Edit the symbols, or render in melody mode to let YuE2 choose its own.'));
+  return lines.join('\n');
+}
+
+/* ------------------------------------------------------------------ wiring */
+function wire() {
+  var presets = [
+    'English, warm indie rock, expressive male vocal, guitars, bass, drums, 110 BPM',
+    'English, soulful jazz-pop, expressive male vocal, Rhodes, upright bass, brushed drums, 88 BPM',
+    'English, synthwave, female vocal, analog pads, gated drums, 100 BPM',
+    'English, acoustic ballad, intimate vocal, fingerpicked guitar, strings',
+    'English, heavy rock, gritty male vocal, distorted guitars, driving drums'
+  ];
+  $('presets').innerHTML = presets.map(function (text) {
+    return '<button class="chip" data-preset="' + esc(text) + '">' + esc(text.split(',')[1] || text) + '</button>';
+  }).join('');
+  $('presets').addEventListener('click', function (event) {
+    var button = event.target.closest('[data-preset]');
+    if (button) { $('style').value = button.dataset.preset; paintVocals(); }
+  });
+  $('vocal-sex').addEventListener('click', function (event) {
+    var button = event.target.closest('[data-sex]');
+    if (button) { setVocalSex(button.dataset.sex); }
+  });
+  $('vocal-tone').addEventListener('click', function (event) {
+    var button = event.target.closest('[data-tone]');
+    if (button) { toggleVocalTone(button.dataset.tone); }
+  });
+  $('style').addEventListener('input', paintVocals);
+  $('harmony').addEventListener('input', paintHarmony);
+
+  $('browse').addEventListener('click', function () { $('file').click(); });
+  $('file').addEventListener('change', function (event) { uploadFile(event.target.files[0]); });
+  var drop = $('drop');
+  drop.addEventListener('dragover', function (event) { event.preventDefault(); drop.classList.add('over'); });
+  drop.addEventListener('dragleave', function () { drop.classList.remove('over'); });
+  drop.addEventListener('drop', function (event) {
+    event.preventDefault();
+    drop.classList.remove('over');
+    if (event.dataTransfer.files.length) { uploadFile(event.dataTransfer.files[0]); }
+  });
+
+  $('source-select').addEventListener('change', function () {
+    claimEditorFor(null);
+    paintSource();
+    loadSourceStems();
+  });
+  $('transcribe').addEventListener('click', doTranscribe);
+  $('create-cover').addEventListener('click', doRender);
+  $('create-song').addEventListener('click', doPlan);
+  $('render-take').addEventListener('click', doRenderTake);
+  $('reroll').addEventListener('click', doReroll);
+  document.querySelector('.modes').addEventListener('click', function (event) {
+    var button = event.target.closest('[data-mode]');
+    if (button) { setMode(button.dataset.mode); }
+  });
+
+  $('save-score').addEventListener('click', async function () {
+    if (!scoreIsDirty()) { return; }
+    var takeId = takeIdInEditor();
+    var source = currentSource();
+    var url = takeId ? '/api/takes/' + takeId + '/score'
+                     : (State.mode === 'cover' && source ? '/api/sources/' + source.id + '/score' : '');
+    if (!url) {
+      statusLine(State.mode === 'song'
+        ? 'A song\u2019s score is saved with its take. Write a score plan first.'
+        : 'Choose a recording to save this score to.', 'bad');
+      return;
+    }
+    try {
+      await api(url, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ abc: $('abc').value })
+      });
+    } catch (err) {
+      statusLine('Could not save the score: ' + err.message, 'bad');
+      return;
+    }
+    scoreBaseline($('abc').value);
+    confirmScoreSaved();
+    statusLine('Score saved.', 'good');
+    $('source-status').textContent = 'Score saved.';
+    $('source-status').className = 'status good';
+    loadSources();
+    loadTakes();
+  });
+
+  $('do-replace').addEventListener('click', function () {
+    var find = $('find-chord').value.trim();
+    var replace = $('replace-chord').value.trim();
+    if (!find) { statusLine('Type the chord to find first.', 'bad'); return; }
+    var text = $('abc').value;
+    var quoted = '"' + find + '"';
+    var count = text.split(quoted).length - 1;
+    if (!count) { statusLine('This score has no chord "' + find + '".', 'bad'); return; }
+    $('abc').value = text.split(quoted).join('"' + replace + '"');
+    setChart(chordChart($('abc').value));
+    syncEditor();
+    statusLine('Replaced ' + count + ' with "' + replace + '". Now save the score, then render.', 'good');
+  });
+
+  $('chord-chart').addEventListener('click', function () {
+    if ($('chart').textContent) { setChart(''); return; }
+    setChart(chordChart($('abc').value));
+    showPlanLength($('abc').value);
+  });
+
+  $('dice').addEventListener('click', function () {
+    $('seed').value = Math.floor(Math.random() * 4294967295);
+    $('seed-fixed').checked = true;
+  });
+
+  $('layout-toggle').addEventListener('click', function () {
+    applyLayout(State.layout === 'comfy' ? 'compact' : 'comfy');
+  });
+
+  document.querySelector('.filters').addEventListener('click', function (event) {
+    var button = event.target.closest('[data-filter]');
+    if (!button) { return; }
+    State.filter = button.dataset.filter;
+    Array.prototype.forEach.call(document.querySelectorAll('.filters .chip'), function (chip) { chip.classList.remove('active'); });
+    button.classList.add('active');
+    State.takesRaw = '';
+    loadTakes();
+  });
+  $('takes-more').addEventListener('click', function () {
+    State.takeLimit += 300;
+    loadTakes();
+  });
+
+  $('takes').addEventListener('click', function (event) {
+    // Save is an anchor, not a button, so the tile handler below never sees it.
+    var link = event.target.closest('a.save[href^="/api/takes/"]');
+    if (link) { selectTake(takeById(link.getAttribute('href').split('/')[3])); }
+  });
+
+  $('takes').addEventListener('click', function (event) {
+    // Clicking anywhere on the card, except on a control inside it, makes that
+    // take the one the left column describes.
+    if (event.target.closest('button, a, input, select, textarea, label')) { return; }
+    var card = event.target.closest('.take');
+    if (card && card.dataset.id) { selectTake(takeById(card.dataset.id)); }
+  });
+
+  $('takes').addEventListener('click', function (event) {
+    var button = event.target.closest('button[data-act]');
+    if (!button) { return; }
+    takeAction(button).catch(function (err) {
+      statusLine('Could not ' + button.textContent.trim().toLowerCase() + ': ' + err.message, 'bad');
+      loadTakes();
+    });
+  });
+  $('source-stems-list').addEventListener('click', function (event) {
+    var button = event.target.closest('button[data-act]');
+    if (!button) { return; }
+    takeAction(button).then(loadSourceStems).catch(function (err) {
+      $('source-status').textContent = 'Could not delete the stems: ' + err.message;
+      $('source-status').className = 'status bad';
+    });
+  });
+  $('source-stems').addEventListener('click', function () {
+    var source = currentSource();
+    if (!source) { $('source-status').textContent = 'Choose a recording first.'; return; }
+    openStemsModal({ kind: 'source', id: source.id, title: source.title });
+  });
+  $('source-delete').addEventListener('click', deleteSource);
+  $('start-fresh').addEventListener('click', startFresh);
+  $('space').addEventListener('change', function () { showSpace($('space').value); });
+  $('space-new').addEventListener('click', newSpace);
+  $('space-rename').addEventListener('click', renameSpace);
+  $('space-delete').addEventListener('click', deleteSpace);
+  $('move-close').addEventListener('click', closeMoveModal);
+  $('move-modal').addEventListener('click', function (event) {
+    if (event.target === $('move-modal')) { closeMoveModal(); }
+  });
+  $('move-list').addEventListener('click', function (event) {
+    var button = event.target.closest('button[data-space]');
+    if (!button) { return; }
+    moveTake(button.dataset.space).catch(function (err) { $('move-status').textContent = err.message; $('move-status').className = 'status bad'; });
+  });
+  async function createAndMove() {
+    var name = $('move-name').value.trim();
+    if (!name) { $('move-name').focus(); return; }
+    try {
+      var space = await api('/api/spaces', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name })
+      });
+      State.spaces.push(space);
+      await moveTake(space.id);
+    } catch (err) {
+      $('move-status').textContent = err.message;
+      $('move-status').className = 'status bad';
+    }
+  }
+  $('move-create').addEventListener('click', createAndMove);
+  $('move-name').addEventListener('keydown', function (event) { if (event.key === 'Enter') { createAndMove(); } });
+  $('draft-restore').addEventListener('click', restoreDraft);
+  $('draft-dismiss').addEventListener('click', dismissDraft);
+
+  async function takeAction(button) {
+    var id = button.dataset.id;
+    var act = button.dataset.act;
+    if (act === 'cancel') {
+      await api('/api/takes/' + id + '/cancel', { method: 'POST' });
+      loadTakes();
+    }
+    if (act === 'play') {
+      selectTake(takeById(id));
+      togglePlay(id);
+    }
+    if (act === 'star') {
+      var take = State.takes.filter(function (t) { return t.id === id; })[0];
+      await api('/api/takes/' + id + '/favourite?value=' + (take && take.favourite ? 'false' : 'true'), { method: 'POST' });
+      loadTakes();
+    }
+    if (act === 'del') {
+      if (confirm('Delete this take and its audio?')) {
+        await api('/api/takes/' + id, { method: 'DELETE' });
+        loadTakes();
+      }
+    }
+    if (act === 'open') {
+      var opened = takeById(id);
+      if (!opened) { return; }
+      selectTake(opened);
+      statusLine('Showing the score for ' + opened.title + '.', 'good');
+      $('score-box').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    if (act === 'stems') {
+      var stemTake = takeById(id);
+      if (stemTake) {
+        selectTake(stemTake);
+        openStemsModal({ kind: 'take', id: stemTake.id, title: stemTake.title });
+      }
+    }
+    if (act === 'stem-play') {
+      playStem(button.dataset.set, button.dataset.file);
+    }
+    if (act === 'stem-del') {
+      await api('/api/stem-sets/' + button.dataset.set, { method: 'DELETE' });
+      if (!button.closest('#source-stems-list')) { loadTakes(); }
+    }
+    if (act === 'render') {
+      selectTake(takeById(id));
+      await api('/api/takes/' + id + '/render', { method: 'POST' });
+      loadTakes();
+    }
+    if (act === 'clear') {
+      try {
+        var cleared = await api('/api/takes/' + id + '/clear', { method: 'POST' });
+        statusLine('Cleared. The take is back to ' + (cleared.status === 'done' ? 'its audio.' : 'its score.'), 'good');
+      } catch (err) {
+        statusLine(err.message, 'bad');
+      }
+      loadTakes();
+    }
+    if (act === 'replan') {
+      selectTake(takeById(id));
+      await api('/api/takes/' + id + '/replan', { method: 'POST' });
+      awaitNewPlan(id);
+      statusLine('Writing a new plan for the same words\u2026');
+      loadTakes();
+    }
+    if (act === 'move') {
+      var moving = takeById(id);
+      if (moving) { openMoveModal(moving); }
+    }
+    if (act === 'again') {
+      var previous = takeById(id);
+      if (!previous) { return; }
+      selectTake(previous);
+      $('seed').value = Math.floor(Math.random() * 4294967295);
+      $('seed-fixed').checked = true;
+      var createButton = previous.kind === 'song' ? $('create-song') : $('create-cover');
+      if (createButton) { createButton.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+    }
+  }
+
+  $('job-stop').addEventListener('click', function () {
+    api('/api/jobs/current/cancel', { method: 'POST' }).then(loadTakes).catch(function (err) {
+      statusLine('Could not stop the job: ' + err.message, 'bad');
+    });
+  });
+
+  wireWave();
+  wireTransport();
+  paintVocals();
+
+  FORM_FIELDS.forEach(function (id) {
+    $(id).addEventListener('input', function () {
+      if (id === 'style') { $('style').dataset.touched = '1'; }
+      saveForm();
+    });
+    $(id).addEventListener('change', saveForm);
+  });
+  $('auto-render').addEventListener('change', saveForm);
+  $('seed-fixed').addEventListener('change', saveForm);
+  $('lyrics').addEventListener('input', function () {
+    State.formEdited = true;
+    refreshTitleHint();
+  });
+  ['title', 'style'].forEach(function (id) {
+    $(id).addEventListener('input', function () { State.formEdited = true; });
+  });
+  $('abc').addEventListener('input', function () {
+    saveWorkingScore();
+    pushScoreHistory($('abc').value);
+    paintScoreDirty();
+  });
+
+  $('brand').addEventListener('click', openSettings);
+  $('settings-close').addEventListener('click', closeSettings);
+  $('settings-modal').addEventListener('click', function (event) {
+    if (event.target === $('settings-modal')) { closeSettings(); }
+  });
+  $('settings-list').addEventListener('change', function (event) {
+    if (event.target.dataset && event.target.dataset.key) { saveSetting(event.target); }
+  });
+  $('settings-list').addEventListener('blur', function (event) {
+    if (event.target.dataset && event.target.dataset.key && event.target.tagName === 'INPUT') { saveSetting(event.target); }
+  }, true);
+  $('stems-close').addEventListener('click', closeStemsModal);
+  $('stems-run').addEventListener('click', runStems);
+  $('stems-model').addEventListener('change', paintStemChoices);
+  $('stems-modal').addEventListener('click', function (event) {
+    if (event.target === $('stems-modal')) { closeStemsModal(); }
+  });
+  $('lyrics-expand').addEventListener('click', openLyricsEditor);
+  $('score-expand').addEventListener('click', function (event) {
+    event.preventDefault();   // the Expand sits inside a summary, which toggles the box
+    openScoreEditor();
+  });
+  try {
+    var savedView = localStorage.getItem(SCORE_VIEW_KEY);
+    if (savedView) { State.scoreView = savedView; }
+  } catch (err) { /* private mode */ }
+  $('score-close').addEventListener('click', closeScoreEditor);
+  $('score-big').addEventListener('input', syncScoreFromBig);
+  $('do-replace-big').addEventListener('click', function () {
+    var find = $('find-chord-big').value.trim();
+    var replace = $('replace-chord-big').value.trim();
+    if (!find) { return; }
+    var text = $('score-big').value;
+    if (text.indexOf('"' + find + '"') === -1) { return; }
+    scoreStack.at = 0;   // a replace is always its own step
+    $('score-big').value = text.split('"' + find + '"').join('"' + replace + '"');
+    syncScoreFromBig();
+  });
+  $('score-modal').addEventListener('click', function (event) {
+    if (event.target === $('score-modal')) { closeScoreEditor(); }
+  });
+  $('score-views').addEventListener('click', function (event) {
+    var chip = event.target.closest('[data-view]');
+    if (chip) { setScoreView(chip.dataset.view); }
+  });
+  paintScoreDirty();
+  $('score-undo').addEventListener('click', undoScore);
+  $('score-redo').addEventListener('click', redoScore);
+  paintScoreHistory();
+  $('lyrics-close').addEventListener('click', closeLyricsEditor);
+  $('lyrics-big').addEventListener('input', syncLyricsFromBig);
+  $('lyrics-modal').addEventListener('click', function (event) {
+    if (event.target === $('lyrics-modal')) { closeLyricsEditor(); }
+  });
+  document.querySelector('.modal-tools').addEventListener('click', function (event) {
+    var button = event.target.closest('[data-tag]');
+    if (button) { insertTag(button.dataset.tag); }
+  });
+  document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape' && !$('move-modal').classList.contains('hidden')) { closeMoveModal(); return; }
+    if (event.key === 'Escape' && !$('lyrics-modal').classList.contains('hidden')) { closeLyricsEditor(); return; }
+    if (event.key === 'Escape' && !$('stems-modal').classList.contains('hidden')) { closeStemsModal(); return; }
+    if (event.key === 'Escape' && !$('settings-modal').classList.contains('hidden')) { closeSettings(); return; }
+    if (event.key === 'Escape' && !$('score-modal').classList.contains('hidden')) { closeScoreEditor(); return; }
+
+    // Undo and redo of the score, from either box.
+    var focus = document.activeElement;
+    var inScore = focus === $('abc') || focus === $('score-big');
+    if (inScore && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
+      event.preventDefault();
+      if (event.shiftKey) { redoScore(); } else { undoScore(); }
+      return;
+    }
+    if (inScore && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'y') {
+      event.preventDefault();
+      redoScore();
+      return;
+    }
+
+    // Playback shortcuts, but never while typing.
+    var tag = (focus && focus.tagName) || '';
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') { return; }
+    if (event.code === 'Space') { event.preventDefault(); $('btn-play').click(); }
+    else if (event.key === 'ArrowLeft') { nudge(-5); }
+    else if (event.key === 'ArrowRight') { nudge(5); }
+    else if (event.key === 'ArrowUp') { event.preventDefault(); $('volume').value = Math.min(100, Number($('volume').value) + 5); $('volume').dispatchEvent(new Event('input')); }
+    else if (event.key === 'ArrowDown') { event.preventDefault(); $('volume').value = Math.max(0, Number($('volume').value) - 5); $('volume').dispatchEvent(new Event('input')); }
+  });
+}
+
+wire();
+loadLayout();
+loadSpaceChoice();
+loadForm();
+paintHarmony();
+loadWorkingScore();
+setScoreActions();
+refreshTitleHint();
+setMode('cover');
+pollState();
+loadSources().then(loadSourceStems);
+loadSpaces().catch(function () { /* the takes poll retries */ });
+loadTakes();
+
+/* Polls never overlap, and stop while the tab is hidden. */
+function every(ms, fn) {
+  var running = false;
+  setInterval(function () {
+    if (running || document.hidden) { return; }
+    running = true;
+    Promise.resolve().then(fn).catch(function () { /* the next tick retries */ })
+      .then(function () { running = false; });
+  }, ms);
+}
+every(2000, pollState);
+// Every 3 seconds while something is running, so progress on the cards moves;
+// every 6 when idle.
+every(3000, function () {
+  var working = State.busy || State.takes.some(function (take) {
+    return take.status === 'queued' || take.status === 'running' ||
+      (take.stem_sets || []).some(function (set) { return set.status === 'queued' || set.status === 'running'; });
+  });
+  if (!working && Date.now() - State.takesAt < 6000) { return; }
+  return loadTakes();
+});
+every(6000, loadSourceStems);
+document.addEventListener('visibilitychange', function () {
+  if (!document.hidden) { pollState(); loadTakes(); }
+});

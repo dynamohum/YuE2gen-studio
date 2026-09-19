@@ -1,0 +1,51 @@
+# Split topology: the app on an always-on machine, the engine on the GPU box.
+#
+#   docker compose -f compose.split.yml up -d --build
+#
+# Use this instead of compose.yml when the rendering machine sleeps and you still
+# want the library and the UI available.  Point ENGINE_URL at the engine, which
+# must listen on the LAN rather than localhost.
+#
+# The volume path and the user below are examples.  Change them to suit the host.
+# A fixed project name, so containers and the network are named the same wherever
+# the repository is cloned.
+name: yue2studio
+
+services:
+  app:
+    build: .
+    image: yue2studio-app:latest
+    container_name: yue2studio-app
+    restart: unless-stopped
+    # Host networking, so the app binds 8090 directly on this machine.
+    network_mode: host
+    read_only: true
+    # Run as the owner of the data folder on this host.
+    user: "1000:1000"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=64m
+    environment:
+      TZ: Europe/London
+      # The GPU machine.  See compose.yml for the engine service, and start that
+      # one with --listen so it answers on the LAN.  Use its hostname or address.
+      ENGINE_URL: http://gpu-box:8188
+      # The names this machine is reached by on the LAN.  Requests using any other
+      # Host header are refused, which blocks DNS rebinding.  "*" turns it off.
+      ALLOWED_HOSTS: localhost,127.0.0.1,nas,nas.local
+      DATA_DIR: /data
+      # /tmp below is a small tmpfs.  Uploads are spooled and stems are worked on
+      # inside the data folder instead, so a large recording still fits.
+      TMPDIR: /data/tmp
+      PORT: "8090"
+    volumes:
+      - ./data:/data
+    mem_limit: 2g
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

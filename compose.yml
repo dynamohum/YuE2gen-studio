@@ -1,0 +1,72 @@
+# YuE2 Studio, single machine, GPU aware.
+#
+#   engine  - ComfyUI with the YuE2 nodes.  Owns the GPU.  Port 8188 stays inside.
+#   app     - the web UI, the library, and stems.  Published on localhost:8090.
+#
+# Only localhost is published.  Reaching it from other devices is a README topic.
+# A fixed project name, so containers and the network are named the same wherever
+# the repository is cloned.
+name: yue2studio
+
+services:
+  engine:
+    build:
+      context: ./engine
+    image: yue2studio-engine:latest
+    container_name: yue2studio-engine
+    restart: unless-stopped
+    # Localhost only, for debugging and for the optional ComfyUI UI.  The app
+    # reaches the engine by service name over the compose network.
+    ports:
+      - "127.0.0.1:8189:8188"
+    volumes:
+      - ./models:/app/models
+      - ./engine-state/input:/app/input
+      - ./engine-state/output:/app/output
+      - ./engine-state/user:/app/user
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: yue2studio-app:latest
+    container_name: yue2studio-app
+    restart: unless-stopped
+    # Run as the host user so the audio, stems and database stay owned by you, and
+    # a backup can read them without sudo.
+    user: "1000:1000"
+    depends_on:
+      - engine
+    ports:
+      - "127.0.0.1:8090:8090"
+    environment:
+      ENGINE_URL: http://engine:8188
+      DATA_DIR: /data
+      PORT: "8090"
+      TZ: Europe/London
+      # The engine's output folder, so a render is removed from it once the app
+      # has its copy.  Leave both lines out and renders accumulate there instead.
+      ENGINE_OUTPUT_DIR: /engine-output
+      # Host names the page may be reached by.  Add a LAN name or address here if
+      # you publish the port beyond localhost.
+      ALLOWED_HOSTS: localhost,127.0.0.1,::1
+    volumes:
+      - ./data:/data
+      - ./engine-state/output:/engine-output
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

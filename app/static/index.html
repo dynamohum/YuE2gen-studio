@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>YuE2 Studio</title>
+<link rel="stylesheet" href="/static/styles.css?v={{VERSION}}">
+</head>
+<body>
+<header class="topbar">
+  <button class="brand" id="brand" title="Settings" aria-haspopup="dialog">
+    <span class="dot"></span>YuE2 <em>Studio</em>
+    <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+  </button>
+  <div class="topbar-right">
+    <span id="app-version" class="version"></span>
+    <div id="engine-pill" class="pill pill-off">Connecting</div>
+  </div>
+</header>
+
+<main>
+  <section class="panel create">
+    <div class="create-head">
+      <h1 id="headline">Cover a song</h1>
+      <button id="start-fresh" class="ghost" title="Clear the title, lyrics and score, and keep your settings">New cover</button>
+    </div>
+    <p class="sub" id="sub">Your own recording in. A new arrangement, new vocals, and an editable score out.</p>
+
+    <div class="modes">
+      <button class="mode active" data-mode="cover"><span class="dot"></span>Cover a recording</button>
+      <button class="mode" data-mode="song"><span class="dot"></span>Song from a prompt</button>
+    </div>
+
+    <div id="draft-bar" class="draft hidden" role="status">
+      <span id="draft-text">Your unsaved words were kept.</span>
+      <button id="draft-restore" class="link">Restore</button>
+      <button id="draft-dismiss" class="link">Dismiss</button>
+    </div>
+
+    <div class="field">
+      <label>Song title</label>
+      <input id="title" type="text" placeholder="Leave blank and the first lyric line is used">
+    </div>
+
+    <div class="field" id="cover-only">
+      <label>Source recording</label>
+      <div id="drop" class="drop">
+        <input id="file" type="file" accept="audio/*" hidden>
+        <div class="drop-inner">
+          <strong>Drop an audio file</strong>
+          <span>or <button id="browse" class="link">browse</button> &middot; mp3, wav, flac, m4a</span>
+        </div>
+      </div>
+      <div class="source-row">
+        <select id="source-select"></select>
+        <button id="transcribe" class="ghost">Transcribe</button>
+        <button id="source-stems" class="ghost" title="Extract stems from this recording">Stems</button>
+        <button id="source-delete" class="ghost" title="Delete this recording">Delete</button>
+      </div>
+      <div id="source-status" class="status"></div>
+      <div id="source-stems-list"></div>
+    </div>
+
+    <details id="score-box" class="block">
+      <summary>
+        <span id="score-label">Score</span> <span id="score-badge" class="badge">no score</span>
+        <button id="score-expand" class="link" title="Open a full size editor">Expand</button>
+      </summary>
+      <p class="hint">Chords live in the quoted symbols. Change them and the next render follows your harmony.</p>
+      <textarea id="abc" spellcheck="false" placeholder="Transcribe a recording, or write a score plan, to fill this in."></textarea>
+      <div class="row">
+        <button id="save-score" class="ghost">Save score</button>
+        <button id="chord-chart" class="ghost">Chord chart</button>
+      </div>
+      <div class="row" id="score-tools" style="margin-top:8px">
+        <input id="find-chord" type="text" placeholder="find, e.g. D#m" style="max-width:140px">
+        <input id="replace-chord" type="text" placeholder="replace with D#" style="max-width:140px">
+        <button id="do-replace" class="ghost">Replace all</button>
+      </div>
+      <div class="row" id="plan-actions" style="margin-top:8px">
+        <button id="render-take" class="ghost">Render this score</button>
+        <button id="reroll" class="ghost">Write a new plan</button>
+      </div>
+      <div id="score-note" class="hint"></div>
+      <div id="plan-length" class="hint"></div>
+      <pre id="chart" class="chart"></pre>
+    </details>
+
+    <div class="field">
+      <label>Style</label>
+      <input id="style" type="text" autocomplete="off">
+      <div id="presets" class="chips"></div>
+    </div>
+
+    <div class="field">
+      <label>Vocal</label>
+      <div id="vocal-sex" class="chips"></div>
+      <div id="vocal-tone" class="chips"></div>
+    </div>
+
+    <div class="field" id="harmony-field">
+      <div class="label-row">
+        <label for="harmony">Harmony</label>
+        <span id="harmony-word" class="harmony-word">Familiar</span>
+      </div>
+      <input id="harmony" type="range" min="0" max="4" step="1" value="0" list="harmony-ticks" aria-describedby="harmony-hint">
+      <datalist id="harmony-ticks"><option value="0"></option><option value="1"></option><option value="2"></option><option value="3"></option><option value="4"></option></datalist>
+      <div id="harmony-hint" class="hint"></div>
+    </div>
+
+    <div class="field">
+      <label>Length cap <span class="muted">(the song stops here at the latest)</span></label>
+      <input id="max-duration" type="number" value="360" step="10" min="10" max="900">
+    </div>
+
+    <div class="field">
+      <div class="label-row">
+        <label for="lyrics">Lyrics</label>
+        <button id="lyrics-expand" class="link" title="Open a full size editor">Expand</button>
+      </div>
+      <textarea id="lyrics" class="lyrics" spellcheck="false" placeholder="[Verse]&#10;First line&#10;Second line&#10;&#10;[Chorus]&#10;..."></textarea>
+    </div>
+
+    <details class="block">
+      <summary>Advanced</summary>
+      <div class="grid2">
+        <div class="field">
+          <label>Mode</label>
+          <select id="mode">
+            <option value="full">full &mdash; keep the chords</option>
+            <option value="melody">melody &mdash; free accompaniment</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Seed</label>
+          <div class="row tight">
+            <input id="seed" type="number" value="0">
+            <button id="dice" class="ghost icon" title="Random seed">&#127922;</button>
+          </div>
+          <label class="check"><input id="seed-fixed" type="checkbox" checked> keep this seed</label>
+        </div>
+        <div class="field">
+          <label>Checkpoint</label>
+          <select id="checkpoint"></select>
+        </div>
+        <div class="field" id="variety-field">
+          <label>Plan variety</label>
+          <select id="variety">
+            <option value="calm">calm &mdash; steadier, longer plans</option>
+            <option value="normal" selected>normal</option>
+            <option value="bold">bold &mdash; more movement</option>
+            <option value="wild">wild &mdash; the most varied melody and structure</option>
+          </select>
+        </div>
+      </div>
+    </details>
+
+    <label class="check" id="auto-wrap"><input id="auto-render" type="checkbox"> render as soon as the plan is ready</label>
+    <button id="create-cover" class="primary">Create cover</button>
+    <button id="create-song" class="primary" style="display:none">Write score plan</button>
+    <div id="render-status" class="status"></div>
+  </section>
+
+  <section class="library">
+    <div id="job-card" class="job hidden">
+      <div class="job-top"><span id="job-title">Working</span><span id="job-time" class="muted"></span></div>
+      <div class="bar"><div id="job-bar"></div></div>
+      <div class="job-bottom"><span id="job-stage" class="muted">Starting</span><button id="job-stop" class="link">stop</button></div>
+      <div id="job-next" class="job-next hidden">
+        <div class="job-next-head muted">Up next</div>
+        <ol id="job-queue" class="job-queue"></ol>
+      </div>
+    </div>
+
+    <div class="spacebar">
+      <label for="space" class="space-label">Space</label>
+      <select id="space" title="Each space holds its own takes"></select>
+      <button id="space-new" class="chip">New space</button>
+      <button id="space-rename" class="chip">Rename</button>
+      <button id="space-delete" class="chip">Delete</button>
+    </div>
+    <div class="libhead">
+      <h2 id="takes-heading">Your takes</h2>
+      <div class="filters">
+        <button class="chip active" data-filter="all">All</button>
+        <button class="chip" data-filter="favourite">Starred</button>
+        <button id="layout-toggle" class="chip layout" title="Switch card size">Compact</button>
+      </div>
+    </div>
+    <div id="takes" class="takes"></div>
+    <button id="takes-more" class="ghost more hidden">Show more</button>
+    <div id="empty" class="empty">Nothing yet. Load a recording, write some lyrics, and press create.</div>
+  </section>
+</main>
+
+<div id="settings-modal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Settings">
+  <div class="modal-box narrow settings">
+    <div class="modal-head">
+      <strong>Settings</strong>
+      <button id="settings-close" class="ghost">Close</button>
+    </div>
+    <p class="hint">Saved on the server, so they follow you to any browser.</p>
+    <div id="settings-list"></div>
+    <div id="settings-note" class="hint"></div>
+  </div>
+</div>
+
+<div id="score-modal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Score editor">
+  <div class="modal-box score">
+    <div class="modal-head">
+      <strong id="score-heading">Score</strong>
+      <button id="score-undo" class="ghost" title="Undo (Ctrl+Z)">Undo</button>
+      <button id="score-redo" class="ghost" title="Redo (Ctrl+Shift+Z)">Redo</button>
+      <button id="score-close" class="ghost">Done</button>
+    </div>
+    <div class="score-split">
+      <textarea id="score-big" spellcheck="false" placeholder="Transcribe a recording, or write a score plan, to fill this in."></textarea>
+      <div class="score-side">
+        <div class="row">
+          <input id="find-chord-big" type="text" placeholder="find, e.g. D#m">
+          <input id="replace-chord-big" type="text" placeholder="replace with D#">
+          <button id="do-replace-big" class="ghost">Replace all</button>
+        </div>
+        <div class="hint" id="score-view-note"></div>
+      </div>
+    </div>
+    <div class="score-tabs" id="score-views">
+      <button class="chip active" data-view="chart">Chart</button>
+      <button class="chip" data-view="notation">Notation</button>
+      <button class="chip" data-view="lyrics">Lyrics</button>
+      <span id="score-count" class="muted small"></span>
+    </div>
+    <div class="score-view" id="view-chart"><pre id="chart-big" class="chart"></pre></div>
+    <div class="score-view hidden" id="view-notation"><div id="notation-big"></div></div>
+    <div class="score-view hidden" id="view-lyrics"><div id="lyrics-view"></div></div>
+  </div>
+</div>
+
+<div id="move-modal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Move take">
+  <div class="modal-box narrow">
+    <div class="modal-head">
+      <strong id="move-heading">Move to a space</strong>
+      <button id="move-close" class="ghost">Cancel</button>
+    </div>
+    <div id="move-list" class="move-list"></div>
+    <div class="field move-new">
+      <label for="move-name">Or a new space</label>
+      <div class="source-row">
+        <input id="move-name" type="text" maxlength="60" placeholder="Name the new space">
+        <button id="move-create" class="ghost">Create and move</button>
+      </div>
+    </div>
+    <div id="move-status" class="status"></div>
+  </div>
+</div>
+
+<div id="stems-modal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Extract stems">
+  <div class="modal-box narrow">
+    <div class="modal-head">
+      <strong id="stems-heading">Extract stems</strong>
+      <button id="stems-close" class="ghost">Cancel</button>
+    </div>
+    <div class="field">
+      <label>Model</label>
+      <select id="stems-model"></select>
+    </div>
+    <div class="field">
+      <label>Stems to keep</label>
+      <div id="stems-list" class="stem-list"></div>
+    </div>
+    <div class="grid2">
+      <div class="field">
+        <label>Format</label>
+        <select id="stems-format"></select>
+      </div>
+      <div class="field">
+        <label>Save to</label>
+        <input id="stems-dir" type="text" spellcheck="false">
+      </div>
+    </div>
+    <div id="stems-note" class="hint"></div>
+    <button id="stems-run" class="primary">Extract stems</button>
+  </div>
+</div>
+
+<div id="lyrics-modal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Lyrics editor">
+  <div class="modal-box">
+    <div class="modal-head">
+      <strong>Lyrics</strong>
+      <div class="modal-tools">
+        <button class="chip" data-tag="[Verse]">+ Verse</button>
+        <button class="chip" data-tag="[Chorus]">+ Chorus</button>
+        <button class="chip" data-tag="[Bridge]">+ Bridge</button>
+        <button class="chip" data-tag="[Instrumental]">+ Instrumental</button>
+      </div>
+      <button id="lyrics-close" class="ghost">Done</button>
+    </div>
+    <textarea id="lyrics-big" spellcheck="false" placeholder="[Verse]&#10;First line&#10;Second line&#10;&#10;[Chorus]&#10;..."></textarea>
+    <div id="lyrics-count" class="muted small"></div>
+  </div>
+</div>
+
+<div class="player">
+  <div class="np-cover" id="np-cover"></div>
+  <div class="np-text">
+    <div id="np-title">Nothing playing</div>
+    <div id="np-meta" class="muted"></div>
+  </div>
+
+  <div class="transport">
+    <button class="pbtn" id="btn-prev" title="Previous take" aria-label="Previous take">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 5h2.4v14H7z"/><path d="M19 5v14l-9-7z"/></svg>
+    </button>
+    <button class="pbtn" id="btn-back" title="Back 10 seconds" aria-label="Back 10 seconds">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5L6 9l5 4"/><path d="M6 9h7a6 6 0 110 12H9"/></svg>
+    </button>
+    <button class="pbtn play" id="btn-play" title="Play" aria-label="Play">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.4v13.2L19 12z"/></svg>
+    </button>
+    <button class="pbtn" id="btn-fwd" title="Forward 10 seconds" aria-label="Forward 10 seconds">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 5l5 4-5 4"/><path d="M18 9h-7a6 6 0 100 12h4"/></svg>
+    </button>
+    <button class="pbtn" id="btn-next" title="Next take" aria-label="Next take">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M14.6 5H17v14h-2.4z"/><path d="M5 5v14l9-7z"/></svg>
+    </button>
+  </div>
+
+  <span class="time" id="t-now">0:00</span>
+  <canvas id="wave" class="wave"></canvas>
+  <span class="time" id="t-total">0:00</span>
+
+  <button class="pbtn" id="btn-repeat" title="Repeat this take" aria-label="Repeat this take">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 014-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg>
+  </button>
+  <button class="speed" id="btn-speed" title="Playback speed" aria-label="Playback speed">1.0x</button>
+  <button class="pbtn" id="btn-star" title="Star this take" aria-label="Star this take">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.6l2.6 5.5 6.1.9-4.4 4.3 1 6-5.3-2.9-5.3 2.9 1-6L3.4 10l6-.9z"/></svg>
+  </button>
+  <button class="pbtn" id="btn-mute" title="Mute" aria-label="Mute">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9v6h3l5 4V5L7 9z" fill="currentColor"/><path d="M16 9a4 4 0 010 6"/><path d="M18.5 6.5a8 8 0 010 11"/></svg>
+  </button>
+  <input class="vol" id="volume" type="range" min="0" max="100" value="100" aria-label="Volume">
+
+  <audio id="audio" preload="metadata"></audio>
+</div>
+
+<script src="/static/abcjs-basic-min.js?v={{VERSION}}"></script>
+<script src="/static/app.js?v={{VERSION}}"></script>
+</body>
+</html>

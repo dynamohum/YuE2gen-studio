@@ -1,0 +1,1044 @@
+"""YuE2 Studio: a browser front end for YuE2 running in ComfyUI.
+
+The heavy lifting happens in the engine.  This service keeps the library, drives
+the engine, separates stems, and serves one page.
+
+  config.py   environment settings
+  db.py       SQLite: connections, schema, migrations, settings
+  library.py  files in the data folder: names, sidecars, durations, peaks
+  engine.py   the ComfyUI client
+  jobs.py     the GPU and stem job lanes
+  main.py     this file: the HTTP API
+"""
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import json
+import logging
+import os
+import tempfile
+import time
+import uuid
+import zipfile
+from contextlib import asynccontextmanager
+from pathlib import Path
+from urllib.parse import urlsplit
+
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Response
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
+from starlette.background import BackgroundTask
+
+from . import config, jobs, score, stems
+from .db import DEFAULT_SPACE, execute, get_setting, migrate, one, rows, set_setting
+from .engine import stage_label
+from .jobs import CURRENT, CURRENT_STEMS, ENGINE, HARMONY_STEPS, PLAN_VARIETY, QUEUE, STEM_QUEUE
+from .library import ensure_peaks, inside, relayout, remove_tree, slugify, source_path, take_folder
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+log = logging.getLogger("yue2")
+# The keeper polls the engine every two seconds; one log line per request is noise.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
+STATIC_DIR = Path(__file__).parent / "static"
+ACTIVE = ("queued", "running")
+MAX_SEED = 2**64 - 1
+
+
+# --------------------------------------------------------------------- settings
+# Everything the Settings panel can change.  The panel renders this spec, so a
+# new setting is a server-side change only.
+SETTINGS_SPEC: list[dict] = [
+    {
+        "key": "stems.format",
+        "label": "Stem audio format",
+        "type": "select",
+        "default": "wav",
+        "options": [
+            {"value": "wav", "label": "WAV, uncompressed"},
+            {"value": "flac", "label": "FLAC, lossless"},
+            {"value": "mp3", "label": "MP3, 320 kbps"},
+        ],
+        "help": "The format for new stems.",
+    },
+    {
+        "key": "stems.model",
+        "label": "Stem separation model",
+        "type": "select",
+        "default": "htdemucs",
+        "options": [{"value": key, "label": spec["label"]} for key, spec in stems.MODELS.items()],
+        "help": "The model new runs start with.",
+    },
+    {
+        "key": "stems.folder",
+        "label": "Stem save folder",
+        "type": "text",
+        "default": str(config.STEMS_DIR),
+        "help": f"Where stems are written. It must sit inside {config.DATA_DIR}.",
+    },
+]
+
+SETTINGS_BY_KEY = {item["key"]: item for item in SETTINGS_SPEC}
+
+
+def setting_value(key: str) -> str:
+    return get_setting(key, None) or SETTINGS_BY_KEY[key]["default"]
+
+
+def settings_payload() -> list[dict]:
+    return [{**spec, "value": setting_value(spec["key"])} for spec in SETTINGS_SPEC]
+
+
+def save_setting(key: str, value: str) -> None:
+    spec = SETTINGS_BY_KEY.get(key)
+    if not spec:
+        raise HTTPException(400, f"unknown setting {key}")
+    value = (value or "").strip()
+    if spec["type"] == "select":
+        allowed = [option["value"] for option in spec["options"]]
+        if value not in allowed:
+            raise HTTPException(400, f"{key} must be one of {', '.join(allowed)}")
+    if key == "stems.folder":
+        if not value:
+            raise HTTPException(400, "the stem folder cannot be empty")
+        if not inside(Path(value), config.DATA_DIR):
+            raise HTTPException(400, f"the stem folder must be inside {config.DATA_DIR}")
+    set_setting(key, value)
+
+
+def guess_title(lyrics: str) -> str:
+    """First real lyric line. Section and genre tags do not make a title."""
+    for line in (lyrics or "").splitlines():
+        text = line.strip()
+        if not text or text[0] in "[#({":
+            continue
+        return text[:60]
+    return ""
+
+
+def remove_folders(folders: list[tuple[Path | None, Path]]) -> None:
+    """Delete each folder that sits strictly inside its root.  The check stops a bad
+    path in the database from ever taking the library with it."""
+    for folder, root in folders:
+        if folder and inside(folder, root) and folder.resolve() != root.resolve():
+            remove_tree(folder)
+
+
+# --------------------------------------------------------------------- lifecycle
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    migrate()
+    remove_tree(config.WORK_DIR)
+    config.WORK_DIR.mkdir(parents=True, exist_ok=True)
+    # A job that was running when the app stopped cannot be picked up again.  One
+    # that was only waiting can, so it goes back in the queue.
+    execute("UPDATE takes SET status = 'failed', error = 'interrupted by a restart' WHERE status = 'running'")
+    execute("UPDATE sources SET transcribe_state = 'failed', transcribe_error = 'interrupted by a restart' WHERE transcribe_state = 'running'")
+    execute("UPDATE stem_sets SET status = 'failed', error = 'interrupted by a restart' WHERE status = 'running'")
+    await requeue_waiting()
+    await asyncio.to_thread(relayout)
+    if config.ENGINE_OUTPUT_DIR:
+        # Renders are saved here.  Created by the app, so the app may delete the
+        # engine's copy once it has its own, though the engine writes as root.
+        try:
+            (config.ENGINE_OUTPUT_DIR / "yue2studio").mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            log.warning("engine output folder not usable, renders stay in the engine: %s", exc)
+    await ENGINE.start()
+    tasks = [asyncio.create_task(jobs.worker()), asyncio.create_task(jobs.stems_worker()), asyncio.create_task(jobs.keeper())]
+    log.info("YuE2 Studio %s up. engine=%s (%s) data=%s", config.VERSION, config.ENGINE_URL,
+             "online" if ENGINE.online else "offline", config.DATA_DIR)
+    try:
+        yield
+    finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        await ENGINE.close()
+
+
+async def requeue_waiting() -> None:
+    """Put jobs that were waiting at shutdown back in their queues, oldest first."""
+    waiting = [(row["created_at"], "take", row) for row in rows("SELECT id, abc, created_at FROM takes WHERE status = 'queued'")]
+    waiting += [(row["created_at"], "source", row) for row in rows("SELECT id, created_at FROM sources WHERE transcribe_state = 'queued'")]
+    for _, kind, row in sorted(waiting, key=lambda item: item[0]):
+        if kind == "source":
+            await QUEUE.put({"kind": "transcribe", "id": row["id"]})
+        else:
+            await QUEUE.put({"kind": "render" if (row["abc"] or "").strip() else "plan", "id": row["id"]})
+    for row in rows("SELECT id FROM stem_sets WHERE status = 'queued' ORDER BY created_at"):
+        await STEM_QUEUE.put({"id": row["id"]})
+    if waiting:
+        log.info("%d waiting jobs queued again after the restart", len(waiting))
+
+
+app = FastAPI(title="YuE2 Studio", lifespan=lifespan)
+
+
+def host_allowed(host_header: str) -> bool:
+    if "*" in config.ALLOWED_HOSTS:
+        return True
+    hostname = (urlsplit("//" + host_header).hostname or "").lower()
+    return hostname in config.ALLOWED_HOSTS
+
+
+@app.middleware("http")
+async def guard(request: Request, call_next):
+    """Refuse unknown Host names (DNS rebinding) and cross-site writes (a page on
+    another site posting to this one).  Then set cache headers on the page."""
+    if not host_allowed(request.headers.get("host", "")):
+        return PlainTextResponse("This host name is not allowed. Add it to ALLOWED_HOSTS.", status_code=421)
+    if request.method not in ("GET", "HEAD", "OPTIONS"):
+        origin = request.headers.get("origin")
+        if origin is not None and urlsplit(origin).netloc.lower() != request.headers.get("host", "").lower():
+            return PlainTextResponse("Cross-site request refused.", status_code=403)
+        if request.headers.get("sec-fetch-site") == "cross-site":
+            return PlainTextResponse("Cross-site request refused.", status_code=403)
+    if request.method == "POST" and request.url.path == "/api/sources":
+        length = request.headers.get("content-length")
+        if length and length.isdigit() and int(length) > config.MAX_UPLOAD_MB * 1024 * 1024 + 65536:
+            return PlainTextResponse(f"That file is larger than {config.MAX_UPLOAD_MB} MB.", status_code=413)
+    response = await call_next(request)
+    # Revalidate the page and its assets on every load, so a new app.js is never
+    # hidden behind a stale copy, but an unchanged file costs a 304, not a download.
+    if request.url.path == "/" or request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+# ------------------------------------------------------------------- api models
+class ScoreIn(BaseModel):
+    abc: str = Field(max_length=200_000)
+
+
+class SongIn(BaseModel):
+    title: str | None = Field(None, max_length=200)
+    style: str = Field(config.DEFAULT_STYLE, max_length=2000)
+    lyrics: str = Field("", max_length=20_000)
+    seed: int | None = Field(None, ge=0, le=MAX_SEED)
+    checkpoint: str | None = Field(None, max_length=200)
+    max_duration: float = Field(360.0, ge=10, le=900)
+    auto_render: bool = False
+    variety: str = "normal"
+    harmony: int = Field(0, ge=0, le=len(HARMONY_STEPS) - 1)
+    space_id: str = Field(DEFAULT_SPACE, max_length=64)
+
+
+class ReplanIn(BaseModel):
+    # Both optional: an omitted field keeps what the take already has.
+    variety: str | None = None
+    harmony: int | None = Field(None, ge=0, le=len(HARMONY_STEPS) - 1)
+
+
+class TakeIn(BaseModel):
+    source_id: str = Field(max_length=64)
+    title: str | None = Field(None, max_length=200)
+    style: str = Field(config.DEFAULT_STYLE, max_length=2000)
+    lyrics: str = Field("", max_length=20_000)
+    abc: str | None = Field(None, max_length=200_000)
+    mode: str = "full"
+    seed: int | None = Field(None, ge=0, le=MAX_SEED)
+    checkpoint: str | None = Field(None, max_length=200)
+    max_duration: float = Field(360.0, ge=10, le=900)
+    space_id: str = Field(DEFAULT_SPACE, max_length=64)
+
+
+class SpaceIn(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+
+
+class MoveIn(BaseModel):
+    space_id: str = Field(max_length=64)
+
+
+class StemsIn(BaseModel):
+    # All optional: an omitted field means "use what Settings says", not a hard
+    # coded default, which is why these are None rather than "wav" and friends.
+    model: str | None = None
+    stems: list[str] = []
+    format: str | None = None
+    save_dir: str | None = Field(None, max_length=1000)
+
+
+class SettingIn(BaseModel):
+    key: str
+    value: str = Field(max_length=1000)
+
+
+# ------------------------------------------------------------------ page, state
+_INDEX = (STATIC_DIR / "index.html").read_text(encoding="utf-8").replace("{{VERSION}}", config.VERSION)
+
+
+@app.get("/")
+def index() -> HTMLResponse:
+    return HTMLResponse(_INDEX)
+
+
+@app.get("/api/health")
+def health() -> dict:
+    return {"ok": True, "engine": ENGINE.online, "version": config.VERSION}
+
+
+def _job_title(kind: str, ref_id: str) -> str | None:
+    if kind == "transcribe":
+        row = one("SELECT title FROM sources WHERE id = ?", (ref_id,))
+    else:
+        row = one("SELECT title FROM takes WHERE id = ?", (ref_id,))
+    return row["title"] if row else None
+
+
+def queue_view() -> list[dict]:
+    """Everything ahead of and behind the GPU: the engine's own queue, running first,
+    then the app's jobs that have not been sent yet.  Jobs sent to the engine by
+    something else are listed too, without a title, since only their kind is known."""
+    now = time.time()
+    items = []
+    for entry in ENGINE.queue:
+        item = {"state": entry["state"], "kind": entry["kind"], "outside": not entry["mine"],
+                "client": None if entry["mine"] else (entry["client"] or "unknown"),
+                "since": entry["running_since"] if entry["state"] == "running" else entry["queued_at"]}
+        if entry["mine"] and CURRENT.get("prompt_id") == entry["prompt_id"]:
+            item.update({"id": CURRENT["id"], "kind": CURRENT["kind"], "title": _job_title(CURRENT["kind"], CURRENT["id"])})
+            if entry["state"] == "running":
+                snap = ENGINE.snapshot(entry["prompt_id"])
+                item.update({"progress": snap.get("progress"),
+                             "label": stage_label(snap["stage"]) if snap.get("stage") else None})
+        elif entry["mine"] and not entry["client"].startswith(ENGINE.client_id):
+            item["note"] = "sent before the app restarted"
+        items.append(item)
+    for job in jobs.waiting_jobs():
+        if job["kind"] == "transcribe":
+            row = one("SELECT title, transcribe_state AS status FROM sources WHERE id = ?", (job["id"],))
+        else:
+            row = one("SELECT title, status FROM takes WHERE id = ?", (job["id"],))
+        if not row or row["status"] != "queued":
+            continue   # deleted or cancelled while it waited; the worker will skip it
+        title = row["title"]
+        items.append({"state": "waiting", "kind": job["kind"], "id": job["id"], "title": title,
+                      "outside": False, "client": None, "since": None})
+    for item in items:
+        item["seconds"] = round(now - item["since"], 1) if item.get("since") else None
+        item.pop("since", None)
+    return items
+
+
+@app.get("/api/state")
+def state() -> dict:
+    """Served from what the keeper last saw, so a page poll never waits on the engine."""
+    current = None
+    if CURRENT:
+        current = {
+            "kind": CURRENT["kind"],
+            "id": CURRENT["id"],
+            "elapsed": round(time.time() - CURRENT["started"], 1),
+            **ENGINE.snapshot(CURRENT.get("prompt_id")),
+        }
+        if current.get("stage"):
+            current["label"] = stage_label(current["stage"])
+
+    return {
+        "version": config.VERSION,
+        "settings": settings_payload(),
+        "engine": {
+            "url": config.ENGINE_URL,
+            "online": ENGINE.online,
+            "error": ENGINE.last_error,
+            "compat": ENGINE.compat,
+            "queue": ENGINE.queue_counts,
+            "gpu": ENGINE.gpu() if ENGINE.online else None,
+        },
+        "current": current,
+        "queue": queue_view(),
+        "stems": {
+            "available": stems.installed(),
+            "models": [{"id": k, "label": v["label"], "stems": v["stems"]} for k, v in stems.MODELS.items()],
+            "formats": stems.FORMATS,
+            "avg_seconds": float(get_setting("avg_stems_seconds", "0") or 0),
+            "current": ({"id": CURRENT_STEMS.get("id"), "title": CURRENT_STEMS.get("title"),
+                         "elapsed": round(time.time() - CURRENT_STEMS.get("started", time.time()), 1)}
+                        if CURRENT_STEMS else None),
+        },
+        "options": {
+            "checkpoints": ENGINE.options.get("checkpoints", []),
+            "default_style": config.DEFAULT_STYLE,
+            "avg_render_seconds": float(get_setting("avg_render_seconds", "0") or 0),
+            "default_checkpoint": get_setting("default_checkpoint") or (ENGINE.options.get("checkpoints") or [None])[0],
+            "harmony_steps": HARMONY_STEPS,
+            # Unknown until the engine has been read, so only a confirmed absence disables it.
+            "harmony_available": ENGINE.options.get("harmony", False) or not ENGINE.options_loaded,
+        },
+    }
+
+
+# ----------------------------------------------------------------------- sources
+@app.get("/api/sources")
+def list_sources() -> list[dict]:
+    return rows(
+        """SELECT id, title, filename, created_at, transcribe_state, transcribe_error,
+                  (abc IS NOT NULL AND abc != '') AS has_score,
+                  (SELECT COUNT(*) FROM takes t WHERE t.source_id = sources.id) AS take_count
+           FROM sources ORDER BY created_at DESC"""
+    )
+
+
+@app.get("/api/sources/{source_id}")
+def get_source(source_id: str) -> dict:
+    source = one("SELECT * FROM sources WHERE id = ?", (source_id,))
+    if not source:
+        raise HTTPException(404, "no such source")
+    return source
+
+
+class TooLarge(Exception):
+    pass
+
+
+def _store_upload(fileobj) -> tuple[str, Path, int]:
+    """Copy an upload into the work folder while hashing it, a megabyte at a time."""
+    config.WORK_DIR.mkdir(parents=True, exist_ok=True)
+    limit = config.MAX_UPLOAD_MB * 1024 * 1024
+    digest = hashlib.sha256()
+    size = 0
+    fd, name = tempfile.mkstemp(dir=config.WORK_DIR, prefix="upload-")
+    tmp = Path(name)
+    try:
+        with os.fdopen(fd, "wb") as out:
+            fileobj.seek(0)
+            while chunk := fileobj.read(1 << 20):
+                size += len(chunk)
+                if size > limit:
+                    raise TooLarge()
+                digest.update(chunk)
+                out.write(chunk)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    return digest.hexdigest(), tmp, size
+
+
+@app.post("/api/sources")
+async def upload_source(file: UploadFile = File(...), title: str = Form("", max_length=200)) -> dict:
+    try:
+        digest, tmp, size = await asyncio.to_thread(_store_upload, file.file)
+    except TooLarge:
+        raise HTTPException(413, f"That file is larger than {config.MAX_UPLOAD_MB} MB.")
+    if not size:
+        tmp.unlink(missing_ok=True)
+        raise HTTPException(400, "empty upload")
+    existing = one("SELECT * FROM sources WHERE sha256 = ?", (digest,))
+    if existing:
+        tmp.unlink(missing_ok=True)
+        return {**existing, "duplicate": True}
+
+    ext = Path(file.filename or "source.mp3").suffix.lower() or ".mp3"
+    if len(ext) > 6 or not ext[1:].isalnum():
+        ext = ".audio"
+    source_id = uuid.uuid4().hex[:12]
+    dest = source_path(digest, file.filename or "", title or "source", ext)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp.replace(dest)
+
+    record = {
+        "id": source_id,
+        "title": title or Path(file.filename or "Untitled").stem,
+        "filename": file.filename or dest.name,
+        "stored_path": str(dest),
+        "engine_file": None,   # sent to the engine when it is transcribed
+        "sha256": digest,
+        "created_at": time.time(),
+    }
+    execute(
+        """INSERT INTO sources(id, title, filename, stored_path, engine_file, sha256, created_at)
+           VALUES(:id, :title, :filename, :stored_path, :engine_file, :sha256, :created_at)""",
+        record,
+    )
+    return {**record, "transcribe_state": "none", "abc": None, "duplicate": False}
+
+
+@app.post("/api/sources/{source_id}/transcribe")
+async def transcribe(source_id: str) -> dict:
+    source = one("SELECT * FROM sources WHERE id = ?", (source_id,))
+    if not source:
+        raise HTTPException(404, "no such source")
+    if source["transcribe_state"] in ACTIVE:
+        raise HTTPException(409, "this recording is already being transcribed")
+    if not Path(source["stored_path"]).exists():
+        raise HTTPException(400, "the file for this recording is missing")
+    execute("UPDATE sources SET transcribe_state = 'queued', transcribe_error = NULL WHERE id = ?", (source_id,))
+    await QUEUE.put({"kind": "transcribe", "id": source_id})
+    return {"queued": True}
+
+
+@app.put("/api/sources/{source_id}/score")
+def save_score(source_id: str, body: ScoreIn) -> dict:
+    if not execute("UPDATE sources SET abc = ?, abc_updated_at = ? WHERE id = ?", (body.abc, time.time(), source_id)):
+        raise HTTPException(404, "no such source")
+    return {"saved": True, "chars": len(body.abc)}
+
+
+@app.delete("/api/sources/{source_id}")
+async def delete_source(source_id: str) -> dict:
+    """Delete an uploaded recording and its stems.  Covers made from it keep their
+    audio and score, but cannot be rendered again from the recording."""
+    source = one("SELECT * FROM sources WHERE id = ?", (source_id,))
+    if not source:
+        raise HTTPException(404, "no such source")
+    if source["transcribe_state"] in ACTIVE:
+        raise HTTPException(409, "this recording is being transcribed. Wait for it to finish.")
+    sets = rows("SELECT * FROM stem_sets WHERE source_id = ?", (source_id,))
+    for item in sets:
+        jobs.cancel_stems(item)
+    execute("DELETE FROM stem_sets WHERE source_id = ?", (source_id,))
+    execute("DELETE FROM sources WHERE id = ?", (source_id,))
+    folders = [(Path(source["stored_path"]), config.SOURCES_DIR)]
+    folders += [(Path(item["folder"]), config.DATA_DIR) for item in sets if item["folder"]]
+    await asyncio.to_thread(remove_folders, folders)
+    return {"deleted": True}
+
+
+# ------------------------------------------------------------------------- takes
+def _attach_stem_sets(takes: list[dict]) -> None:
+    by_take: dict[str, list[dict]] = {take["id"]: [] for take in takes}
+    if by_take:
+        marks = ",".join("?" * len(by_take))
+        for item in rows(
+            f"""SELECT id, take_id, status, stage, progress, wanted, model, fmt, elapsed, error, folder
+                FROM stem_sets WHERE take_id IN ({marks}) ORDER BY created_at DESC""",
+            tuple(by_take),
+        ):
+            item["files"] = stem_files(item) if item["status"] == "done" else []
+            by_take[item.pop("take_id")].append(item)
+    for take in takes:
+        take["stem_sets"] = by_take[take["id"]]
+
+
+@app.get("/api/takes")
+def list_takes(
+    request: Request,
+    source_id: str | None = None,
+    space_id: str | None = None,
+    favourite: bool = False,
+    limit: int = Query(300, ge=1, le=5000),
+) -> Response:
+    """The library, newest first.  Carries an ETag, so a poll that finds nothing
+    new costs a 304 instead of the whole list."""
+    where, args = [], []
+    if source_id:
+        where.append("source_id = ?")
+        args.append(source_id)
+    if space_id:
+        where.append("space_id = ?")
+        args.append(space_id)
+    if favourite:
+        where.append("favourite = 1")
+    clause = ("WHERE " + " AND ".join(where)) if where else ""
+    total = one(f"SELECT COUNT(*) AS n FROM takes {clause}", tuple(args))["n"]
+    got = rows(f"SELECT * FROM takes {clause} ORDER BY created_at DESC LIMIT ?", (*args, limit))
+    for take in got:
+        take["has_audio"] = bool(take["audio_path"] and Path(take["audio_path"]).exists())
+        if take.get("prompt_id") and take["status"] == "running":
+            take["live"] = ENGINE.snapshot(take["prompt_id"])
+    _attach_stem_sets(got)
+    body = json.dumps(got, separators=(",", ":"))
+    etag = '"' + hashlib.sha1(body.encode()).hexdigest()[:24] + f'-{total}"'
+    headers = {"ETag": etag, "Cache-Control": "no-cache", "X-Total-Count": str(total)}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    return Response(body, media_type="application/json", headers=headers)
+
+
+@app.get("/api/takes/{take_id}")
+def get_take(take_id: str) -> dict:
+    take = one("SELECT * FROM takes WHERE id = ?", (take_id,))
+    if not take:
+        raise HTTPException(404, "no such take")
+    take["has_audio"] = bool(take["audio_path"] and Path(take["audio_path"]).exists())
+    if take.get("prompt_id") and take["status"] == "running":
+        take["live"] = ENGINE.snapshot(take["prompt_id"])
+    return take
+
+
+@app.post("/api/takes/{take_id}/favourite")
+def favourite(take_id: str, value: bool = True) -> dict:
+    if not execute("UPDATE takes SET favourite = ? WHERE id = ?", (1 if value else 0, take_id)):
+        raise HTTPException(404, "no such take")
+    return {"favourite": value}
+
+
+@app.delete("/api/takes/{take_id}")
+async def delete_take(take_id: str) -> dict:
+    take = one("SELECT * FROM takes WHERE id = ?", (take_id,))
+    if not take:
+        raise HTTPException(404, "no such take")
+    if take["status"] in ACTIVE:
+        await jobs.cancel_take(take)
+    sets = rows("SELECT * FROM stem_sets WHERE take_id = ?", (take_id,))
+    for item in sets:
+        jobs.cancel_stems(item)
+    # Rows first: a file that fails to delete leaves clutter, never a row that
+    # points at nothing.
+    execute("DELETE FROM stem_sets WHERE take_id = ?", (take_id,))
+    execute("DELETE FROM takes WHERE id = ?", (take_id,))
+    folder = Path(take["audio_path"]).parent if take.get("audio_path") else take_folder(take_id, take["title"])
+    folders = [(folder, config.TAKES_DIR)] + [(Path(item["folder"]), config.DATA_DIR) for item in sets if item["folder"]]
+    await asyncio.to_thread(remove_folders, folders)
+    return {"deleted": True}
+
+
+def _check_score(abc: str | None) -> None:
+    """Refuse to render a score that cannot be the song.  An empty score is allowed:
+    the engine then writes its own."""
+    if abc and abc.strip():
+        issues = score.problems(abc, need_chords=False)
+        if issues:
+            raise HTTPException(400, f"This score cannot be rendered ({', '.join(issues)}). "
+                                     "Write a new plan, or fix the score.")
+
+
+def _pick_checkpoint(requested: str | None) -> str:
+    checkpoints = ENGINE.options.get("checkpoints") or []
+    checkpoint = requested or get_setting("default_checkpoint") or (checkpoints[0] if checkpoints else None)
+    if not checkpoint:
+        raise HTTPException(400, "no YuE2 checkpoint is available on the engine")
+    return checkpoint
+
+
+@app.post("/api/takes")
+async def create_take(body: TakeIn) -> dict:
+    source = one("SELECT * FROM sources WHERE id = ?", (body.source_id,))
+    if not source:
+        raise HTTPException(404, "no such source")
+    _check_score(body.abc if body.abc is not None else source["abc"])
+    _space(body.space_id)
+    take_id = uuid.uuid4().hex[:12]
+    seed = body.seed if body.seed is not None else int.from_bytes(os.urandom(4), "big")
+    record = {
+        "id": take_id,
+        "source_id": body.source_id,
+        "title": body.title or source["title"],
+        "style": body.style.strip() or config.DEFAULT_STYLE,
+        "lyrics": body.lyrics,
+        "abc": body.abc if body.abc is not None else (source["abc"] or ""),
+        "mode": body.mode if body.mode in ("full", "melody") else "full",
+        "seed": seed,
+        "checkpoint": _pick_checkpoint(body.checkpoint),
+        "max_duration": body.max_duration,
+        "created_at": time.time(),
+        "space_id": body.space_id,
+    }
+    execute(
+        """INSERT INTO takes(id, source_id, title, style, lyrics, abc, mode, seed, checkpoint, max_duration, status, created_at, space_id)
+           VALUES(:id, :source_id, :title, :style, :lyrics, :abc, :mode, :seed, :checkpoint, :max_duration, 'queued', :created_at, :space_id)""",
+        record,
+    )
+    if record["mode"] == "full" and not record["abc"]:
+        log.info("render queued with an empty score; the engine will write its own chords")
+    await QUEUE.put({"kind": "render", "id": take_id})
+    return {**record, "status": "queued"}
+
+
+@app.post("/api/songs")
+async def create_song(body: SongIn) -> dict:
+    """Plan a song from style and lyrics alone. The take lands in the planned state."""
+    if not body.lyrics.strip():
+        raise HTTPException(400, "write some lyrics first. The planner needs words to shape the melody.")
+    _check_harmony(body.harmony)
+    _space(body.space_id)
+    take_id = uuid.uuid4().hex[:12]
+    seed = body.seed if body.seed is not None else int.from_bytes(os.urandom(4), "big")
+    title = (body.title or "").strip() or guess_title(body.lyrics) or "Untitled song"
+    record = {
+        "id": take_id,
+        "kind": "song",
+        "title": title,
+        "style": body.style.strip() or config.DEFAULT_STYLE,
+        "lyrics": body.lyrics,
+        "mode": "full",
+        "seed": seed,
+        "checkpoint": _pick_checkpoint(body.checkpoint),
+        "max_duration": body.max_duration,
+        "created_at": time.time(),
+        "auto_render": 1 if body.auto_render else 0,
+        "variety": body.variety if body.variety in PLAN_VARIETY else "normal",
+        "harmony": body.harmony,
+        "space_id": body.space_id,
+    }
+    execute(
+        """INSERT INTO takes(id, kind, source_id, title, style, lyrics, abc, mode, seed, checkpoint,
+                             max_duration, status, created_at, auto_render, variety, harmony, space_id)
+           VALUES(:id, 'song', NULL, :title, :style, :lyrics, '', :mode, :seed, :checkpoint,
+                  :max_duration, 'queued', :created_at, :auto_render, :variety, :harmony, :space_id)""",
+        record,
+    )
+    await QUEUE.put({"kind": "plan", "id": take_id})
+    return {**record, "status": "queued"}
+
+
+# ------------------------------------------------------------------------ spaces
+def _space(space_id: str) -> dict:
+    space = one("SELECT * FROM spaces WHERE id = ?", (space_id,))
+    if not space:
+        raise HTTPException(404, "that space no longer exists. Choose another.")
+    return space
+
+
+def _space_name(name: str, keep: str | None = None) -> str:
+    """A trimmed name no other space already has, ignoring case."""
+    name = " ".join(name.split())
+    if not name:
+        raise HTTPException(400, "give the space a name")
+    clash = one("SELECT id FROM spaces WHERE lower(name) = lower(?) AND id IS NOT ?", (name, keep))
+    if clash:
+        raise HTTPException(409, f"there is already a space called {name}")
+    return name
+
+
+@app.get("/api/spaces")
+def list_spaces() -> list[dict]:
+    """Default first, then by name, each with how many takes it holds."""
+    return rows(
+        """SELECT s.id, s.name, s.created_at, COUNT(t.id) AS takes, MAX(t.created_at) AS last_take_at
+           FROM spaces s LEFT JOIN takes t ON t.space_id = s.id
+           GROUP BY s.id ORDER BY s.id != ?, lower(s.name)""",
+        (DEFAULT_SPACE,),
+    )
+
+
+@app.post("/api/spaces")
+def create_space(body: SpaceIn) -> dict:
+    space = {"id": uuid.uuid4().hex[:12], "name": _space_name(body.name), "created_at": time.time()}
+    execute("INSERT INTO spaces(id, name, created_at) VALUES(:id, :name, :created_at)", space)
+    return {**space, "takes": 0, "last_take_at": None}
+
+
+@app.put("/api/spaces/{space_id}")
+def rename_space(space_id: str, body: SpaceIn) -> dict:
+    _space(space_id)
+    name = _space_name(body.name, keep=space_id)
+    execute("UPDATE spaces SET name = ? WHERE id = ?", (name, space_id))
+    return {"id": space_id, "name": name}
+
+
+@app.delete("/api/spaces/{space_id}")
+def delete_space(space_id: str) -> dict:
+    """Deleting a space never deletes takes: they move to Default."""
+    if space_id == DEFAULT_SPACE:
+        raise HTTPException(400, "the Default space cannot be deleted")
+    _space(space_id)
+    moved = execute("UPDATE takes SET space_id = ? WHERE space_id = ?", (DEFAULT_SPACE, space_id))
+    execute("DELETE FROM spaces WHERE id = ?", (space_id,))
+    return {"deleted": True, "moved": moved}
+
+
+@app.post("/api/takes/{take_id}/move")
+def move_take(take_id: str, body: MoveIn) -> dict:
+    space = _space(body.space_id)
+    if not execute("UPDATE takes SET space_id = ? WHERE id = ?", (space["id"], take_id)):
+        raise HTTPException(404, "no such take")
+    return {"space_id": space["id"], "name": space["name"]}
+
+
+def _check_harmony(step: int | None) -> None:
+    if step and ENGINE.options_loaded and not ENGINE.options.get("harmony"):
+        raise HTTPException(400, "The engine has no harmony node, so Harmony must stay at Familiar. "
+                                 "Rebuild the engine: docker compose up -d --build engine")
+
+
+def _idle_take(take_id: str) -> dict:
+    take = one("SELECT * FROM takes WHERE id = ?", (take_id,))
+    if not take:
+        raise HTTPException(404, "no such take")
+    if take["status"] in ACTIVE:
+        raise HTTPException(409, "this take is already queued or running. Cancel it first.")
+    return take
+
+
+@app.post("/api/takes/{take_id}/render")
+async def render_take(take_id: str) -> dict:
+    """Render a take that already has a score."""
+    take = _idle_take(take_id)
+    if not (take["abc"] or "").strip():
+        raise HTTPException(400, "this take has no score yet. Write a plan first.")
+    _check_score(take["abc"])
+    execute("UPDATE takes SET status = 'queued', error = NULL, stage = NULL WHERE id = ?", (take_id,))
+    await QUEUE.put({"kind": "render", "id": take_id})
+    return {"queued": True}
+
+
+@app.post("/api/takes/{take_id}/clear")
+def clear_take(take_id: str) -> dict:
+    """Drop a stale failure.  A take interrupted by a restart keeps its audio and its
+    score, so it can go back to the state it already reached without another job."""
+    take = one("SELECT * FROM takes WHERE id = ?", (take_id,))
+    if not take:
+        raise HTTPException(404, "no such take")
+    if take["status"] != "failed":
+        raise HTTPException(409, "this take has not failed")
+    audio = take["audio_path"]
+    if audio and Path(audio).exists():
+        status = "done"
+    elif (take["abc"] or "").strip():
+        status = "planned"
+    else:
+        raise HTTPException(400, "this take has nothing to keep. Delete it, or write a plan.")
+    execute("UPDATE takes SET status = ?, error = NULL, stage = NULL WHERE id = ?", (status, take_id))
+    return {"status": status}
+
+
+@app.post("/api/takes/{take_id}/replan")
+async def replan_take(take_id: str, body: ReplanIn | None = None) -> dict:
+    """Write a fresh score plan for the same lyrics and style, optionally with a
+    different plan variety or harmony."""
+    take = _idle_take(take_id)
+    body = body or ReplanIn()
+    _check_harmony(body.harmony)
+    variety = body.variety if body.variety in PLAN_VARIETY else take["variety"]
+    harmony = take["harmony"] if body.harmony is None else body.harmony
+    seed = int.from_bytes(os.urandom(4), "big")
+    execute(
+        "UPDATE takes SET seed = ?, abc = '', status = 'queued', error = NULL, stage = NULL, variety = ?, harmony = ? WHERE id = ?",
+        (seed, variety, harmony, take_id),
+    )
+    await QUEUE.put({"kind": "plan", "id": take_id})
+    return {"queued": True, "seed": seed}
+
+
+@app.post("/api/takes/{take_id}/cancel")
+async def cancel_take(take_id: str) -> dict:
+    take = one("SELECT * FROM takes WHERE id = ?", (take_id,))
+    if not take:
+        raise HTTPException(404, "no such take")
+    if take["status"] not in ACTIVE:
+        return {"cancelled": False, "status": take["status"]}
+    await jobs.cancel_take(take)
+    return {"cancelled": True}
+
+
+@app.put("/api/takes/{take_id}/score")
+def save_take_score(take_id: str, body: ScoreIn) -> dict:
+    if not execute("UPDATE takes SET abc = ? WHERE id = ?", (body.abc, take_id)):
+        raise HTTPException(404, "no such take")
+    return {"saved": True, "chars": len(body.abc)}
+
+
+@app.get("/api/takes/{take_id}/audio")
+def take_audio(take_id: str) -> FileResponse:
+    take = one("SELECT audio_path, title FROM takes WHERE id = ?", (take_id,))
+    if not take or not take["audio_path"] or not Path(take["audio_path"]).exists():
+        raise HTTPException(404, "no audio for this take")
+    safe = "".join(ch for ch in (take["title"] or "take") if ch.isalnum() or ch in " -_")[:60].strip() or "take"
+    return FileResponse(take["audio_path"], media_type="audio/flac", filename=f"{safe}.flac")
+
+
+@app.get("/api/takes/{take_id}/peaks")
+def take_peaks(take_id: str) -> dict:
+    take = one("SELECT audio_path FROM takes WHERE id = ?", (take_id,))
+    if not take or not take["audio_path"] or not Path(take["audio_path"]).exists():
+        raise HTTPException(404, "no audio for this take")
+    result = ensure_peaks(Path(take["audio_path"]))
+    if not result:
+        raise HTTPException(500, "could not read the waveform")
+    return result
+
+
+@app.get("/api/sources/{source_id}/audio")
+def source_audio(source_id: str) -> FileResponse:
+    source = one("SELECT stored_path, filename FROM sources WHERE id = ?", (source_id,))
+    if not source or not Path(source["stored_path"]).exists():
+        raise HTTPException(404, "no audio for this source")
+    return FileResponse(source["stored_path"], filename=source["filename"])
+
+
+# ---------------------------------------------------------------------- jobs
+@app.post("/api/jobs/current/cancel")
+async def cancel_current_job() -> dict:
+    stopped = await jobs.cancel_current()
+    return {"cancelled": bool(stopped), "job": stopped}
+
+
+@app.post("/api/engine/interrupt")
+async def interrupt() -> dict:
+    """Stops whatever the engine is running, including work this app did not send."""
+    await ENGINE.interrupt()
+    return {"interrupted": True}
+
+
+# ------------------------------------------------------------------- settings
+@app.get("/api/settings")
+def get_settings() -> dict:
+    return {"settings": settings_payload()}
+
+
+@app.put("/api/settings")
+def put_setting(body: SettingIn) -> dict:
+    save_setting(body.key, body.value)
+    log.info("setting %s = %s", body.key, body.value)
+    return {"settings": settings_payload()}
+
+
+# ----------------------------------------------------------------------- stems
+@app.get("/api/stems/options")
+def stems_options() -> dict:
+    return {
+        "available": stems.installed(),
+        "models": [{"id": key, "label": spec["label"], "stems": spec["stems"]} for key, spec in stems.MODELS.items()],
+        "formats": stems.FORMATS,
+        "default_dir": setting_value("stems.folder"),
+        "default_format": setting_value("stems.format"),
+        "default_model": setting_value("stems.model"),
+        "threads": stems.DEFAULT_THREADS,
+        "avg_seconds": float(get_setting("avg_stems_seconds", "0") or 0),
+    }
+
+
+def queue_stems(kind: str, ref_id: str, body: StemsIn) -> dict:
+    if not stems.installed():
+        raise HTTPException(503, "demucs is not installed in this container")
+    if kind == "take":
+        item = one("SELECT id, title, audio_path FROM takes WHERE id = ?", (ref_id,))
+        if not item:
+            raise HTTPException(404, "no such take")
+        if not item["audio_path"] or not Path(item["audio_path"]).exists():
+            raise HTTPException(400, "this take has no audio yet")
+        take_id, source_id = item["id"], None
+    else:
+        item = one("SELECT id, title, stored_path FROM sources WHERE id = ?", (ref_id,))
+        if not item:
+            raise HTTPException(404, "no such source")
+        if not Path(item["stored_path"]).exists():
+            raise HTTPException(400, "the file for this recording is missing")
+        take_id, source_id = None, item["id"]
+    # An explicit choice wins; otherwise the Settings panel decides.
+    model = body.model if body.model in stems.MODELS else setting_value("stems.model")
+    if model not in stems.MODELS:
+        model = "htdemucs"
+    allowed = stems.MODELS[model]["stems"]
+    wanted = [s for s in body.stems if s in allowed] or list(allowed)
+    fmt = body.format if body.format in stems.FORMATS else setting_value("stems.format")
+    if fmt not in stems.FORMATS:
+        fmt = "wav"
+    set_id = uuid.uuid4().hex[:12]
+    # Default destination, or an override that must stay inside the data folder so
+    # it survives a container rebuild and lands in the backup.
+    wanted_dir = (body.save_dir or "").strip() or setting_value("stems.folder")
+    dest = Path(wanted_dir) / f"{slugify(item['title'])}-{set_id}"
+    if not inside(dest, config.DATA_DIR):
+        raise HTTPException(400, f"the save folder must be inside {config.DATA_DIR}")
+    execute(
+        """INSERT INTO stem_sets(id, take_id, source_id, title, model, wanted, fmt, status, created_at, folder)
+           VALUES(?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?)""",
+        (set_id, take_id, source_id, item["title"], model, ",".join(wanted), fmt, time.time(), str(dest)),
+    )
+    return {"id": set_id, "model": model, "stems": wanted, "format": fmt, "status": "queued"}
+
+
+@app.post("/api/takes/{take_id}/stems")
+async def take_stems(take_id: str, body: StemsIn) -> dict:
+    result = queue_stems("take", take_id, body)
+    await STEM_QUEUE.put({"id": result["id"]})
+    return result
+
+
+@app.post("/api/sources/{source_id}/stems")
+async def source_stems(source_id: str, body: StemsIn) -> dict:
+    result = queue_stems("source", source_id, body)
+    await STEM_QUEUE.put({"id": result["id"]})
+    return result
+
+
+def stem_files(item: dict) -> list[dict]:
+    if not item.get("folder"):
+        return []
+    folder = Path(item["folder"])
+    if not folder.is_dir():
+        return []
+    return [
+        {"name": path.stem, "file": path.name, "bytes": path.stat().st_size}
+        for path in sorted(folder.glob(f"*.{item['fmt']}"))
+    ]
+
+
+@app.get("/api/stem-sets")
+def list_stem_sets(take_id: str | None = None, source_id: str | None = None) -> list[dict]:
+    if take_id:
+        sets = rows("SELECT * FROM stem_sets WHERE take_id = ? ORDER BY created_at DESC", (take_id,))
+    elif source_id:
+        sets = rows("SELECT * FROM stem_sets WHERE source_id = ? ORDER BY created_at DESC", (source_id,))
+    else:
+        sets = rows("SELECT * FROM stem_sets ORDER BY created_at DESC LIMIT 100")
+    for item in sets:
+        item["files"] = stem_files(item) if item["status"] == "done" else []
+    return sets
+
+
+def _build_zip(files: list[Path]) -> Path:
+    config.WORK_DIR.mkdir(parents=True, exist_ok=True)
+    fd, name = tempfile.mkstemp(dir=config.WORK_DIR, prefix="zip-", suffix=".zip")
+    os.close(fd)
+    with zipfile.ZipFile(name, "w", zipfile.ZIP_STORED) as archive:
+        for path in files:
+            archive.write(path, arcname=path.name)
+    return Path(name)
+
+
+@app.get("/api/stem-sets/{set_id}/zip")
+def stem_zip(set_id: str) -> FileResponse:
+    item = one("SELECT * FROM stem_sets WHERE id = ?", (set_id,))
+    if not item or not item["folder"]:
+        raise HTTPException(404, "no such stem set")
+    files = [Path(item["folder"]) / f["file"] for f in stem_files(item)]
+    if not files:
+        raise HTTPException(404, "this stem set has no files")
+    archive = _build_zip(files)
+    safe = "".join(ch for ch in (item["title"] or "stems") if ch.isalnum() or ch in " -_")[:60].strip() or "stems"
+    return FileResponse(archive, media_type="application/zip", filename=f"{safe} stems.zip",
+                        background=BackgroundTask(archive.unlink, missing_ok=True))
+
+
+def _stem_path(set_id: str, name: str) -> Path:
+    """Only names the set actually holds.  Nothing built from the request is trusted."""
+    item = one("SELECT * FROM stem_sets WHERE id = ?", (set_id,))
+    if not item or not item["folder"]:
+        raise HTTPException(404, "no such stem set")
+    if name not in {f["file"] for f in stem_files(item)}:
+        raise HTTPException(404, "no such stem")
+    return Path(item["folder"]) / name
+
+
+@app.get("/api/stem-sets/{set_id}/{name}/peaks")
+def stem_peaks(set_id: str, name: str) -> dict:
+    result = ensure_peaks(_stem_path(set_id, name))
+    if not result:
+        raise HTTPException(500, "could not read the waveform")
+    return result
+
+
+@app.get("/api/stem-sets/{set_id}/{name}")
+def stem_file(set_id: str, name: str) -> FileResponse:
+    return FileResponse(_stem_path(set_id, name), filename=name)
+
+
+@app.post("/api/stem-sets/{set_id}/cancel")
+async def cancel_stem_set(set_id: str) -> dict:
+    item = one("SELECT * FROM stem_sets WHERE id = ?", (set_id,))
+    if not item:
+        raise HTTPException(404, "no such stem set")
+    jobs.cancel_stems(item)
+    return {"cancelled": item["status"] in ACTIVE}
+
+
+@app.delete("/api/stem-sets/{set_id}")
+async def delete_stem_set(set_id: str) -> dict:
+    item = one("SELECT * FROM stem_sets WHERE id = ?", (set_id,))
+    if not item:
+        raise HTTPException(404, "no such stem set")
+    jobs.cancel_stems(item)
+    execute("DELETE FROM stem_sets WHERE id = ?", (set_id,))
+    if item["folder"]:
+        await asyncio.to_thread(remove_folders, [(Path(item["folder"]), config.DATA_DIR)])
+    return {"deleted": True}
