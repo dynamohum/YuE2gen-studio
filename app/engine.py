@@ -34,6 +34,7 @@ STAGE_LABELS = {
     "SaveAudioAdvanced": "Saving",
     "CLIPLoader": "Loading the lyric writer",
     "TextGenerate": "Writing lyrics",
+    "LoraLoader": "Loading the instrumental adapter",
 }
 
 # Weights drive the progress bar.
@@ -52,6 +53,7 @@ STAGE_WEIGHT = {
     "SaveAudioAdvanced": 3,
     "CLIPLoader": 2,
     "TextGenerate": 20,
+    "LoraLoader": 1,
 }
 
 TEMPLATE_DIR = Path(__file__).parent / "templates"
@@ -156,7 +158,8 @@ class Engine:
         self.online = False
         self.last_error: str | None = None
         self.last_contact = 0.0
-        self.options: dict[str, Any] = {"checkpoints": [], "audio_encoders": [], "harmony": False, "lyrics": False}
+        self.options: dict[str, Any] = {"checkpoints": [], "audio_encoders": [], "harmony": False, "lyrics": False,
+                                        "instrumental": False}
         self.options_loaded = False
         self.compat: dict[str, Any] = {"ok": False, "missing": [], "notes": []}
         # Refreshed by the keeper, so page polls never wait on the engine.
@@ -227,10 +230,12 @@ class Engine:
         encoders = combo_options(info, "AudioEncoderLoader", "audio_encoder_name")
         # The harmony node is optional: plans without it use the stock planner.
         text_models = combo_options(info, "CLIPLoader", "clip_name")
+        loras = combo_options(info, "LoraLoader", "lora_name")
         self.options = {"checkpoints": checkpoints, "audio_encoders": encoders,
                         "harmony": "YuE2GenerateABCHarmony" in info,
                         # Lyrics are optional: without Gemma or the node, the button is greyed out.
-                        "lyrics": "TextGenerate" in info and config.LYRICS_MODEL in text_models}
+                        "lyrics": "TextGenerate" in info and config.LYRICS_MODEL in text_models,
+                        "instrumental": config.INSTRUMENTAL_LORA in loras}
 
         needed = set()
         for graph in _TEMPLATES.values():

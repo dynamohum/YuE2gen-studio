@@ -16,6 +16,20 @@ Release notes live in two places and neither is a file in this repository: this 
 history, and each GitHub release holds its published notes. `RELEASE-NOTES-*.md` is ignored so it
 cannot creep back in.
 
+## 0.0.3 - 2026-09-19
+
+- **Instrumental**, a third mode beside Cover and Song. Style and structure in, a piece with no
+  vocal out, using the YuE2 instrumental LoRA. The structure is built in the panel: let YuE2 decide,
+  choose the sections, or choose the sections and time each one. **Sent to YuE2** shows exactly
+  what the model receives.
+- Instrumentals get the score plan, Harmony, Plan variety, Interpretation, Variations, the chord
+  chart and the length cap, like songs. Their takes are green, and clicking one loads its structure
+  back into the builder. The lyrics box is left alone.
+- The mode switch reads Cover, Song and Instrumental.
+- `scripts/fetch-models.sh` also fetches the LoRA into `models/loras/`.
+- API: `POST /api/instrumentals`. An instrumental take has `kind` `instrumental`, and its structure
+  in `lyrics`.
+
 ## 0.0.2 - 2026-09-19
 
 - **Write lyrics.** In *Song from a prompt*, say what the song is about and pick a structure. Gemma 4

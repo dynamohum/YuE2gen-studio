@@ -34,6 +34,8 @@ Writing a song from a prompt:
 - **Choose how adventurous the chords are.** YuE2 tends to write one four-chord loop for a whole
   song. The Harmony slider, from Familiar to Outside, pushes the planner towards chords it has not
   just used, without breaking the song's structure.
+- **Instrumentals.** A third mode: style and structure in, a song with no vocal out. Build the
+  structure section by section, time each section, or let YuE2 decide.
 - **Draft lyrics from a sentence.** Say what the song is about and pick a structure. Gemma 4
   writes a first draft in YuE2's section layout, on the same engine.
 - **Choose the interpretation.** Six ways to render the same score, from Tight to Wide, and
@@ -78,7 +80,8 @@ to Docker: a folder Docker creates for a mount belongs to root, and the app, whi
 1000, then cannot write its library there. If your user is not uid 1000, change `user:` for the
 app in compose.yml to your `id -u`:`id -g`, or `chown` those two folders to 1000.
 
-The models are YuE2 (plans and renders), SheetSage2 (transcription) and Gemma 4 E4B (lyric drafts).
+The models are YuE2 (plans and renders), SheetSage2 (transcription), Gemma 4 E4B (lyric drafts) and
+the YuE2 instrumental LoRA.
 
 Only localhost is published, and **there is no login**: anyone who can reach the port can use the
 app. To reach it from other machines, put it behind something that authenticates, and add the
@@ -156,9 +159,35 @@ planner's own repetition penalty only varied the chords once it had broken the s
 The slider needs the engine's `yue2_harmony` node, which the engine image includes. With an older
 engine the slider is greyed out, and plans are written as before.
 
+### Instrumental
+
+The third mode writes and renders a piece with no vocal. In place of lyrics it takes a structure,
+built in one of three ways:
+
+| Structure | What YuE2 gets | Who decides |
+|---|---|---|
+| Let YuE2 decide | `[instrumental]` | YuE2 chooses the sections and their lengths |
+| Sections | `[intro] [verse] [chorus] …` | you choose the sections, YuE2 how long each runs |
+| Timed sections | `[intro 0:00-0:15] [verse 0:15-0:45] …` | you choose both |
+
+Add sections with the **+** chips, reorder them with the arrows, and give each a length in seconds
+when timed. **Sent to YuE2** shows exactly what goes to the model. The style presets switch to
+instrumental ones, and the Vocal chips and the lyrics box are hidden.
+
+The rest works as for a song: the score plan, Harmony, Plan variety, Interpretation, Variations,
+the chord chart and the length cap. Instrumental takes are green in the library.
+
+The structure is guidance. YuE2 may name a section differently, add an interlude, or run longer
+than the times add up to, so the length cap is the firm limit.
+
+It uses the [YuE2 instrumental LoRA](https://huggingface.co/Mothersuperior/YuE2-instrumental-cot-full-loras)
+by Mothersuperior, fetched by `scripts/fetch-models.sh` into `models/loras/`. The LoRA adapts
+YuE2's language model, so it is applied to both the plan and the render; the audio sampler is
+unchanged. It is CC BY-NC 4.0, like YuE2.
+
 ### Write lyrics
 
-**Write lyrics**, beside the lyrics box in *Song from a prompt*, asks what the song is about and which
+**Write lyrics**, beside the lyrics box in *Song* mode, asks what the song is about and which
 structure it should have: verse and chorus with a bridge, verse and chorus only, with an intro and
 outro, or a story with two verses up front. The Style above sets the mood. Gemma 4 E4B writes the
 draft on the engine, and it lands in the lyrics box
@@ -414,6 +443,7 @@ missing node or model shows in the header instead of failing a render.
 | `docker compose build` hangs with no output | the buildx plugin is missing | install `docker-buildx` for your Docker |
 | Engine runs but sees no GPU | the container has no GPU access | `docker run --rm --gpus all nvidia/cuda:12.8.0-base-ubuntu24.04 nvidia-smi` should print the card |
 | Render fails out of memory | another program is using the GPU | close other GPU work; see Requirements |
+| **Write score plan** is greyed out in Instrumental | the LoRA is not in `models/loras` | `sh scripts/fetch-models.sh`, then `docker compose restart engine` |
 | **Write lyrics** is greyed out | Gemma is not in `models/text_encoders` | `sh scripts/fetch-models.sh`, then `docker compose restart engine` |
 | Header says the checkpoint is missing | `yue2_3b_bf16.safetensors` is not in `models/checkpoints` | `sh scripts/fetch-models.sh`, then `docker compose restart engine` |
 | **Render this score** and **Write a new plan** are greyed out | no take's score is in the editor | press **Score** on a take in the library, or write a plan |
@@ -425,6 +455,9 @@ missing node or model shows in the header instead of failing a render.
 
 - YuE2 by HKUST M-A-P. Weights CC BY-NC 4.0.
 - SheetSage2 and MERT2 by the same team, for transcription.
+- [YuE2 instrumental LoRA](https://huggingface.co/Mothersuperior/YuE2-instrumental-cot-full-loras) by
+  Mothersuperior, for instrumentals. CC BY-NC 4.0.
+- [Gemma 4](https://huggingface.co/Comfy-Org/gemma-4) by Google, for lyric drafts. Apache 2.0.
 - [ComfyUI](https://github.com/comfyanonymous/ComfyUI) as the engine.
 - [Demucs](https://github.com/facebookresearch/demucs) by Meta for stems. MIT.
 - [abcjs](https://github.com/paulrosen/abcjs) by Paul Rosen and Gregory Dyke, for staff notation.

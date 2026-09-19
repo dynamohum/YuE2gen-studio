@@ -15,8 +15,8 @@ CHORD = re.compile(r'"[A-G][#b]?[^"\s]*"')
 MIN_BARS = 4
 
 
-def vocal_bars(abc: str) -> list[str]:
-    """The bars of the Vocal voice, in order."""
+def vocal_bars(abc: str, voice_name: str = "Vocal") -> list[str]:
+    """The bars of one voice, the Vocal voice unless told otherwise, in order."""
     bars, voice = [], None
     for raw in (abc or "").splitlines():
         line = raw.strip()
@@ -24,18 +24,22 @@ def vocal_bars(abc: str) -> list[str]:
         if match:
             voice = match.group(1)
             continue
-        if voice != "Vocal" or not line or line.startswith("%") or HEADER.match(line):
+        if voice != voice_name or not line or line.startswith("%") or HEADER.match(line):
             continue
         bars.extend(bar for bar in line.split("|") if bar.strip())
     return bars
 
 
-def problems(abc: str, need_chords: bool = True) -> list[str]:
-    """What makes this score unusable, in words a person can act on.  Empty when fine."""
+def problems(abc: str, need_chords: bool = True, instrumental: bool = False) -> list[str]:
+    """What makes this score unusable, in words a person can act on.  Empty when fine.
+    An instrumental plan keeps a Vocal voice of rests that carries the chords, and
+    puts its melody in an Ins voice; either one will do."""
     found = []
     if not KEY.search(abc or ""):
         found.append("no key")
     bars = vocal_bars(abc)
+    if instrumental and not bars:
+        bars = vocal_bars(abc, "Ins")
     if not bars:
         found.append("no vocal part")
     elif len(bars) < MIN_BARS:

@@ -40,6 +40,7 @@ ALLOWED_HOSTS = [h.strip().lower() for h in os.environ.get("ALLOWED_HOSTS", "loc
 # The models the app uses.  One YuE2 checkpoint, and Gemma for writing lyrics.
 CHECKPOINT = "yue2_3b_bf16.safetensors"
 LYRICS_MODEL = "gemma4_e4b_it_int8_convrot.safetensors"
+INSTRUMENTAL_LORA = "ar_lora_inst_v3abc_comfyui.safetensors"
 
 DEFAULT_STYLE = "English, warm indie rock, expressive lead vocal, drums, bass, guitars, memorable melody, 110 BPM"
 

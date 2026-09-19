@@ -9,7 +9,7 @@ import logging
 import time
 from pathlib import Path
 
-from . import config, lyrics, score, stems
+from . import config, instrumental, lyrics, score, stems
 from .db import bump_average, execute, one
 from .engine import Engine, load_template
 from .library import audio_duration, ensure_peaks, inside, remove_tree, take_audio_path, write_take_note
@@ -110,6 +110,8 @@ def build_plan_graph(take: dict) -> dict:
     if step in HARMONY:
         graph["2"]["class_type"] = HARMONY_NODE
         node.update({**HARMONY_OFF, **HARMONY[step]})
+    if take.get("kind") == "instrumental":
+        instrumental.with_lora(graph, "1", config.INSTRUMENTAL_LORA, ("2",))
     return graph
 
 
@@ -129,6 +131,9 @@ def build_render_graph(take: dict) -> dict:
     # not changed and answers with the file it saved last time, which the app has
     # already taken and deleted.  With a new prefix only the save runs again.
     graph["16"]["inputs"]["filename_prefix"] = f"yue2studio/{take['id']}-{int(time.time() * 1000)}"
+    if take.get("kind") == "instrumental":
+        node["mode"] = "full"
+        instrumental.with_lora(graph, "10", config.INSTRUMENTAL_LORA, ("11",))
     return graph
 
 
@@ -333,7 +338,7 @@ async def _finish(kind: str, ref_id: str, record: dict, job: dict, started: floa
         if not abc:
             fail(kind, ref_id, "the engine returned no score plan")
             return
-        issues = score.problems(abc)
+        issues = score.problems(abc, instrumental=record.get("kind") == "instrumental")
         if issues:
             # Stored as a failure, never as a plan, so it cannot be rendered or auto-rendered.
             advice = ", or choose a calmer Plan variety" if record.get("variety") in ("bold", "wild") else ""

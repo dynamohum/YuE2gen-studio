@@ -14,6 +14,9 @@
   --cover-b: #a855f7;
   --song-a: #38bdf8;
   --song-b: #7b5cff;
+  /* Green means an instrumental. */
+  --inst-a: #a3e635;
+  --inst-b: #10b981;
   --good: #34d399;
   --bad: #f87171;
   --radius: 18px;
@@ -239,6 +242,7 @@ button.primary {
 /* Each button wears the colour of the mode it belongs to. */
 #create-cover { background: linear-gradient(90deg, var(--cover-a), var(--cover-b)); }
 #create-song { background: linear-gradient(90deg, var(--song-a), var(--song-b)); }
+#create-inst { background: linear-gradient(90deg, var(--inst-b), var(--inst-a)); color: #07140c; }
 button.primary:hover { filter: brightness(1.08); }
 button.primary:disabled { opacity: 0.5; cursor: default; filter: none; }
 button.ghost {
@@ -256,18 +260,21 @@ button.icon { width: 42px; padding: 8px 0; text-align: center; }
 .mode.active { color: #fff; font-weight: 600; }
 .mode.active[data-mode="cover"] { background: linear-gradient(90deg, var(--cover-a), var(--cover-b)); }
 .mode.active[data-mode="song"] { background: linear-gradient(90deg, var(--song-a), var(--song-b)); }
+.mode.active[data-mode="inst"] { background: linear-gradient(90deg, var(--inst-b), var(--inst-a)); color: #07140c; }
 .mode .dot {
   display: inline-block; width: 7px; height: 7px; border-radius: 50%;
   margin-right: 8px; vertical-align: middle;
 }
 .mode[data-mode="cover"] .dot { background: var(--cover-a); }
 .mode[data-mode="song"] .dot { background: var(--song-a); }
+.mode[data-mode="inst"] .dot { background: var(--inst-a); }
 .mode.active .dot { background: rgba(255, 255, 255, 0.92); }
 
 /* Two class selectors on purpose: .np-cover sets a fallback background further
    down the file, and a plain .grad-* rule would lose to it. */
 .cover.grad-cover, .np-cover.grad-cover { background: linear-gradient(135deg, var(--cover-a), var(--cover-b)); }
 .cover.grad-song, .np-cover.grad-song { background: linear-gradient(135deg, var(--song-a), var(--song-b)); }
+.cover.grad-inst, .np-cover.grad-inst { background: linear-gradient(135deg, var(--inst-a), var(--inst-b)); color: #07140c; }
 .chips { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 9px; }
 .chip {
   font-size: 12.5px; padding: 5px 11px; border-radius: 999px;
@@ -582,3 +589,30 @@ details.block[open] > summary { margin-bottom: 10px; }
 #write-brief { min-height: 90px; }
 #write-go:disabled { opacity: 0.5; cursor: default; }
 #write-go, #variations-go { width: auto; flex: 0 0 auto; margin-top: 0; padding: 10px 24px; font-size: 14px; }
+
+.take.editing.tone-inst {
+  border-color: #a3e635;
+  box-shadow: 0 0 0 1px rgba(163, 230, 53, 0.55), 0 6px 26px rgba(163, 230, 53, 0.16);
+}
+/* Instrumental structure builder. */
+.seg { display: flex; gap: 4px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 3px; }
+.seg button { flex: 1; border: 0; border-radius: 9px; background: transparent; color: var(--muted); font: inherit;
+  font-size: 12.5px; padding: 7px 6px; cursor: pointer; }
+.seg button.active { background: var(--card-2); color: var(--text); box-shadow: inset 0 0 0 1px rgba(163, 230, 53, 0.45); }
+.structure-total { font-size: 12px; }
+.structure-total.over { color: var(--bad); }
+.struct-note { font-size: 12.5px; color: var(--muted); margin: 10px 2px 2px; }
+.struct-list { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 5px; counter-reset: s; }
+.struct-row { display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 9px; border: 1px solid var(--line);
+  border-radius: 10px; background: var(--card); counter-increment: s; }
+.struct-row::before { content: counter(s); color: var(--muted); font-size: 11.5px; min-width: 1.2em; }
+.struct-row select { flex: 1 1 auto; width: auto; min-width: 96px; padding: 5px 8px; font-size: 13px; border-radius: 8px; }
+.struct-row input[type="number"] { flex: 0 0 52px; width: 52px; padding: 5px 6px; font-size: 13px; border-radius: 8px; }
+.struct-row .struct-time { flex: 0 0 auto; font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 66px; text-align: right; }
+.struct-row .struct-btn { flex: 0 0 auto; border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 13px; padding: 3px 4px; border-radius: 6px; }
+.struct-row .struct-btn:hover { color: var(--text); background: var(--card-2); }
+.struct-add { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.struct-add .chip { font-size: 12px; padding: 4px 10px; }
+.structure-sent { margin-top: 9px; font-size: 12px; line-height: 1.5; }
+.structure-sent code { font: 11.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text);
+  word-break: break-word; }

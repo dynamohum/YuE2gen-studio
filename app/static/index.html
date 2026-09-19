@@ -27,8 +27,9 @@
     <p class="sub" id="sub">Your own recording in. A new arrangement, new vocals, and an editable score out.</p>
 
     <div class="modes">
-      <button class="mode active" data-mode="cover"><span class="dot"></span>Cover a recording</button>
-      <button class="mode" data-mode="song"><span class="dot"></span>Song from a prompt</button>
+      <button class="mode active" data-mode="cover" title="Cover a recording"><span class="dot"></span>Cover</button>
+      <button class="mode" data-mode="song" title="Song from a prompt"><span class="dot"></span>Song</button>
+      <button class="mode" data-mode="inst" title="Instrumental from a prompt"><span class="dot"></span>Instrumental</button>
     </div>
 
     <div id="draft-bar" class="draft hidden" role="status">
@@ -92,7 +93,7 @@
       <div id="presets" class="chips"></div>
     </div>
 
-    <div class="field">
+    <div class="field" id="vocal-field">
       <label>Vocal</label>
       <div id="vocal-sex" class="chips"></div>
       <div id="vocal-tone" class="chips"></div>
@@ -113,7 +114,21 @@
       <input id="max-duration" type="number" value="360" step="10" min="10" max="900">
     </div>
 
-    <div class="field">
+    <div class="field" id="structure-field" style="display:none">
+      <div class="label-row">
+        <label>Structure</label>
+        <span id="structure-total" class="muted structure-total"></span>
+      </div>
+      <div class="seg" id="structure-kind" role="tablist">
+        <button data-kind="free" class="active">Let YuE2 decide</button>
+        <button data-kind="sections">Sections</button>
+        <button data-kind="timed">Timed sections</button>
+      </div>
+      <div id="structure-body"></div>
+      <div class="structure-sent"><span class="muted">Sent to YuE2:</span> <code id="structure-preview"></code></div>
+    </div>
+
+    <div class="field" id="lyrics-field">
       <div class="label-row">
         <label for="lyrics">Lyrics</label>
         <span class="label-actions">
@@ -127,7 +142,7 @@
     <details class="block">
       <summary>Advanced</summary>
       <div class="grid2">
-        <div class="field">
+        <div class="field" id="mode-field">
           <label>Mode</label>
           <select id="mode">
             <option value="full">full &mdash; keep the chords</option>
@@ -169,6 +184,7 @@
     <label class="check" id="auto-wrap"><input id="auto-render" type="checkbox"> render as soon as the plan is ready</label>
     <button id="create-cover" class="primary">Create cover</button>
     <button id="create-song" class="primary" style="display:none">Write score plan</button>
+    <button id="create-inst" class="primary" style="display:none">Write score plan</button>
     <div id="render-status" class="status"></div>
   </section>
 

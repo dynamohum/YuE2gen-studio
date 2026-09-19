@@ -119,6 +119,9 @@ function paintInterpretation() {
 function paintOptions() {
   paintHarmony();
   paintInterpretation();
+  var canInst = State.options.instrumental_available !== false;
+  $('create-inst').disabled = !canInst;
+  $('create-inst').title = canInst ? '' : 'The engine has no instrumental LoRA. Run scripts/fetch-models.sh, then restart the engine.';
   var canWrite = State.options.lyrics_available !== false;
   $('lyrics-write').disabled = !canWrite;
   $('lyrics-write').title = canWrite ? 'Draft lyrics from a short description'
@@ -141,6 +144,7 @@ function saveForm() {
     data.auto_render = $('auto-render').checked;
     data.seed_fixed = $('seed-fixed').checked;
     data.left_take = State.leftTakeId || '';
+    data.structure = { kind: STRUCTURE.kind, sections: STRUCTURE.sections };
     localStorage.setItem(FORM_KEY, JSON.stringify(data));
   } catch (err) { /* private mode, or storage full. Not worth a message. */ }
 }
@@ -159,6 +163,12 @@ function loadForm() {
   if (typeof data.seed_fixed === 'boolean') { $('seed-fixed').checked = data.seed_fixed; }
   if (data.style) { $('style').dataset.touched = '1'; }
   if (data.left_take) { State.leftTakeId = data.left_take; }
+  if (data.structure && Array.isArray(data.structure.sections)) {
+    STRUCTURE.kind = ['free', 'sections', 'timed'].indexOf(data.structure.kind) >= 0 ? data.structure.kind : 'free';
+    STRUCTURE.sections = data.structure.sections.filter(function (item) {
+      return item && SECTIONS.indexOf(item.name) >= 0;
+    }).map(function (item) { return { name: item.name, seconds: Math.max(4, Math.min(180, Number(item.seconds) || 20)) }; });
+  }
 }
 
 /* A title from the first real lyric line. Section tags and genre tags do not count. */
@@ -922,21 +932,33 @@ function setMode(mode) {
     button.classList.toggle('active', button.dataset.mode === mode);
   });
   var cover = mode === 'cover';
-  $('cover-only').style.display = cover ? '' : 'none';
-  $('lyrics-write').style.display = cover ? 'none' : '';
-  $('auto-wrap').style.display = cover ? 'none' : '';
+  var inst = mode === 'inst';
+  var show = function (id, on) { $(id).style.display = on ? '' : 'none'; };
+  show('cover-only', cover);
+  show('lyrics-write', mode === 'song');
+  show('auto-wrap', !cover);
   // Both steer the score writer, which a cover never uses: its score is the transcription.
-  $('harmony-field').style.display = cover ? 'none' : '';
-  $('variety-field').style.display = cover ? 'none' : '';
-  $('plan-actions').style.display = cover ? 'none' : '';
-  $('headline').textContent = cover ? 'Cover a song' : 'Write a song';
+  show('harmony-field', !cover);
+  show('variety-field', !cover);
+  show('plan-actions', !cover);
+  // An instrumental has no words and no voice; its structure takes the lyrics' place.
+  show('lyrics-field', !inst);
+  show('vocal-field', !inst);
+  show('structure-field', inst);
+  show('mode-field', !inst);
+  $('headline').textContent = cover ? 'Cover a song' : (inst ? 'Write an instrumental' : 'Write a song');
   $('sub').textContent = cover
     ? 'Your own recording in. A new arrangement, new vocals, and an editable score out.'
+    : inst ? 'Style and structure in. YuE2 writes the melody and the chords, then plays it with no vocal.'
     : 'Style and lyrics in. YuE2 writes the melody and the chords, then sings it.';
   $('score-label').textContent = cover ? 'Score' : 'Score plan';
-  $('create-cover').style.display = cover ? '' : 'none';
-  $('create-song').style.display = cover ? 'none' : '';
-  $('start-fresh').textContent = cover ? 'New cover' : 'New song';
+  show('create-cover', cover);
+  show('create-song', mode === 'song');
+  show('create-inst', inst);
+  $('start-fresh').textContent = cover ? 'New cover' : (inst ? 'New instrumental' : 'New song');
+  $('title').placeholder = inst ? 'Name the piece' : 'Leave blank and the first lyric line is used';
+  paintPresets();
+  if (inst) { paintStructure(); }
   $('source-status').textContent = '';
   var ownedByTake = Boolean(takeIdInEditor());
   if (cover) {
@@ -1317,6 +1339,195 @@ async function moveTake(spaceId) {
   loadSpaces();
 }
 
+/* Style presets: songs name a voice, instrumentals name the lead instrument. */
+var PRESETS = {
+  vocal: [
+    'English, warm indie rock, expressive male vocal, guitars, bass, drums, 110 BPM',
+    'English, soulful jazz-pop, expressive male vocal, Rhodes, upright bass, brushed drums, 88 BPM',
+    'English, synthwave, female vocal, analog pads, gated drums, 100 BPM',
+    'English, acoustic ballad, intimate vocal, fingerpicked guitar, strings',
+    'English, heavy rock, gritty male vocal, distorted guitars, driving drums'
+  ],
+  inst: [
+    'cinematic, ambient, piano, strings, slow build, 70 BPM',
+    'lo-fi hip hop, Rhodes, vinyl crackle, mellow drums, 85 BPM',
+    'surf rock, twangy lead guitar, spring reverb, driving drums, 160 BPM',
+    'synthwave, analog synth lead, arpeggios, gated drums, 110 BPM',
+    'jazz trio, piano, upright bass, brushed drums, swing, 120 BPM'
+  ]
+};
+
+function paintPresets() {
+  var list = State.mode === 'inst' ? PRESETS.inst : PRESETS.vocal;
+  var html = list.map(function (text) {
+    var label = State.mode === 'inst' ? text.split(',')[0] : (text.split(',')[1] || text);
+    return '<button class="chip" data-preset="' + esc(text) + '">' + esc(label.trim()) + '</button>';
+  }).join('');
+  if ($('presets').dataset.html !== html) { $('presets').innerHTML = html; $('presets').dataset.html = html; }
+}
+
+/* ------------------------------------------------------ instrumental structure
+   What goes into the lyrics slot for an instrumental: [instrumental], a list of
+   section tags, or tags with times.  The LoRA only knows these six sections. */
+var SECTIONS = ['intro', 'verse', 'pre-chorus', 'chorus', 'bridge', 'outro'];
+var SECTION_SECONDS = { intro: 15, verse: 30, 'pre-chorus': 15, chorus: 25, bridge: 20, outro: 15 };
+var STRUCTURE = {
+  kind: 'free',
+  sections: ['intro', 'verse', 'chorus', 'verse', 'chorus', 'bridge', 'chorus', 'outro'].map(function (name) {
+    return { name: name, seconds: SECTION_SECONDS[name] };
+  })
+};
+
+function clock(total) {
+  var m = Math.floor(total / 60);
+  var s = Math.round(total % 60);
+  return m + ':' + (s < 10 ? '0' : '') + s;
+}
+
+function structureText() {
+  if (STRUCTURE.kind === 'free') { return '[instrumental]'; }
+  var at = 0;
+  return STRUCTURE.sections.map(function (item) {
+    if (STRUCTURE.kind === 'sections') { return '[' + item.name + ']'; }
+    var tag = '[' + item.name + ' ' + clock(at) + '-' + clock(at + item.seconds) + ']';
+    at += item.seconds;
+    return tag;
+  }).join('\n');
+}
+
+/* An instrumental take's structure back into the builder: '[instrumental]', tags, or
+   tags with times.  Lengths come from the times when there are any. */
+function loadStructure(text) {
+  var lines = String(text || '').split('\n').map(function (line) { return line.trim(); }).filter(Boolean);
+  var parsed = [];
+  var timed = false;
+  lines.forEach(function (line) {
+    var m = /^\[([a-z-]+)(?:\s+(\d+):(\d\d)-(\d+):(\d\d))?\]$/.exec(line);
+    if (!m || SECTIONS.indexOf(m[1]) < 0) { return; }
+    var seconds = SECTION_SECONDS[m[1]];
+    if (m[2] !== undefined) {
+      timed = true;
+      seconds = (Number(m[4]) * 60 + Number(m[5])) - (Number(m[2]) * 60 + Number(m[3]));
+    }
+    parsed.push({ name: m[1], seconds: seconds });
+  });
+  if (parsed.length) {
+    STRUCTURE.sections = parsed;
+    STRUCTURE.kind = timed ? 'timed' : 'sections';
+  } else {
+    STRUCTURE.kind = 'free';
+  }
+  paintStructure();
+}
+
+async function doInstrumental() {
+  if (STRUCTURE.kind !== 'free' && !STRUCTURE.sections.length) {
+    statusLine('Add at least one section, or choose Let YuE2 decide.', 'bad');
+    return;
+  }
+  var seed = parseInt($('seed').value, 10);
+  if (!($('seed-fixed').checked) || isNaN(seed)) {
+    seed = Math.floor(Math.random() * 4294967295);
+    $('seed').value = seed;
+  }
+  statusLine('Queued\u2026');
+  try {
+    var take = await api('/api/instrumentals', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: $('title').value.trim(),
+        style: $('style').value,
+        structure: structureText(),
+        seed: seed,
+        interpretation: $('interpretation').value,
+        max_duration: parseFloat($('max-duration').value) || 360,
+        auto_render: $('auto-render').checked,
+        variety: $('variety').value,
+        harmony: harmonyStep(),
+        space_id: State.spaceId
+      })
+    });
+    State.planTakeId = take.id;
+    statusLine('Writing the score plan\u2026');
+    loadTakes();
+  } catch (err) {
+    statusLine('Could not start: ' + err.message, 'bad');
+  }
+}
+
+function paintStructure() {
+  Array.prototype.forEach.call(document.querySelectorAll('#structure-kind button'), function (button) {
+    button.classList.toggle('active', button.dataset.kind === STRUCTURE.kind);
+  });
+  var body = $('structure-body');
+  var total = STRUCTURE.sections.reduce(function (sum, item) { return sum + item.seconds; }, 0);
+  var cap = parseFloat($('max-duration').value) || 360;
+  $('structure-total').textContent = STRUCTURE.kind === 'timed' ? clock(total) + ' in all' + (total > cap ? ', longer than the length cap' : '') : '';
+  $('structure-total').classList.toggle('over', STRUCTURE.kind === 'timed' && total > cap);
+  if (STRUCTURE.kind === 'free') {
+    body.innerHTML = '<p class="struct-note">YuE2 chooses the sections and how long each one runs.</p>';
+  } else {
+    var at = 0;
+    var rows = STRUCTURE.sections.map(function (item, index) {
+      var options = SECTIONS.map(function (name) {
+        return '<option value="' + name + '"' + (name === item.name ? ' selected' : '') + '>' + name + '</option>';
+      }).join('');
+      var timed = '';
+      if (STRUCTURE.kind === 'timed') {
+        timed = '<input type="number" min="4" max="180" step="1" value="' + item.seconds + '" data-row="' + index + '" data-field="seconds" title="Seconds">' +
+          '<span class="struct-time">' + clock(at) + '\u2013' + clock(at + item.seconds) + '</span>';
+        at += item.seconds;
+      }
+      return '<li class="struct-row"><select data-row="' + index + '" data-field="name">' + options + '</select>' + timed +
+        '<button class="struct-btn" data-row="' + index + '" data-move="-1" title="Move up">\u2191</button>' +
+        '<button class="struct-btn" data-row="' + index + '" data-move="1" title="Move down">\u2193</button>' +
+        '<button class="struct-btn" data-row="' + index + '" data-remove="1" title="Remove">\u00d7</button></li>';
+    }).join('');
+    var adds = SECTIONS.map(function (name) {
+      return '<button class="chip" data-add="' + name + '">+ ' + name + '</button>';
+    }).join('');
+    body.innerHTML = '<ol class="struct-list">' + rows + '</ol><div class="struct-add">' + adds + '</div>' +
+      (STRUCTURE.kind === 'sections' ? '<p class="struct-note">YuE2 chooses how long each section runs.</p>' : '');
+  }
+  $('structure-preview').textContent = structureText().replace(/\n/g, ' ');
+  saveForm();
+}
+
+function wireStructure() {
+  $('structure-kind').addEventListener('click', function (event) {
+    var button = event.target.closest('[data-kind]');
+    if (!button) { return; }
+    STRUCTURE.kind = button.dataset.kind;
+    paintStructure();
+  });
+  $('structure-body').addEventListener('click', function (event) {
+    var button = event.target.closest('button');
+    if (!button) { return; }
+    var list = STRUCTURE.sections;
+    if (button.dataset.add) {
+      list.push({ name: button.dataset.add, seconds: SECTION_SECONDS[button.dataset.add] });
+    } else if (button.dataset.remove) {
+      list.splice(Number(button.dataset.row), 1);
+    } else if (button.dataset.move) {
+      var from = Number(button.dataset.row);
+      var to = from + Number(button.dataset.move);
+      if (to < 0 || to >= list.length) { return; }
+      list.splice(to, 0, list.splice(from, 1)[0]);
+    }
+    paintStructure();
+  });
+  $('structure-body').addEventListener('change', function (event) {
+    var field = event.target.dataset.field;
+    if (!field) { return; }
+    var item = STRUCTURE.sections[Number(event.target.dataset.row)];
+    if (field === 'name') { item.name = event.target.value; }
+    if (field === 'seconds') { item.seconds = Math.max(4, Math.min(180, Math.round(Number(event.target.value) || 0))); }
+    paintStructure();
+  });
+  $('max-duration').addEventListener('input', function () { if (State.mode === 'inst') { paintStructure(); } });
+  $('create-inst').addEventListener('click', doInstrumental);
+}
+
 /* ---------------------------------------------------------------- variations
    The same score and seed, rendered in other interpretations, each as a new take. */
 var VARIATIONS = { take: null };
@@ -1519,15 +1730,19 @@ function stemsBlock(take) {
 function selectTake(take) {
   if (!take) { return; }
   if (take.id !== State.leftTakeId && formIsDraft()) { stashDraft(); }
-  var isSong = take.kind === 'song';
+  // Songs and instrumentals are both written from a prompt; only a cover has a recording.
+  var isInst = take.kind === 'instrumental';
+  var isSong = take.kind === 'song' || isInst;
   var hasScore = Boolean(take.abc && take.abc.length > 50);
   var planning = isSong && !hasScore && (take.status === 'queued' || take.status === 'running');
-  setMode(isSong ? 'song' : 'cover');
+  setMode(isInst ? 'inst' : (isSong ? 'song' : 'cover'));
   if (!isSong && take.source_id) { $('source-select').value = take.source_id; }
   $('title').value = take.title;
   $('style').value = take.style || '';
   $('style').dataset.touched = '1';
-  $('lyrics').value = take.lyrics || '';
+  // An instrumental keeps its structure where a song keeps its lyrics.  The lyrics box
+  // is left alone, so browsing instrumentals cannot wipe the words of a song.
+  if (isInst) { loadStructure(take.lyrics); } else { $('lyrics').value = take.lyrics || ''; }
   $('abc').value = take.abc || '';
   scoreBaseline(take.abc || '');
   if (take.mode) { $('mode').value = take.mode; }
@@ -1571,9 +1786,10 @@ function formIsDraft() {
   var same = function (a, b) { return String(a || '').replace(/\r\n?/g, '\n') === String(b || '').replace(/\r\n?/g, '\n'); };
   var title = $('title').value;
   var style = $('style').value;
-  var lyrics = $('lyrics').value;
+  var lyrics = State.mode === 'inst' ? '' : $('lyrics').value;
   if (!lyrics.trim() && !title.trim()) { return false; }
   var shown = State.leftTakeId ? takeById(State.leftTakeId) : null;
+  if (State.mode === 'inst') { return Boolean(shown) && (!same(title, shown.title) || !same(style, shown.style)); }
   if (!shown) { return Boolean(lyrics.trim()); }
   return !same(title, shown.title) || !same(style, shown.style) || !same(lyrics, shown.lyrics);
 }
@@ -1630,8 +1846,8 @@ function dismissDraft() {
    column, so Render and Replan cannot act on it by mistake.  A cover keeps its
    recording and goes back to that recording's own transcription. */
 function startFresh() {
-  if (scoreIsDirty() && !confirm('The score has changes that are not saved. Start a new ' +
-      (State.mode === 'cover' ? 'cover' : 'song') + ' and discard them?')) {
+  var noun = { cover: 'cover', song: 'song', inst: 'instrumental' }[State.mode] || 'song';
+  if (scoreIsDirty() && !confirm('The score has changes that are not saved. Start a new ' + noun + ' and discard them?')) {
     return;
   }
   if (formIsDraft()) { stashDraft(); }
@@ -1640,7 +1856,7 @@ function startFresh() {
   State.leftTakeId = null;
   State.planTakeId = null;
   $('title').value = '';
-  $('lyrics').value = '';
+  if (State.mode !== 'inst') { $('lyrics').value = ''; }   // an instrumental keeps its structure, like a setting
   $('abc').value = '';
   scoreBaseline('');
   setChart('');
@@ -1658,6 +1874,7 @@ function startFresh() {
   paintTakes();
   statusLine(cover
     ? 'New cover. The recording stays selected: add a title and lyrics, then Create cover.'
+    : State.mode === 'inst' ? 'New instrumental. Choose a style and a structure, then Write score plan.'
     : 'New song. Write a title, style and lyrics, then Write score plan.', 'good');
   $('title').focus();
 }
@@ -1682,9 +1899,9 @@ function paintTakes() {
   $('takes').innerHTML = list.map(function (take) {
     var status = take.status;
     var meta = [];
-    meta.push(take.kind === 'song' ? 'from a prompt' : 'cover');
+    meta.push(take.kind === 'song' ? 'from a prompt' : (take.kind === 'instrumental' ? 'instrumental' : 'cover'));
     if (take.duration) { meta.push(secs(take.duration)); }
-    if (take.kind === 'song' && take.harmony) { meta.push(HARMONY_WORDS[take.harmony].toLowerCase() + ' harmony'); }
+    if ((take.kind === 'song' || take.kind === 'instrumental') && take.harmony) { meta.push(HARMONY_WORDS[take.harmony].toLowerCase() + ' harmony'); }
     meta.push('seed ' + take.seed);
     if (take.interpretation && take.interpretation !== 'standard' && INTERPRETATIONS[take.interpretation]) {
       meta.push(INTERPRETATIONS[take.interpretation].name.toLowerCase());
@@ -1747,11 +1964,11 @@ function paintTakes() {
     // cover retake, where the score in the box belongs to the source.
     if ((State.leftTakeId || takeIdInEditor()) === take.id) {
       // tone-*, not song/cover: a plain .cover class belongs to the 46px tile.
-      classes += take.kind === 'song' ? ' editing tone-song' : ' editing tone-cover';
+      classes += ' editing ' + ({ song: 'tone-song', instrumental: 'tone-inst' }[take.kind] || 'tone-cover');
     }
     return '<article class="' + classes + '" data-id="' + take.id + '">' +
       '<div class="take-head">' +
-        '<div class="cover ' + (take.kind === 'song' ? 'grad-song' : 'grad-cover') + '">' + initials(take.title) + '</div>' +
+        '<div class="cover ' + ({ song: 'grad-song', instrumental: 'grad-inst' }[take.kind] || 'grad-cover') + '">' + initials(take.title) + '</div>' +
         '<div class="take-headtext">' +
           '<div class="take-title" title="' + esc(take.title) + '">' + esc(take.title) + '</div>' +
           '<div class="take-meta" title="' + esc(meta.join(' \u00b7 ')) + '">' + esc(meta.join(' \u00b7 ')) + '</div>' +
@@ -1811,7 +2028,7 @@ function playTake(id) {
   var position = takePosition(id);
   $('np-meta').textContent = (position ? 'take ' + position.index + ' of ' + position.total + ' \u00b7 ' : '') +
     (take.duration ? secs(take.duration) : take.style.slice(0, 60));
-  $('np-cover').className = 'np-cover ' + (take.kind === 'song' ? 'grad-song' : 'grad-cover');
+  $('np-cover').className = 'np-cover ' + ({ song: 'grad-song', instrumental: 'grad-inst' }[take.kind] || 'grad-cover');
   updateMediaSession(take);
   paintTransport();
   paintTakes();
@@ -1992,6 +2209,7 @@ function drawWave() {
 
 function waveTone() {
   if (wave.kind === 'song') { return { body: '#38bdf8', outline: 'rgba(56, 189, 248, 0.42)' }; }
+  if (wave.kind === 'instrumental') { return { body: '#a3e635', outline: 'rgba(163, 230, 53, 0.42)' }; }
   if (wave.kind === 'cover') { return { body: '#ff4d94', outline: 'rgba(255, 77, 148, 0.42)' }; }
   return { body: '#a78bfa', outline: 'rgba(167, 139, 250, 0.45)' };
 }
@@ -2332,7 +2550,7 @@ function chordChart(abc) {
     });
   });
   if (!order.length) {
-    return State.mode === 'song'
+    return State.mode !== 'cover'
       ? 'No chord symbols in this score. The plan may have come out broken: write a new plan, or choose a calmer Plan variety.'
       : 'No chord symbols in this score. Use full mode when you transcribe to get chords.';
   }
@@ -2352,7 +2570,7 @@ function chordChart(abc) {
   var distinct = {};
   order.forEach(function (name) { chart[name].forEach(function (chord) { distinct[chord] = 1; }); });
   lines.push('');
-  lines.push(total + ' bars, ' + Object.keys(distinct).length + ' different chords. ' + (State.mode === 'song'
+  lines.push(total + ' bars, ' + Object.keys(distinct).length + ' different chords. ' + (State.mode !== 'cover'
     ? 'A short loop that repeats all song is the model being lazy. Raise Harmony, or edit the symbols.'
     : 'These are the recording\u2019s chords. Edit the symbols, or render in melody mode to let YuE2 choose its own.'));
   return lines.join('\n');
@@ -2360,16 +2578,7 @@ function chordChart(abc) {
 
 /* ------------------------------------------------------------------ wiring */
 function wire() {
-  var presets = [
-    'English, warm indie rock, expressive male vocal, guitars, bass, drums, 110 BPM',
-    'English, soulful jazz-pop, expressive male vocal, Rhodes, upright bass, brushed drums, 88 BPM',
-    'English, synthwave, female vocal, analog pads, gated drums, 100 BPM',
-    'English, acoustic ballad, intimate vocal, fingerpicked guitar, strings',
-    'English, heavy rock, gritty male vocal, distorted guitars, driving drums'
-  ];
-  $('presets').innerHTML = presets.map(function (text) {
-    return '<button class="chip" data-preset="' + esc(text) + '">' + esc(text.split(',')[1] || text) + '</button>';
-  }).join('');
+  paintPresets();
   $('presets').addEventListener('click', function (event) {
     var button = event.target.closest('[data-preset]');
     if (button) { $('style').value = button.dataset.preset; paintVocals(); }
@@ -2418,8 +2627,8 @@ function wire() {
     var url = takeId ? '/api/takes/' + takeId + '/score'
                      : (State.mode === 'cover' && source ? '/api/sources/' + source.id + '/score' : '');
     if (!url) {
-      statusLine(State.mode === 'song'
-        ? 'A song\u2019s score is saved with its take. Write a score plan first.'
+      statusLine(State.mode !== 'cover'
+        ? 'A score plan is saved with its take. Write a score plan first.'
         : 'Choose a recording to save this score to.', 'bad');
       return;
     }
@@ -2521,6 +2730,7 @@ function wire() {
   });
   $('source-delete').addEventListener('click', deleteSource);
   $('start-fresh').addEventListener('click', startFresh);
+  wireStructure();
   $('interpretation').addEventListener('change', paintInterpretation);
   $('lyrics-write').addEventListener('click', openWrite);
   $('write-close').addEventListener('click', closeWrite);
@@ -2643,7 +2853,7 @@ function wire() {
       selectTake(previous);
       $('seed').value = Math.floor(Math.random() * 4294967295);
       $('seed-fixed').checked = true;
-      var createButton = previous.kind === 'song' ? $('create-song') : $('create-cover');
+      var createButton = $({ song: 'create-song', instrumental: 'create-inst' }[previous.kind] || 'create-cover');
       if (createButton) { createButton.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
     }
   }

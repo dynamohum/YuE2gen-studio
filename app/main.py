@@ -31,7 +31,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 
-from . import config, jobs, lyrics, score, stems
+from . import config, instrumental, jobs, lyrics, score, stems
 from .db import DEFAULT_SPACE, execute, get_setting, migrate, one, rows, set_setting
 from .engine import stage_label
 from .jobs import (CURRENT, CURRENT_STEMS, ENGINE, HARMONY_STEPS, INTERPRETATION_NAMES, INTERPRETATIONS, LYRICS,
@@ -249,6 +249,19 @@ class TakeIn(BaseModel):
     interpretation: str = "standard"
 
 
+class InstrumentalIn(BaseModel):
+    title: str | None = Field(None, max_length=200)
+    style: str = Field(config.DEFAULT_STYLE, max_length=2000)
+    structure: str = Field(instrumental.BARE, max_length=4000)
+    seed: int | None = Field(None, ge=0, le=MAX_SEED)
+    max_duration: float = Field(360.0, ge=10, le=900)
+    auto_render: bool = False
+    variety: str = "normal"
+    harmony: int = Field(0, ge=0, le=len(HARMONY_STEPS) - 1)
+    space_id: str = Field(DEFAULT_SPACE, max_length=64)
+    interpretation: str = "standard"
+
+
 class RenderIn(BaseModel):
     # Optional: an omitted interpretation keeps the take's own.
     interpretation: str | None = None
@@ -392,6 +405,7 @@ def state() -> dict:
             "interpretations": [{"id": key, "name": INTERPRETATION_NAMES[key]} for key in INTERPRETATIONS],
             "lyric_structures": [{"id": key, "sections": value} for key, value in lyrics.STRUCTURES.items()],
             "lyrics_available": ENGINE.options.get("lyrics", False),
+            "instrumental_available": ENGINE.options.get("instrumental", False),
             "harmony_steps": HARMONY_STEPS,
             # Unknown until the engine has been read, so only a confirmed absence disables it.
             "harmony_available": ENGINE.options.get("harmony", False) or not ENGINE.options_loaded,
@@ -614,11 +628,11 @@ async def delete_take(take_id: str) -> dict:
     return {"deleted": True}
 
 
-def _check_score(abc: str | None) -> None:
+def _check_score(abc: str | None, kind: str | None = None) -> None:
     """Refuse to render a score that cannot be the song.  An empty score is allowed:
     the engine then writes its own."""
     if abc and abc.strip():
-        issues = score.problems(abc, need_chords=False)
+        issues = score.problems(abc, need_chords=False, instrumental=kind == "instrumental")
         if issues:
             raise HTTPException(400, f"This score cannot be rendered ({', '.join(issues)}). "
                                      "Write a new plan, or fix the score.")
@@ -680,17 +694,36 @@ async def create_song(body: SongIn) -> dict:
     """Plan a song from style and lyrics alone. The take lands in the planned state."""
     if not body.lyrics.strip():
         raise HTTPException(400, "write some lyrics first. The planner needs words to shape the melody.")
+    title = (body.title or "").strip() or guess_title(body.lyrics) or "Untitled song"
+    return await _plan_new_take("song", title, body.lyrics, body)
+
+
+@app.post("/api/instrumentals")
+async def create_instrumental(body: InstrumentalIn) -> dict:
+    """Plan an instrumental from style and structure.  Its structure is kept where a
+    song keeps its lyrics, so replan, render and Variations work unchanged."""
+    if ENGINE.options_loaded and not ENGINE.options.get("instrumental"):
+        raise HTTPException(400, f"The engine cannot make instrumentals: it needs {config.INSTRUMENTAL_LORA} "
+                                 "in models/loras. Run scripts/fetch-models.sh.")
+    try:
+        structure = instrumental.normalise(body.structure)
+    except ValueError as exc:
+        raise HTTPException(400, f"That structure will not work: {exc}") from exc
+    title = (body.title or "").strip() or "Untitled instrumental"
+    return await _plan_new_take("instrumental", title, structure, body)
+
+
+async def _plan_new_take(kind: str, title: str, words: str, body: SongIn | InstrumentalIn) -> dict:
     _check_harmony(body.harmony)
     _space(body.space_id)
     take_id = uuid.uuid4().hex[:12]
     seed = body.seed if body.seed is not None else int.from_bytes(os.urandom(4), "big")
-    title = (body.title or "").strip() or guess_title(body.lyrics) or "Untitled song"
     record = {
         "id": take_id,
-        "kind": "song",
+        "kind": kind,
         "title": title,
         "style": body.style.strip() or config.DEFAULT_STYLE,
-        "lyrics": body.lyrics,
+        "lyrics": words,
         "mode": "full",
         "seed": seed,
         "checkpoint": _checkpoint(),
@@ -705,7 +738,7 @@ async def create_song(body: SongIn) -> dict:
     execute(
         """INSERT INTO takes(id, kind, source_id, title, style, lyrics, abc, mode, seed, checkpoint,
                              max_duration, status, created_at, auto_render, variety, harmony, space_id, interpretation)
-           VALUES(:id, 'song', NULL, :title, :style, :lyrics, '', :mode, :seed, :checkpoint,
+           VALUES(:id, :kind, NULL, :title, :style, :lyrics, '', :mode, :seed, :checkpoint,
                   :max_duration, 'queued', :created_at, :auto_render, :variety, :harmony, :space_id, :interpretation)""",
         record,
     )
@@ -798,7 +831,7 @@ async def render_take(take_id: str, body: RenderIn | None = None) -> dict:
     take = _idle_take(take_id)
     if not (take["abc"] or "").strip():
         raise HTTPException(400, "this take has no score yet. Write a plan first.")
-    _check_score(take["abc"])
+    _check_score(take["abc"], take["kind"])
     _checkpoint()
     interpretation = take["interpretation"] if body is None or body.interpretation is None else _interpretation(body.interpretation)
     execute("UPDATE takes SET status = 'queued', error = NULL, stage = NULL, checkpoint = ?, interpretation = ? WHERE id = ?",
@@ -860,7 +893,7 @@ async def variations(take_id: str, body: VariationsIn) -> dict:
         raise HTTPException(404, "no such take")
     if not (take["abc"] or "").strip():
         raise HTTPException(400, "this take has no score to render again. Write a plan first.")
-    _check_score(take["abc"])
+    _check_score(take["abc"], take["kind"])
     _checkpoint()
     wanted = list(dict.fromkeys(_interpretation(name) for name in body.interpretations))
     base = _base_title(take["title"])
