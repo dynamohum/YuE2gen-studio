@@ -118,3 +118,15 @@ def test_a_song_unticked_while_it_waits_is_skipped(client, tmp_path, monkeypatch
     asyncio.run(jobs.run_persona_job("persona_score", song["id"]))
     row = one("SELECT * FROM persona_songs WHERE id = ?", (song["id"],))
     assert (row["vocals_state"], row["lyrics_state"], row["score_state"], row["stored_path"]) == ("none", "none", "none", None)
+
+
+def test_editing_the_persona_changes_captions_and_export_names_the_host_folder(client, tmp_path, monkeypatch):
+    _, folder = make_folder(tmp_path, monkeypatch)
+    made = client.post("/api/personas", json={"name": "Me", "trigger_word": "me", "voice": "male", "folder": str(folder), "consent": True}).json()
+    edited = client.put(f"/api/personas/{made['id']}", json={"description": "pop rock, electric guitars, bass, drums"}).json()
+    assert all(s["caption"].startswith("me, pop rock, electric guitars, bass, drums, male vocal") for s in edited["songs"])
+    song = next(s for s in edited["songs"] if s["include"])
+    jobs.set_song(song["id"], stored_path=str(folder / "01 Modern Girl.wav"), lyrics="[Verse]\nla")
+    monkeypatch.setattr(config, "DATA_DIR_HOST", "/home/me/yue2/data")
+    out = client.post(f"/api/personas/{made['id']}/export").json()
+    assert out["folder"] == f"/home/me/yue2/data/personas/{made['id']}/dataset" and len(out["written"]) == 1

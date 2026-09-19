@@ -1878,7 +1878,9 @@ async function showPersona(id, preloaded) {
   $('personas-heading').textContent = data.name;
   $('personas-body').innerHTML =
     '<div id="persona-summary" class="persona-summary">' + personaSummary(data) + '</div>' +
+    '<div id="persona-edit" class="persona-form hidden"></div>' +
     '<div class="persona-actions">' +
+      '<button id="persona-edit-open" class="ghost">Edit</button>' +
       '<button id="persona-analyse" class="ghost">Analyse</button>' +
       '<button id="persona-export" class="ghost">Export training set</button>' +
       '<button id="persona-delete" class="ghost">Delete persona</button>' +
@@ -1918,6 +1920,44 @@ async function pollPersona() {
   PERSONA.timer = setTimeout(pollPersona, data && data.busy ? 3000 : 8000);
 }
 
+/* The persona's own settings.  Changing the description or trigger word changes every
+   caption that has no song description of its own; export again afterwards. */
+function openPersonaEdit() {
+  var data = PERSONA.data;
+  var box = $('persona-edit');
+  box.innerHTML =
+    '<div class="field"><label for="pe-name">Name</label><input id="pe-name" type="text" maxlength="80" value="' + esc(data.name) + '"></div>' +
+    '<div class="field"><label for="pe-trigger">Trigger word</label><input id="pe-trigger" type="text" maxlength="40" value="' + esc(data.trigger_word) + '"></div>' +
+    '<div class="field"><label for="pe-voice">Voice</label><select id="pe-voice"><option value="male">male</option>' +
+      '<option value="female">female</option><option value="">not stated</option></select></div>' +
+    '<div class="field"><label for="pe-desc">The sound, for every song</label><input id="pe-desc" type="text" maxlength="400" ' +
+      'value="' + esc(data.description || '') + '" placeholder="pop rock, electric guitars, bass, drums"></div>' +
+    '<div class="wide row"><button id="pe-save" class="ghost">Save</button><button id="pe-cancel" class="ghost">Cancel</button>' +
+      '<span id="pe-status" class="status"></span></div>';
+  $('pe-voice').value = data.voice || '';
+  box.classList.remove('hidden');
+  $('pe-desc').focus();
+}
+
+async function savePersonaEdit() {
+  try {
+    var data = await api('/api/personas/' + PERSONA.id, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: $('pe-name').value.trim() || PERSONA.data.name, trigger_word: $('pe-trigger').value,
+        voice: $('pe-voice').value, description: $('pe-desc').value })
+    });
+    PERSONA.data = data;
+    $('personas-heading').textContent = data.name;
+    $('persona-edit').classList.add('hidden');
+    $('persona-status').textContent = PERSONA.data.exported_at ? 'Saved. Export again to update the training set.' : 'Saved.';
+    $('persona-status').className = 'status good';
+    pollPersona();
+  } catch (err) {
+    $('pe-status').textContent = err.message;
+    $('pe-status').className = 'status bad';
+  }
+}
+
 function personaSong(id) {
   return ((PERSONA.data && PERSONA.data.songs) || []).filter(function (song) { return song.id === id; })[0] || null;
 }
@@ -1954,6 +1994,9 @@ async function personaClick(event) {
     } catch (err) { note.textContent = err.message; note.className = 'status bad'; }
     return;
   }
+  if (target.closest('#persona-edit-open')) { openPersonaEdit(); return; }
+  if (target.closest('#pe-cancel')) { $('persona-edit').classList.add('hidden'); return; }
+  if (target.closest('#pe-save')) { savePersonaEdit(); return; }
   var status = $('persona-status');
   if (target.closest('#persona-analyse')) {
     try {

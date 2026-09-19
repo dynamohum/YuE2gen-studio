@@ -656,3 +656,5 @@ details.block[open] > summary { margin-bottom: 10px; }
 .persona-detail .caption { font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-word; }
 .persona-export { margin-top: 12px; font-size: 13px; }
 .persona-export code { font-size: 12px; word-break: break-all; }
+.persona-form.hidden { display: none; }
+#persona-edit { margin: 4px 0 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); }

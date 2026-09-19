@@ -19,6 +19,9 @@ except OSError:
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))
 PORT = int(os.environ.get("PORT", "8090"))
 DB_PATH = DATA_DIR / "yue2.sqlite"
+# Where DATA_DIR is on the host, when the app runs in a container, so a folder the
+# app wrote can be named the way the user will find it.  Optional.
+DATA_DIR_HOST = os.environ.get("DATA_DIR_HOST", "").rstrip("/")
 STEMS_DIR = DATA_DIR / "stems"
 TAKES_DIR = DATA_DIR / "takes"
 SOURCES_DIR = DATA_DIR / "sources"

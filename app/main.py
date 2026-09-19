@@ -1140,7 +1140,17 @@ async def export_persona(persona_id: str) -> dict:
                 "songs": written, "unchecked_lyrics": unchecked, "exported_at": time.time(), "app": config.VERSION}
     (dest / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     execute("UPDATE personas SET exported_at = ?, export_dir = ? WHERE id = ?", (time.time(), str(dest), persona_id))
-    return {"folder": str(dest), "written": written, "skipped": skipped, "unchecked": unchecked}
+    return {"folder": _host_path(dest), "written": written, "skipped": skipped, "unchecked": unchecked}
+
+
+def _host_path(path: Path) -> str:
+    """A path under the data folder as the user sees it on the host, when known."""
+    if config.DATA_DIR_HOST:
+        try:
+            return config.DATA_DIR_HOST + "/" + str(path.relative_to(config.DATA_DIR))
+        except ValueError:
+            pass
+    return str(path)
 
 
 # ------------------------------------------------------------------------ lyrics
