@@ -101,20 +101,28 @@ async function pollState() {
   }
 }
 
+/* How the render reads the score.  The same six the server knows, by id. */
+var INTERPRETATIONS = {
+  standard: { name: 'Standard', hint: 'YuE2\u2019s usual reading of the score.' },
+  tight: { name: 'Tight', hint: 'More controlled and polished.' },
+  loose: { name: 'Loose', hint: 'Rougher and more spontaneous.' },
+  settled: { name: 'Settled', hint: 'Free to repeat a figure and sit in a groove.' },
+  restless: { name: 'Restless', hint: 'Keeps the parts moving and avoids repeating itself.' },
+  wide: { name: 'Wide', hint: 'Reaches for less obvious sounds.' }
+};
+
+function paintInterpretation() {
+  var item = INTERPRETATIONS[$('interpretation').value] || INTERPRETATIONS.standard;
+  $('interpretation-hint').textContent = item.hint;
+}
+
 function paintOptions() {
   paintHarmony();
-  var checkpoints = State.options.checkpoints || [];
-  var select = $('checkpoint');
-  if (select.dataset.count !== String(checkpoints.length) || select.dataset.first !== String(checkpoints[0])) {
-    select.innerHTML = checkpoints.map(function (name) {
-      var note = name.indexOf('bf16') >= 0 ? ' (best quality, ~14 GB VRAM)' : ' (faster, ~10 GB VRAM)';
-      return '<option value="' + esc(name) + '">' + esc(name) + note + '</option>';
-    }).join('');
-    select.dataset.count = String(checkpoints.length);
-    select.dataset.first = String(checkpoints[0]);
-    var preferred = State.options.default_checkpoint;
-    if (preferred) { select.value = preferred; }
-  }
+  paintInterpretation();
+  var canWrite = State.options.lyrics_available !== false;
+  $('lyrics-write').disabled = !canWrite;
+  $('lyrics-write').title = canWrite ? 'Draft lyrics from a short description'
+    : 'The engine has no lyric writer. Run scripts/fetch-models.sh, then restart the engine.';
   var styleNode = $('style');
   var busy = document.activeElement === styleNode;
   if (!styleNode.value && !styleNode.dataset.touched && !busy && State.options.default_style) {
@@ -124,7 +132,7 @@ function paintOptions() {
 
 /* The form survives a reload. Nothing here is precious, but losing a verse is annoying. */
 var FORM_KEY = 'yue2.form.v1';
-var FORM_FIELDS = ['title', 'style', 'lyrics', 'mode', 'seed', 'checkpoint', 'max-duration', 'variety', 'harmony'];
+var FORM_FIELDS = ['title', 'style', 'lyrics', 'mode', 'seed', 'interpretation', 'max-duration', 'variety', 'harmony'];
 
 function saveForm() {
   try {
@@ -446,7 +454,7 @@ function refreshTitleHint() {
   $('title').placeholder = guess ? 'Leave blank to use: ' + guess : 'Leave blank and the first lyric line is used';
 }
 
-var JOB_KINDS = { render: 'Render', plan: 'Score plan', transcribe: 'Transcription', text: 'Text generation', other: 'Engine job' };
+var JOB_KINDS = { render: 'Render', plan: 'Score plan', transcribe: 'Transcription', lyrics: 'Lyrics', text: 'Text generation', other: 'Engine job' };
 
 function queueWhat(item) {
   var kind = '<span class="q-kind">' + esc(JOB_KINDS[item.kind] || 'Engine job') + '</span>';
@@ -479,9 +487,11 @@ function paintJob(current, queue, options) {
   card.className = 'job';
   var head = queue[0] && queue[0].state === 'running' ? queue[0] : null;
   var mineRunning = current && head && !head.outside && head.id === current.id;
-  var titles = { render: 'Rendering your song', plan: 'Writing the score plan', transcribe: 'Transcribing the recording' };
+  var titles = { render: 'Rendering your song', plan: 'Writing the score plan', transcribe: 'Transcribing the recording',
+    lyrics: 'Writing lyrics' };
   var average = function (kind) {
-    return kind === 'render' ? (options.avg_render_seconds || 0) : (kind === 'plan' ? 25 : (kind === 'transcribe' ? 45 : 0));
+    return kind === 'render' ? (options.avg_render_seconds || 0)
+      : ({ plan: 25, transcribe: 45, lyrics: 40, text: 40 }[kind] || 0);
   };
   var rest = queue;
   $('job-stop').style.display = current ? '' : 'none';
@@ -913,6 +923,7 @@ function setMode(mode) {
   });
   var cover = mode === 'cover';
   $('cover-only').style.display = cover ? '' : 'none';
+  $('lyrics-write').style.display = cover ? 'none' : '';
   $('auto-wrap').style.display = cover ? 'none' : '';
   // Both steer the score writer, which a cover never uses: its score is the transcription.
   $('harmony-field').style.display = cover ? 'none' : '';
@@ -1088,7 +1099,7 @@ async function doPlan() {
         style: $('style').value,
         lyrics: $('lyrics').value,
         seed: seed,
-        checkpoint: $('checkpoint').value,
+        interpretation: $('interpretation').value,
         max_duration: parseFloat($('max-duration').value) || 360,
         auto_render: $('auto-render').checked,
         variety: $('variety').value,
@@ -1116,7 +1127,11 @@ async function doRenderTake() {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ abc: $('abc').value })
     });
-    await api('/api/takes/' + id + '/render', { method: 'POST' });
+    // The Interpretation menu applies to this render.
+    await api('/api/takes/' + id + '/render', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ interpretation: $('interpretation').value })
+    });
     State.planTakeId = null;
     statusLine('Rendering…');
     loadTakes();
@@ -1302,6 +1317,143 @@ async function moveTake(spaceId) {
   loadSpaces();
 }
 
+/* ---------------------------------------------------------------- variations
+   The same score and seed, rendered in other interpretations, each as a new take. */
+var VARIATIONS = { take: null };
+
+function openVariations(take) {
+  VARIATIONS.take = take;
+  $('variations-heading').textContent = 'Variations of \u201c' + take.title + '\u201d';
+  var own = INTERPRETATIONS[take.interpretation] ? take.interpretation : 'standard';
+  $('variations-list').innerHTML = Object.keys(INTERPRETATIONS).filter(function (key) { return key !== own; })
+    .map(function (key) {
+      return '<label><input type="checkbox" value="' + key + '" checked><strong>' + INTERPRETATIONS[key].name +
+        '</strong><span class="muted">' + esc(INTERPRETATIONS[key].hint) + '</span></label>';
+    }).join('');
+  $('variations-status').textContent = '';
+  paintVariationsEstimate();
+  $('variations-modal').classList.remove('hidden');
+}
+
+function closeVariations() {
+  VARIATIONS.take = null;
+  $('variations-modal').classList.add('hidden');
+}
+
+function chosenVariations() {
+  return Array.prototype.map.call(document.querySelectorAll('#variations-list input:checked'), function (box) { return box.value; });
+}
+
+function paintVariationsEstimate() {
+  var count = chosenVariations().length;
+  var average = State.options.avg_render_seconds || 0;
+  $('variations-go').disabled = !count;
+  $('variations-go').textContent = count === 1 ? 'Render 1 variation' : 'Render ' + count + ' variations';
+  $('variations-estimate').textContent = count && average ? 'about ' + Math.max(1, Math.round(count * average / 60)) + ' min of rendering' : '';
+}
+
+async function doVariations() {
+  var take = VARIATIONS.take;
+  var chosen = chosenVariations();
+  if (!take || !chosen.length) { return; }
+  try {
+    var reply = await api('/api/takes/' + take.id + '/variations', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ interpretations: chosen })
+    });
+    closeVariations();
+    statusLine('Queued ' + reply.created.length + ' variation' + (reply.created.length === 1 ? '' : 's') + ' of ' + take.title +
+      '. Each appears as its own take when it finishes.', 'good');
+    loadTakes();
+  } catch (err) {
+    $('variations-status').textContent = 'Could not queue: ' + err.message;
+    $('variations-status').className = 'status bad';
+  }
+}
+
+/* ------------------------------------------------------------------ lyrics
+   A draft from a short brief, written on the engine.  It lands in the lyrics box
+   even if this window was closed while it was being written. */
+var WRITE = { id: null, timer: null };
+
+function openWrite() {
+  $('write-modal').classList.remove('hidden');
+  if (!WRITE.id) { $('write-status').textContent = ''; }
+  $('write-brief').focus();
+}
+
+function closeWrite() {
+  $('write-modal').classList.add('hidden');
+}
+
+function setWriting(on) {
+  $('write-go').disabled = on;
+  $('write-stop').classList.toggle('hidden', !on);
+}
+
+function writeStatus(text, tone) {
+  $('write-status').textContent = text;
+  $('write-status').className = 'status' + (tone ? ' ' + tone : '');
+}
+
+async function doWrite() {
+  var brief = $('write-brief').value.trim();
+  if (!brief) { writeStatus('Say in a few words what the song is about.', 'bad'); $('write-brief').focus(); return; }
+  if ($('lyrics').value.trim() && !confirm('The draft will replace the lyrics in the box. Write it?')) { return; }
+  try {
+    var draft = await api('/api/lyrics', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ brief: brief, style: $('style').value, structure: $('write-structure').value })
+    });
+    WRITE.id = draft.id;
+    setWriting(true);
+    writeStatus('Waiting for the engine\u2026 You can close this window: the words land in the lyrics box.');
+    clearTimeout(WRITE.timer);
+    WRITE.timer = setTimeout(pollWrite, 1500);
+  } catch (err) {
+    writeStatus('Could not start: ' + err.message, 'bad');
+  }
+}
+
+async function pollWrite() {
+  if (!WRITE.id) { return; }
+  var draft;
+  try {
+    draft = await api('/api/lyrics/' + WRITE.id);
+  } catch (err) {
+    WRITE.id = null;
+    setWriting(false);
+    writeStatus('Lost the draft: ' + err.message, 'bad');
+    return;
+  }
+  if (draft.status === 'done' || draft.status === 'failed') {
+    WRITE.id = null;
+    setWriting(false);
+    if (draft.status === 'done') { landDraft(draft); }
+    else { writeStatus(draft.error === 'cancelled' ? 'Stopped.' : 'Could not write the lyrics: ' + draft.error, 'bad'); }
+    return;
+  }
+  writeStatus(draft.status === 'running' ? 'Writing\u2026 about 40 seconds.'
+    : 'Waiting for the engine\u2026 You can close this window: the words land in the lyrics box.');
+  WRITE.timer = setTimeout(pollWrite, 2000);
+}
+
+function landDraft(draft) {
+  $('lyrics').value = draft.lyrics;
+  if (!$('title').value.trim() && draft.title) { $('title').value = draft.title; }
+  State.formEdited = true;
+  $('lyrics').dispatchEvent(new Event('input'));
+  saveForm();
+  closeWrite();
+  writeStatus('');
+  statusLine('Draft lyrics are in the box. Read them and make them yours, then Write score plan.', 'good');
+}
+
+async function stopWrite() {
+  if (!WRITE.id) { return; }
+  try { await api('/api/lyrics/' + WRITE.id + '/cancel', { method: 'POST' }); } catch (err) { /* the poll reports it */ }
+}
+
 /* Action tiles. Colour carries meaning: green acts, violet inspects, blue keeps,
    amber reworks, gold remembers, red removes. */
 var ICONS = {
@@ -1316,6 +1468,7 @@ var ICONS = {
   trash: '<path d="M4.5 7h15M9.5 7V4.8h5V7M6.5 7l1 12.2h9l1-12.2"/>',
   stems: '<path d="M12 3.2l8 4.2-8 4.2-8-4.2z"/><path d="M4 12.4l8 4.2 8-4.2"/><path d="M4 16.6l8 4.2 8-4.2"/>',
   move: '<path d="M3.5 7.5V18a1.5 1.5 0 0 0 1.5 1.5h14a1.5 1.5 0 0 0 1.5-1.5V9.5A1.5 1.5 0 0 0 19 8h-7l-2-2.5H5A1.5 1.5 0 0 0 3.5 7v.5"/><path d="M10 13.5h6m0 0l-2.5-2.5m2.5 2.5L13.5 16"/>',
+  variations: '<path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9L12 17.5l-1.9-5.1L5 10.5l5.1-1.9z"/><path d="M18.5 15.2l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/>',
   stop: '<rect x="6.5" y="6.5" width="11" height="11" rx="1.6"/>'
 };
 
@@ -1383,7 +1536,8 @@ function selectTake(take) {
     if (take.variety) { $('variety').value = take.variety; }
     paintHarmony();
   }
-  if (take.checkpoint) { $('checkpoint').value = take.checkpoint; }
+  $('interpretation').value = INTERPRETATIONS[take.interpretation] ? take.interpretation : 'standard';
+  paintInterpretation();
   // A cover's score belongs to its source, and a plan still being written belongs
   // to nobody until it lands.
   claimEditorFor(isSong && !planning ? take.id : null);
@@ -1471,7 +1625,7 @@ function dismissDraft() {
 }
 
 /* Start a new song, or a new cover, from the take on show.  The words and the score
-   go; the settings stay (style, vocal, Harmony, plan variety, length, checkpoint,
+   go; the settings stay (style, vocal, Harmony, plan variety, length, interpretation,
    seed), so the next song can be in the same vein.  The loaded take lets go of the
    column, so Render and Replan cannot act on it by mistake.  A cover keeps its
    recording and goes back to that recording's own transcription. */
@@ -1532,7 +1686,9 @@ function paintTakes() {
     if (take.duration) { meta.push(secs(take.duration)); }
     if (take.kind === 'song' && take.harmony) { meta.push(HARMONY_WORDS[take.harmony].toLowerCase() + ' harmony'); }
     meta.push('seed ' + take.seed);
-    meta.push(take.checkpoint.replace('yue2_3b_', '').replace('.safetensors', ''));
+    if (take.interpretation && take.interpretation !== 'standard' && INTERPRETATIONS[take.interpretation]) {
+      meta.push(INTERPRETATIONS[take.interpretation].name.toLowerCase());
+    }
     meta.push(age(take.created_at));
     var live = '';
     if (status === 'running' && take.live) {
@@ -1600,9 +1756,15 @@ function paintTakes() {
           '<div class="take-title" title="' + esc(take.title) + '">' + esc(take.title) + '</div>' +
           '<div class="take-meta" title="' + esc(meta.join(' \u00b7 ')) + '">' + esc(meta.join(' \u00b7 ')) + '</div>' +
         '</div>' +
-        // Occasional, so a small corner button rather than a tile in an already full row.
-        '<button class="take-move" data-act="move"' + id + ' title="Move to another space" aria-label="Move to another space">' +
-          icon('move') + '</button>' +
+        // Occasional, so small corner buttons rather than tiles in an already full row.
+        '<div class="take-corner">' +
+          (take.abc && take.abc.length > 50 && status !== 'queued' && status !== 'running'
+            ? '<button class="take-move" data-act="variations"' + id + ' title="Variations: render this score in other interpretations"' +
+              ' aria-label="Variations">' + icon('variations') + '</button>'
+            : '') +
+          '<button class="take-move" data-act="move"' + id + ' title="Move to another space" aria-label="Move to another space">' +
+            icon('move') + '</button>' +
+        '</div>' +
       '</div>' +
       '<div class="take-style">' + esc(take.style) + '</div>' +
       live +
@@ -2084,7 +2246,7 @@ async function doRender() {
     abc: $('abc').value,
     mode: $('mode').value,
     seed: seed,
-    checkpoint: $('checkpoint').value,
+    interpretation: $('interpretation').value,
     max_duration: parseFloat($('max-duration').value) || 360,
     space_id: State.spaceId
   };
@@ -2359,6 +2521,18 @@ function wire() {
   });
   $('source-delete').addEventListener('click', deleteSource);
   $('start-fresh').addEventListener('click', startFresh);
+  $('interpretation').addEventListener('change', paintInterpretation);
+  $('lyrics-write').addEventListener('click', openWrite);
+  $('write-close').addEventListener('click', closeWrite);
+  $('write-go').addEventListener('click', doWrite);
+  $('write-stop').addEventListener('click', stopWrite);
+  $('write-modal').addEventListener('click', function (event) { if (event.target === $('write-modal')) { closeWrite(); } });
+  $('variations-close').addEventListener('click', closeVariations);
+  $('variations-go').addEventListener('click', doVariations);
+  $('variations-list').addEventListener('change', paintVariationsEstimate);
+  $('variations-modal').addEventListener('click', function (event) {
+    if (event.target === $('variations-modal')) { closeVariations(); }
+  });
   $('space').addEventListener('change', function () { showSpace($('space').value); });
   $('space-new').addEventListener('click', newSpace);
   $('space-rename').addEventListener('click', renameSpace);
@@ -2454,6 +2628,10 @@ function wire() {
       awaitNewPlan(id);
       statusLine('Writing a new plan for the same words\u2026');
       loadTakes();
+    }
+    if (act === 'variations') {
+      var source = takeById(id);
+      if (source) { openVariations(source); }
     }
     if (act === 'move') {
       var moving = takeById(id);
@@ -2562,6 +2740,8 @@ function wire() {
   });
   document.addEventListener('keydown', function (event) {
     if (event.key === 'Escape' && !$('move-modal').classList.contains('hidden')) { closeMoveModal(); return; }
+    if (event.key === 'Escape' && !$('write-modal').classList.contains('hidden')) { closeWrite(); return; }
+    if (event.key === 'Escape' && !$('variations-modal').classList.contains('hidden')) { closeVariations(); return; }
     if (event.key === 'Escape' && !$('lyrics-modal').classList.contains('hidden')) { closeLyricsEditor(); return; }
     if (event.key === 'Escape' && !$('stems-modal').classList.contains('hidden')) { closeStemsModal(); return; }
     if (event.key === 'Escape' && !$('settings-modal').classList.contains('hidden')) { closeSettings(); return; }

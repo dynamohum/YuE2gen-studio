@@ -15,6 +15,8 @@ from typing import Any
 
 import httpx
 
+from . import config
+
 log = logging.getLogger("yue2.engine")
 
 STAGE_LABELS = {
@@ -30,6 +32,8 @@ STAGE_LABELS = {
     "KSampler": "Rendering audio",
     "VAEDecodeAudio": "Decoding audio",
     "SaveAudioAdvanced": "Saving",
+    "CLIPLoader": "Loading the lyric writer",
+    "TextGenerate": "Writing lyrics",
 }
 
 # Weights drive the progress bar.
@@ -46,6 +50,8 @@ STAGE_WEIGHT = {
     "KSampler": 48,
     "VAEDecodeAudio": 8,
     "SaveAudioAdvanced": 3,
+    "CLIPLoader": 2,
+    "TextGenerate": 20,
 }
 
 TEMPLATE_DIR = Path(__file__).parent / "templates"
@@ -150,7 +156,7 @@ class Engine:
         self.online = False
         self.last_error: str | None = None
         self.last_contact = 0.0
-        self.options: dict[str, Any] = {"checkpoints": [], "audio_encoders": [], "harmony": False}
+        self.options: dict[str, Any] = {"checkpoints": [], "audio_encoders": [], "harmony": False, "lyrics": False}
         self.options_loaded = False
         self.compat: dict[str, Any] = {"ok": False, "missing": [], "notes": []}
         # Refreshed by the keeper, so page polls never wait on the engine.
@@ -220,8 +226,11 @@ class Engine:
         checkpoints = combo_options(info, "CheckpointLoaderSimple", "ckpt_name")
         encoders = combo_options(info, "AudioEncoderLoader", "audio_encoder_name")
         # The harmony node is optional: plans without it use the stock planner.
+        text_models = combo_options(info, "CLIPLoader", "clip_name")
         self.options = {"checkpoints": checkpoints, "audio_encoders": encoders,
-                        "harmony": "YuE2GenerateABCHarmony" in info}
+                        "harmony": "YuE2GenerateABCHarmony" in info,
+                        # Lyrics are optional: without Gemma or the node, the button is greyed out.
+                        "lyrics": "TextGenerate" in info and config.LYRICS_MODEL in text_models}
 
         needed = set()
         for graph in _TEMPLATES.values():
@@ -230,8 +239,8 @@ class Engine:
         notes = []
         if "sheetsage2_bf16.safetensors" not in encoders:
             notes.append("SheetSage2 audio encoder is not visible to ComfyUI.")
-        if not checkpoints:
-            notes.append("No YuE2 checkpoint is visible to ComfyUI.")
+        if config.CHECKPOINT not in checkpoints:
+            notes.append(f"The YuE2 checkpoint {config.CHECKPOINT} is not visible to ComfyUI. Run scripts/fetch-models.sh.")
         self.compat = {"ok": not missing and not notes, "missing": missing, "notes": notes}
         self.options_loaded = True
 

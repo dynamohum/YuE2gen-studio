@@ -43,7 +43,7 @@ def test_deleting_a_space_keeps_its_takes(client):
 
 def test_new_songs_land_in_the_chosen_space(client):
     space = client.post("/api/spaces", json={"name": "Ideas"}).json()
-    body = {"lyrics": "[Verse]\nla la", "checkpoint": "yue2_3b_int8_convrot.safetensors"}
+    body = {"lyrics": "[Verse]\nla la"}
     song = client.post("/api/songs", json={**body, "space_id": space["id"]}).json()
     assert one("SELECT space_id FROM takes WHERE id = ?", (song["id"],))["space_id"] == space["id"]
     assert client.post("/api/songs", json={**body, "space_id": "gone"}).status_code == 404

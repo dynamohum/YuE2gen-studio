@@ -116,7 +116,10 @@
     <div class="field">
       <div class="label-row">
         <label for="lyrics">Lyrics</label>
-        <button id="lyrics-expand" class="link" title="Open a full size editor">Expand</button>
+        <span class="label-actions">
+          <button id="lyrics-write" class="link" title="Draft lyrics from a short description">Write lyrics</button>
+          <button id="lyrics-expand" class="link" title="Open a full size editor">Expand</button>
+        </span>
       </div>
       <textarea id="lyrics" class="lyrics" spellcheck="false" placeholder="[Verse]&#10;First line&#10;Second line&#10;&#10;[Chorus]&#10;..."></textarea>
     </div>
@@ -140,8 +143,16 @@
           <label class="check"><input id="seed-fixed" type="checkbox" checked> keep this seed</label>
         </div>
         <div class="field">
-          <label>Checkpoint</label>
-          <select id="checkpoint"></select>
+          <label for="interpretation">Interpretation</label>
+          <select id="interpretation">
+            <option value="standard" selected>Standard</option>
+            <option value="tight">Tight</option>
+            <option value="loose">Loose</option>
+            <option value="settled">Settled</option>
+            <option value="restless">Restless</option>
+            <option value="wide">Wide</option>
+          </select>
+          <div id="interpretation-hint" class="hint"></div>
         </div>
         <div class="field" id="variety-field">
           <label>Plan variety</label>
@@ -251,6 +262,50 @@
       </div>
     </div>
     <div id="move-status" class="status"></div>
+  </div>
+</div>
+
+<div id="write-modal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Write lyrics">
+  <div class="modal-box narrow">
+    <div class="modal-head">
+      <strong>Write lyrics</strong>
+      <button id="write-close" class="ghost">Close</button>
+    </div>
+    <div class="field">
+      <label for="write-brief">What is the song about?</label>
+      <textarea id="write-brief" maxlength="1000" placeholder="Leaving the seaside town you grew up in. Bittersweet, hopeful at the end."></textarea>
+    </div>
+    <div class="field">
+      <label for="write-structure">Structure</label>
+      <select id="write-structure">
+        <option value="verse-chorus-bridge">Verse, Chorus, Verse, Chorus, Bridge, Chorus</option>
+        <option value="verse-chorus">Verse, Chorus, Verse, Chorus</option>
+        <option value="intro-outro">Intro, Verse, Chorus, Verse, Chorus, Outro</option>
+        <option value="story">Verse, Verse, Chorus, Verse, Chorus, Outro</option>
+      </select>
+    </div>
+    <p class="hint">The Style above sets the mood. The draft goes into the lyrics box, ready to edit. Treat it as a first draft: read it, and change what is not yours.</p>
+    <div class="row">
+      <button id="write-go" class="primary">Write</button>
+      <button id="write-stop" class="ghost hidden">Stop</button>
+    </div>
+    <div id="write-status" class="status"></div>
+  </div>
+</div>
+
+<div id="variations-modal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Variations">
+  <div class="modal-box narrow">
+    <div class="modal-head">
+      <strong id="variations-heading">Variations</strong>
+      <button id="variations-close" class="ghost">Cancel</button>
+    </div>
+    <p class="hint">The same score and seed, rendered in other interpretations. Each lands as its own take beside this one, named after its interpretation.</p>
+    <div id="variations-list" class="variations-list"></div>
+    <div class="row">
+      <button id="variations-go" class="primary">Render</button>
+      <span id="variations-estimate" class="muted"></span>
+    </div>
+    <div id="variations-status" class="status"></div>
   </div>
 </div>
 

@@ -37,10 +37,14 @@ MAX_UPLOAD_MB = int(os.environ.get("MAX_UPLOAD_MB", "300"))
 # rebinding.  "*" turns the check off.
 ALLOWED_HOSTS = [h.strip().lower() for h in os.environ.get("ALLOWED_HOSTS", "localhost,127.0.0.1,::1").split(",") if h.strip()]
 
+# The models the app uses.  One YuE2 checkpoint, and Gemma for writing lyrics.
+CHECKPOINT = "yue2_3b_bf16.safetensors"
+LYRICS_MODEL = "gemma4_e4b_it_int8_convrot.safetensors"
+
 DEFAULT_STYLE = "English, warm indie rock, expressive lead vocal, drums, bass, guitars, memorable melody, 110 BPM"
 
 # How long a job may run once the engine has started it.  Time spent waiting in the
 # engine's queue does not count.
-TIMEOUTS = {"transcribe": 12 * 60, "plan": 10 * 60, "render": 25 * 60}
+TIMEOUTS = {"transcribe": 12 * 60, "plan": 10 * 60, "render": 25 * 60, "lyrics": 15 * 60}
 # Give up on a job when the engine has been unreachable this long.
 ENGINE_LOST_AFTER = 5 * 60

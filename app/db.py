@@ -82,7 +82,8 @@ CREATE TABLE IF NOT EXISTS takes (
     auto_render INTEGER NOT NULL DEFAULT 0,
     variety TEXT NOT NULL DEFAULT 'normal',
     harmony INTEGER NOT NULL DEFAULT 0,
-    space_id TEXT NOT NULL DEFAULT 'default'
+    space_id TEXT NOT NULL DEFAULT 'default',
+    interpretation TEXT NOT NULL DEFAULT 'standard'
 );
 CREATE TABLE IF NOT EXISTS spaces (
     id TEXT PRIMARY KEY,
@@ -163,6 +164,11 @@ def _spaces() -> None:
     execute("CREATE INDEX IF NOT EXISTS takes_space ON takes(space_id, created_at)")
 
 
+def _interpretation() -> None:
+    if "interpretation" not in _columns("takes"):
+        execute("ALTER TABLE takes ADD COLUMN interpretation TEXT NOT NULL DEFAULT 'standard'")
+
+
 def _indexes() -> None:
     conn().executescript(
         """
@@ -181,6 +187,7 @@ MIGRATIONS = [
     _indexes,                                                        # -> 2
     _harmony,                                                        # -> 3
     _spaces,                                                         # -> 4
+    _interpretation,                                                 # -> 5
 ]
 
 

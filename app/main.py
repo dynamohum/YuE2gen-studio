@@ -31,10 +31,11 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 
-from . import config, jobs, score, stems
+from . import config, jobs, lyrics, score, stems
 from .db import DEFAULT_SPACE, execute, get_setting, migrate, one, rows, set_setting
 from .engine import stage_label
-from .jobs import CURRENT, CURRENT_STEMS, ENGINE, HARMONY_STEPS, PLAN_VARIETY, QUEUE, STEM_QUEUE
+from .jobs import (CURRENT, CURRENT_STEMS, ENGINE, HARMONY_STEPS, INTERPRETATION_NAMES, INTERPRETATIONS, LYRICS,
+                   PLAN_VARIETY, QUEUE, STEM_QUEUE)
 from .library import ensure_peaks, inside, relayout, remove_tree, slugify, source_path, take_folder
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -221,9 +222,9 @@ class SongIn(BaseModel):
     style: str = Field(config.DEFAULT_STYLE, max_length=2000)
     lyrics: str = Field("", max_length=20_000)
     seed: int | None = Field(None, ge=0, le=MAX_SEED)
-    checkpoint: str | None = Field(None, max_length=200)
     max_duration: float = Field(360.0, ge=10, le=900)
     auto_render: bool = False
+    interpretation: str = "standard"
     variety: str = "normal"
     harmony: int = Field(0, ge=0, le=len(HARMONY_STEPS) - 1)
     space_id: str = Field(DEFAULT_SPACE, max_length=64)
@@ -243,9 +244,25 @@ class TakeIn(BaseModel):
     abc: str | None = Field(None, max_length=200_000)
     mode: str = "full"
     seed: int | None = Field(None, ge=0, le=MAX_SEED)
-    checkpoint: str | None = Field(None, max_length=200)
     max_duration: float = Field(360.0, ge=10, le=900)
     space_id: str = Field(DEFAULT_SPACE, max_length=64)
+    interpretation: str = "standard"
+
+
+class RenderIn(BaseModel):
+    # Optional: an omitted interpretation keeps the take's own.
+    interpretation: str | None = None
+
+
+class VariationsIn(BaseModel):
+    interpretations: list[str] = Field(min_length=1, max_length=len(INTERPRETATIONS))
+
+
+class LyricsIn(BaseModel):
+    brief: str = Field(min_length=1, max_length=1000)
+    style: str = Field("", max_length=2000)
+    structure: str = lyrics.DEFAULT_STRUCTURE
+    seed: int | None = Field(None, ge=0, le=2**32 - 1)
 
 
 class SpaceIn(BaseModel):
@@ -285,6 +302,9 @@ def health() -> dict:
 
 
 def _job_title(kind: str, ref_id: str) -> str | None:
+    if kind == "lyrics":
+        record = LYRICS.get(ref_id)
+        return ("Lyrics: " + record["brief"][:60]) if record else None
     if kind == "transcribe":
         row = one("SELECT title FROM sources WHERE id = ?", (ref_id,))
     else:
@@ -312,7 +332,10 @@ def queue_view() -> list[dict]:
             item["note"] = "sent before the app restarted"
         items.append(item)
     for job in jobs.waiting_jobs():
-        if job["kind"] == "transcribe":
+        if job["kind"] == "lyrics":
+            draft = LYRICS.get(job["id"])
+            row = {"title": _job_title("lyrics", job["id"]), "status": draft["status"]} if draft else None
+        elif job["kind"] == "transcribe":
             row = one("SELECT title, transcribe_state AS status FROM sources WHERE id = ?", (job["id"],))
         else:
             row = one("SELECT title, status FROM takes WHERE id = ?", (job["id"],))
@@ -364,10 +387,11 @@ def state() -> dict:
                         if CURRENT_STEMS else None),
         },
         "options": {
-            "checkpoints": ENGINE.options.get("checkpoints", []),
             "default_style": config.DEFAULT_STYLE,
             "avg_render_seconds": float(get_setting("avg_render_seconds", "0") or 0),
-            "default_checkpoint": get_setting("default_checkpoint") or (ENGINE.options.get("checkpoints") or [None])[0],
+            "interpretations": [{"id": key, "name": INTERPRETATION_NAMES[key]} for key in INTERPRETATIONS],
+            "lyric_structures": [{"id": key, "sections": value} for key, value in lyrics.STRUCTURES.items()],
+            "lyrics_available": ENGINE.options.get("lyrics", False),
             "harmony_steps": HARMONY_STEPS,
             # Unknown until the engine has been read, so only a confirmed absence disables it.
             "harmony_available": ENGINE.options.get("harmony", False) or not ENGINE.options_loaded,
@@ -600,12 +624,18 @@ def _check_score(abc: str | None) -> None:
                                      "Write a new plan, or fix the score.")
 
 
-def _pick_checkpoint(requested: str | None) -> str:
-    checkpoints = ENGINE.options.get("checkpoints") or []
-    checkpoint = requested or get_setting("default_checkpoint") or (checkpoints[0] if checkpoints else None)
-    if not checkpoint:
-        raise HTTPException(400, "no YuE2 checkpoint is available on the engine")
-    return checkpoint
+def _checkpoint() -> str:
+    """The one checkpoint the app uses.  Refused only once the engine has been read
+    and does not have it; before that the job waits for the engine like any other."""
+    if ENGINE.options_loaded and config.CHECKPOINT not in (ENGINE.options.get("checkpoints") or []):
+        raise HTTPException(400, f"The engine does not have {config.CHECKPOINT}. Run scripts/fetch-models.sh.")
+    return config.CHECKPOINT
+
+
+def _interpretation(name: str | None) -> str:
+    if name not in INTERPRETATIONS:
+        raise HTTPException(400, f"unknown interpretation: {name}")
+    return name
 
 
 @app.post("/api/takes")
@@ -626,14 +656,17 @@ async def create_take(body: TakeIn) -> dict:
         "abc": body.abc if body.abc is not None else (source["abc"] or ""),
         "mode": body.mode if body.mode in ("full", "melody") else "full",
         "seed": seed,
-        "checkpoint": _pick_checkpoint(body.checkpoint),
+        "checkpoint": _checkpoint(),
         "max_duration": body.max_duration,
         "created_at": time.time(),
         "space_id": body.space_id,
+        "interpretation": _interpretation(body.interpretation),
     }
     execute(
-        """INSERT INTO takes(id, source_id, title, style, lyrics, abc, mode, seed, checkpoint, max_duration, status, created_at, space_id)
-           VALUES(:id, :source_id, :title, :style, :lyrics, :abc, :mode, :seed, :checkpoint, :max_duration, 'queued', :created_at, :space_id)""",
+        """INSERT INTO takes(id, source_id, title, style, lyrics, abc, mode, seed, checkpoint, max_duration, status, created_at,
+                             space_id, interpretation)
+           VALUES(:id, :source_id, :title, :style, :lyrics, :abc, :mode, :seed, :checkpoint, :max_duration, 'queued', :created_at,
+                  :space_id, :interpretation)""",
         record,
     )
     if record["mode"] == "full" and not record["abc"]:
@@ -660,19 +693,20 @@ async def create_song(body: SongIn) -> dict:
         "lyrics": body.lyrics,
         "mode": "full",
         "seed": seed,
-        "checkpoint": _pick_checkpoint(body.checkpoint),
+        "checkpoint": _checkpoint(),
         "max_duration": body.max_duration,
         "created_at": time.time(),
         "auto_render": 1 if body.auto_render else 0,
         "variety": body.variety if body.variety in PLAN_VARIETY else "normal",
         "harmony": body.harmony,
         "space_id": body.space_id,
+        "interpretation": _interpretation(body.interpretation),
     }
     execute(
         """INSERT INTO takes(id, kind, source_id, title, style, lyrics, abc, mode, seed, checkpoint,
-                             max_duration, status, created_at, auto_render, variety, harmony, space_id)
+                             max_duration, status, created_at, auto_render, variety, harmony, space_id, interpretation)
            VALUES(:id, 'song', NULL, :title, :style, :lyrics, '', :mode, :seed, :checkpoint,
-                  :max_duration, 'queued', :created_at, :auto_render, :variety, :harmony, :space_id)""",
+                  :max_duration, 'queued', :created_at, :auto_render, :variety, :harmony, :space_id, :interpretation)""",
         record,
     )
     await QUEUE.put({"kind": "plan", "id": take_id})
@@ -759,13 +793,16 @@ def _idle_take(take_id: str) -> dict:
 
 
 @app.post("/api/takes/{take_id}/render")
-async def render_take(take_id: str) -> dict:
-    """Render a take that already has a score."""
+async def render_take(take_id: str, body: RenderIn | None = None) -> dict:
+    """Render a take that already has a score, optionally in another interpretation."""
     take = _idle_take(take_id)
     if not (take["abc"] or "").strip():
         raise HTTPException(400, "this take has no score yet. Write a plan first.")
     _check_score(take["abc"])
-    execute("UPDATE takes SET status = 'queued', error = NULL, stage = NULL WHERE id = ?", (take_id,))
+    _checkpoint()
+    interpretation = take["interpretation"] if body is None or body.interpretation is None else _interpretation(body.interpretation)
+    execute("UPDATE takes SET status = 'queued', error = NULL, stage = NULL, checkpoint = ?, interpretation = ? WHERE id = ?",
+            (config.CHECKPOINT, interpretation, take_id))
     await QUEUE.put({"kind": "render", "id": take_id})
     return {"queued": True}
 
@@ -801,11 +838,92 @@ async def replan_take(take_id: str, body: ReplanIn | None = None) -> dict:
     harmony = take["harmony"] if body.harmony is None else body.harmony
     seed = int.from_bytes(os.urandom(4), "big")
     execute(
-        "UPDATE takes SET seed = ?, abc = '', status = 'queued', error = NULL, stage = NULL, variety = ?, harmony = ? WHERE id = ?",
-        (seed, variety, harmony, take_id),
+        "UPDATE takes SET seed = ?, abc = '', status = 'queued', error = NULL, stage = NULL, variety = ?, harmony = ?, checkpoint = ? WHERE id = ?",
+        (seed, variety, harmony, config.CHECKPOINT, take_id),
     )
     await QUEUE.put({"kind": "plan", "id": take_id})
     return {"queued": True, "seed": seed}
+
+
+def _base_title(title: str) -> str:
+    """'Night drive · Tight' -> 'Night drive', so a variation of a variation is not 'X · Tight · Loose'."""
+    head, sep, tail = title.rpartition(" \u00b7 ")
+    return head if sep and tail in INTERPRETATION_NAMES.values() else title
+
+
+@app.post("/api/takes/{take_id}/variations")
+async def variations(take_id: str, body: VariationsIn) -> dict:
+    """Render the same score and seed once in each chosen interpretation.  Each is a
+    new take beside the original, titled with its interpretation."""
+    take = one("SELECT * FROM takes WHERE id = ?", (take_id,))
+    if not take:
+        raise HTTPException(404, "no such take")
+    if not (take["abc"] or "").strip():
+        raise HTTPException(400, "this take has no score to render again. Write a plan first.")
+    _check_score(take["abc"])
+    _checkpoint()
+    wanted = list(dict.fromkeys(_interpretation(name) for name in body.interpretations))
+    base = _base_title(take["title"])
+    now = time.time()
+    created = []
+    for offset, name in enumerate(wanted):
+        record = {
+            "id": uuid.uuid4().hex[:12], "kind": take["kind"], "source_id": take["source_id"],
+            "title": f"{base} \u00b7 {INTERPRETATION_NAMES[name]}", "style": take["style"], "lyrics": take["lyrics"],
+            "abc": take["abc"], "mode": take["mode"], "seed": take["seed"], "checkpoint": config.CHECKPOINT,
+            "max_duration": take["max_duration"], "created_at": now + offset * 0.001, "variety": take["variety"],
+            "harmony": take["harmony"], "space_id": take["space_id"], "interpretation": name,
+        }
+        execute(
+            """INSERT INTO takes(id, kind, source_id, title, style, lyrics, abc, mode, seed, checkpoint, max_duration,
+                                 status, created_at, variety, harmony, space_id, interpretation)
+               VALUES(:id, :kind, :source_id, :title, :style, :lyrics, :abc, :mode, :seed, :checkpoint, :max_duration,
+                      'queued', :created_at, :variety, :harmony, :space_id, :interpretation)""",
+            record,
+        )
+        await QUEUE.put({"kind": "render", "id": record["id"]})
+        created.append({"id": record["id"], "title": record["title"], "interpretation": name})
+    return {"created": created}
+
+
+# ------------------------------------------------------------------------ lyrics
+@app.post("/api/lyrics")
+async def write_lyrics(body: LyricsIn) -> dict:
+    """Queue a lyric draft.  The page polls GET /api/lyrics/{id} for the words."""
+    if ENGINE.options_loaded and not ENGINE.options.get("lyrics"):
+        raise HTTPException(400, f"The engine cannot write lyrics: it needs {config.LYRICS_MODEL} "
+                                 "in models/text_encoders. Run scripts/fetch-models.sh.")
+    if body.structure not in lyrics.STRUCTURES:
+        raise HTTPException(400, f"unknown structure: {body.structure}")
+    jobs.forget_old_lyrics()
+    record = {
+        "id": uuid.uuid4().hex[:12], "status": "queued", "brief": body.brief.strip(),
+        "style": body.style.strip(), "structure": body.structure,
+        "seed": body.seed if body.seed is not None else int.from_bytes(os.urandom(4), "big"),
+        "created_at": time.time(), "title": None, "lyrics": None, "error": None,
+    }
+    LYRICS[record["id"]] = record
+    await QUEUE.put({"kind": "lyrics", "id": record["id"]})
+    return record
+
+
+@app.get("/api/lyrics/{draft_id}")
+def get_lyrics(draft_id: str) -> dict:
+    record = LYRICS.get(draft_id)
+    if not record:
+        raise HTTPException(404, "no such draft. It may have expired, or the app restarted.")
+    return record
+
+
+@app.post("/api/lyrics/{draft_id}/cancel")
+async def cancel_lyrics(draft_id: str) -> dict:
+    record = LYRICS.get(draft_id)
+    if not record:
+        raise HTTPException(404, "no such draft")
+    if record["status"] not in ACTIVE:
+        return {"cancelled": False, "status": record["status"]}
+    await jobs.cancel_lyrics(record)
+    return {"cancelled": True}
 
 
 @app.post("/api/takes/{take_id}/cancel")

@@ -568,3 +568,17 @@ details.block[open] > summary { margin-bottom: 10px; }
 .take-move svg { width: 18px; height: 18px; }
 .take-move:hover { color: #60a5fa; border-color: var(--line); background: var(--card-2); }
 .take-move:focus-visible { outline: 2px solid var(--accent-a); outline-offset: 2px; }
+
+/* Two small actions beside a field label. */
+.label-actions { display: flex; gap: 12px; }
+/* Variations: one row per interpretation, with its hint. */
+.variations-list { display: flex; flex-direction: column; gap: 6px; margin: 12px 0 14px; }
+.variations-list label { display: flex; gap: 10px; align-items: baseline; padding: 8px 12px; border: 1px solid var(--line);
+  border-radius: 11px; background: var(--card); cursor: pointer; font-size: 13.5px; }
+.variations-list input { accent-color: var(--accent-a); }
+.variations-list .muted { font-size: 12.5px; }
+.take-corner { display: flex; gap: 2px; align-self: flex-start; margin: -4px -4px 0 0; }
+.take-corner .take-move { margin: 0; }
+#write-brief { min-height: 90px; }
+#write-go:disabled { opacity: 0.5; cursor: default; }
+#write-go, #variations-go { width: auto; flex: 0 0 auto; margin-top: 0; padding: 10px 24px; font-size: 14px; }

@@ -9,7 +9,7 @@ import logging
 import time
 from pathlib import Path
 
-from . import config, score, stems
+from . import config, lyrics, score, stems
 from .db import bump_average, execute, one
 from .engine import Engine, load_template
 from .library import audio_duration, ensure_peaks, inside, remove_tree, take_audio_path, write_take_note
@@ -25,6 +25,10 @@ CURRENT: dict = {}
 CURRENT_STEMS: dict = {}
 # Ids whose running job was cancelled.  The job notices and stops.
 CANCELLED: set[str] = set()
+# Lyric drafts, by id.  Kept in memory only: a draft is copied into the form as soon
+# as it lands, so nothing is lost when the app restarts.
+LYRICS: dict[str, dict] = {}
+LYRICS_KEEP = 3600   # seconds a finished draft stays readable
 
 
 # ------------------------------------------------------------------- templates
@@ -70,10 +74,30 @@ HARMONY = {
 }
 
 
+# How the render reads the score: the music sampler's settings, one named set each.
+# Standard is YuE2's own default.  The names describe the result, not the numbers.
+INTERPRETATIONS = {
+    "standard": {"temperature": 1.0, "top_p": 0.95, "top_k": 100, "repetition_penalty": 1.2},
+    "tight": {"temperature": 0.8},
+    "loose": {"temperature": 1.2},
+    "settled": {"repetition_penalty": 1.0},
+    "restless": {"repetition_penalty": 1.35},
+    "wide": {"top_k": 250, "top_p": 0.99},
+}
+INTERPRETATION_NAMES = {
+    "standard": "Standard", "tight": "Tight", "loose": "Loose",
+    "settled": "Settled", "restless": "Restless", "wide": "Wide",
+}
+
+
+def interpretation_sampling(name: str | None) -> dict:
+    return {**INTERPRETATIONS["standard"], **INTERPRETATIONS.get(name or "standard", {})}
+
+
 def build_plan_graph(take: dict) -> dict:
     """Write a score plan from the style and lyrics alone. No recording involved."""
     graph = load_template("song_plan.json")
-    graph["1"]["inputs"]["ckpt_name"] = take["checkpoint"]
+    graph["1"]["inputs"]["ckpt_name"] = config.CHECKPOINT
     node = graph["2"]["inputs"]
     node["style"] = take["style"]
     node["lyrics"] = take["lyrics"]
@@ -91,8 +115,9 @@ def build_plan_graph(take: dict) -> dict:
 
 def build_render_graph(take: dict) -> dict:
     graph = load_template("render.json")
-    graph["10"]["inputs"]["ckpt_name"] = take["checkpoint"]
+    graph["10"]["inputs"]["ckpt_name"] = config.CHECKPOINT
     node = graph["11"]["inputs"]
+    node.update(interpretation_sampling(take.get("interpretation")))
     node["style"] = take["style"]
     node["lyrics"] = take["lyrics"]
     node["abc"] = take["abc"] or ""
@@ -105,6 +130,27 @@ def build_render_graph(take: dict) -> dict:
     # already taken and deleted.  With a new prefix only the save runs again.
     graph["16"]["inputs"]["filename_prefix"] = f"yue2studio/{take['id']}-{int(time.time() * 1000)}"
     return graph
+
+
+def build_lyrics_graph(record: dict) -> dict:
+    """Gemma through ComfyUI's own text nodes.  Built here rather than from a
+    template, so an engine without them still passes the compatibility check."""
+    prompt = lyrics.build_prompt(record["brief"], record["style"], record["structure"])
+    return {
+        "1": {"class_type": "CLIPLoader", "inputs": {"clip_name": config.LYRICS_MODEL, "type": "stable_diffusion"}},
+        "2": {"class_type": "TextGenerate", "inputs": {
+            "clip": ["1", 0], "prompt": prompt, "max_length": 900, "thinking": False,
+            "sampling_mode": "on", "sampling_mode.temperature": 0.8, "sampling_mode.top_k": 64,
+            "sampling_mode.top_p": 0.95, "sampling_mode.min_p": 0.05, "sampling_mode.repetition_penalty": 1.05,
+            "sampling_mode.seed": int(record["seed"])}},
+        "3": {"class_type": "PreviewAny", "inputs": {"source": ["2", 0]}},
+    }
+
+
+def forget_old_lyrics(now: float | None = None) -> None:
+    now = now or time.time()
+    for key in [k for k, r in LYRICS.items() if r["status"] in ("done", "failed") and now - r["created_at"] > LYRICS_KEEP]:
+        del LYRICS[key]
 
 
 def _outputs_of(job: dict, class_types: tuple[str, ...]) -> list[dict]:
@@ -134,7 +180,10 @@ def extract_audio_item(job: dict, class_type: str) -> dict | None:
 # ----------------------------------------------------------------------- GPU lane
 def fail(kind: str, ref_id: str, message: str) -> None:
     log.warning("%s %s failed: %s", kind, ref_id, message)
-    if kind == "transcribe":
+    if kind == "lyrics":
+        if ref_id in LYRICS:
+            LYRICS[ref_id].update({"status": "failed", "error": message})
+    elif kind == "transcribe":
         execute("UPDATE sources SET transcribe_state = 'failed', transcribe_error = ? WHERE id = ?", (message, ref_id))
     else:
         execute("UPDATE takes SET status = 'failed', error = ?, stage = NULL WHERE id = ?", (message, ref_id))
@@ -199,7 +248,13 @@ async def _wait_for(kind: str, ref_id: str, prompt_id: str) -> tuple[str, dict |
 async def run_job(kind: str, ref_id: str) -> None:
     started = time.time()
     record = None
-    if kind == "transcribe":
+    if kind == "lyrics":
+        record = LYRICS.get(ref_id)
+        if not record or record["status"] != "queued":
+            return   # cancelled while it waited
+        record["status"] = "running"
+        graph = build_lyrics_graph(record)
+    elif kind == "transcribe":
         record = one("SELECT * FROM sources WHERE id = ?", (ref_id,))
         if not record or record["transcribe_state"] != "queued":
             return   # deleted or cancelled while it waited
@@ -224,7 +279,7 @@ async def run_job(kind: str, ref_id: str) -> None:
 
     CURRENT.clear()
     CURRENT.update({"kind": kind, "id": ref_id, "prompt_id": prompt_id, "started": started})
-    if kind != "transcribe":
+    if kind in ("plan", "render"):
         execute("UPDATE takes SET prompt_id = ? WHERE id = ?", (prompt_id, ref_id))
     try:
         outcome, job = await _wait_for(kind, ref_id, prompt_id)
@@ -250,6 +305,16 @@ async def _finish(kind: str, ref_id: str, record: dict, job: dict, started: floa
     if status_str != "success":
         detail = json.dumps(job.get("status", {}).get("messages") or [])[-500:]
         fail(kind, ref_id, f"engine reported {status_str}: {detail}")
+        return
+
+    if kind == "lyrics":
+        text = extract_text_output(job, "TextGenerate", "PreviewAny")
+        draft = lyrics.parse(text or "")
+        if draft["problems"]:
+            fail(kind, ref_id, "the draft came out without song sections. Write again.")
+            return
+        record.update({"status": "done", "title": draft["title"], "lyrics": draft["lyrics"],
+                       "finished_at": time.time(), "error": None})
         return
 
     if kind == "transcribe":
@@ -346,6 +411,15 @@ async def cancel_current() -> dict | None:
     if CURRENT.get("prompt_id"):
         await ENGINE.cancel(CURRENT["prompt_id"])
     return {"kind": CURRENT["kind"], "id": CURRENT["id"]}
+
+
+async def cancel_lyrics(record: dict) -> None:
+    if record["status"] == "queued":
+        record.update({"status": "failed", "error": "cancelled"})
+    elif record["status"] == "running":
+        CANCELLED.add(record["id"])
+        if CURRENT.get("id") == record["id"] and CURRENT.get("prompt_id"):
+            await ENGINE.cancel(CURRENT["prompt_id"])
 
 
 def waiting_jobs() -> list[dict]:

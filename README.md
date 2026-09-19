@@ -34,6 +34,10 @@ Writing a song from a prompt:
 - **Choose how adventurous the chords are.** YuE2 tends to write one four-chord loop for a whole
   song. The Harmony slider, from Familiar to Outside, pushes the planner towards chords it has not
   just used, without breaking the song's structure.
+- **Draft lyrics from a sentence.** Say what the song is about and pick a structure. Gemma 4
+  writes a first draft in YuE2's section layout, on the same engine, in about 40 seconds.
+- **Choose the interpretation.** Six ways to render the same score, from Tight to Wide, and
+  **Variations** renders one take in the others, so you can compare them by ear.
 - **Choose the voice.** Chips set female, male or duet and a voice character. YuE2 has no vocal
   parameter, so the chips write into the style text, and the take keeps the choice.
 - **Read the score three ways.** Expand opens a full size editor, with the chord find and replace
@@ -55,7 +59,7 @@ Writing a song from a prompt:
   is worth trying: ComfyUI moves what does not fit into system RAM, so it still works, though
   smaller cards are usually slower chips and renders take longer.
 - Docker with the NVIDIA container toolkit, so containers can see the GPU.
-- About 25 GB of disk: 15 GB of images, 5 GB of models, and room for your songs.
+- About 35 GB of disk: 15 GB of images, 17 GB of models, and room for your songs.
 - Linux, or Windows with WSL2. Both work; WSL2 is what this was built on.
 
 ## Quick start
@@ -63,7 +67,7 @@ Writing a song from a prompt:
 ```sh
 git clone https://github.com/dynamohum/YuE2gen-studio.git
 cd YuE2gen-studio
-sh scripts/fetch-models.sh          # about 5 GB, and creates the folders below
+sh scripts/fetch-models.sh          # about 17 GB, and creates the folders below
 docker compose up -d --build
 ```
 
@@ -74,8 +78,7 @@ to Docker: a folder Docker creates for a mount belongs to root, and the app, whi
 1000, then cannot write its library there. If your user is not uid 1000, change `user:` for the
 app in compose.yml to your `id -u`:`id -g`, or `chown` those two folders to 1000.
 
-Add `--bf16` to the fetch script if you want the unquantised checkpoint as well; it is then
-offered in the checkpoint menu.
+The models are YuE2 (plans and renders), SheetSage2 (transcription) and Gemma 4 E4B (lyric drafts).
 
 Only localhost is published, and **there is no login**: anyone who can reach the port can use the
 app. To reach it from other machines, put it behind something that authenticates, and add the
@@ -103,7 +106,7 @@ hand, such as a new setting in `compose.yml`.
 
 ### Song from a prompt
 
-1. Type a title, a style and lyrics.
+1. Type a title, a style and lyrics, or press **Write lyrics** for a draft.
 2. Press **Write score plan**. YuE2 writes melody and chords. Nothing is rendered yet.
 3. Read the plan. Press **Write a new plan** to reroll the melody, or edit the score.
 4. Press **Render this score**.
@@ -152,6 +155,39 @@ planner's own repetition penalty only varied the chords once it had broken the s
 
 The slider needs the engine's `yue2_harmony` node, which the engine image includes. With an older
 engine the slider is greyed out, and plans are written as before.
+
+### Write lyrics
+
+**Write lyrics**, beside the lyrics box in *Song from a prompt*, asks what the song is about and which
+structure it should have: verse and chorus with a bridge, verse and chorus only, with an intro and
+outro, or a story with two verses up front. The Style above sets the mood. Gemma 4 E4B writes the
+draft on the engine, in about 40 seconds on a 12 GB card or larger, and it lands in the lyrics box
+with a title if the title was empty. You can close the window while it writes.
+
+It is a first draft. The lines scan and rhyme, but a model reaches for familiar images, and nothing
+checks that a line is not already someone else's. Read it and make it yours before you plan.
+
+### Interpretation and Variations
+
+The score fixes the notes and the chords. The interpretation, under *Advanced*, sets how the render
+performs them. It applies to covers and songs alike.
+
+| Interpretation | What you hear |
+|---|---|
+| Standard | YuE2's usual reading of the score |
+| Tight | more controlled and polished |
+| Loose | rougher and more spontaneous |
+| Settled | free to repeat a figure and sit in a groove |
+| Restless | keeps the parts moving and avoids repeating itself |
+| Wide | reaches for less obvious sounds |
+
+The take keeps its interpretation, the card names it, and **Again** starts from it.
+
+The sparkle button in a card's corner opens **Variations**: the same score and seed rendered in the
+interpretations you tick, all but the take's own by default. Each lands as a new take beside the
+original, titled with its interpretation, for example *Night drive · Loose*. Keeping the seed means
+what you hear is the interpretation, not a new roll of the dice.
+
 ### Stopping and deleting
 
 A queued or running take shows **Cancel** on its card, and **stop** on the job card stops the job
@@ -163,7 +199,7 @@ bar offers to restore them.
 
 **New song** (or **New cover**, in cover mode) beside the heading starts again from the take on
 show. It clears the title, the lyrics and the score, and keeps your settings: style, vocal, Harmony,
-plan variety, length cap, checkpoint and seed. The loaded take lets go of the panel, so Render and
+plan variety, length cap, interpretation and seed. The loaded take lets go of the panel, so Render and
 Write a new plan cannot act on it by mistake. A new cover keeps the selected recording and goes back
 to its own transcription. Words you typed go to the restore bar, and unsaved score changes ask
 first.
@@ -252,6 +288,7 @@ Dockerfile             the app: FastAPI, one static page, demucs
 app/                   the application
   main.py              the HTTP API
   jobs.py              the GPU and stem job lanes: submit, wait, cancel, collect
+  lyrics.py            the lyric prompt, and tidying what the model writes
   engine.py            the ComfyUI client, progress relay, template validation
   db.py                SQLite: connection per thread, numbered migrations, settings
   library.py           the data folder: names, take.json, durations, waveform peaks
@@ -377,7 +414,9 @@ missing node or model shows in the header instead of failing a render.
 | torchaudio fails to load its extension | torch, torchvision and torchaudio drifted apart | they are pinned together in both Dockerfiles; keep it that way |
 | `docker compose build` hangs with no output | the buildx plugin is missing | install `docker-buildx` for your Docker |
 | Engine runs but sees no GPU | the container has no GPU access | `docker run --rm --gpus all nvidia/cuda:12.8.0-base-ubuntu24.04 nvidia-smi` should print the card |
-| Render fails out of memory | BF16 peaks near 14.6 GB | pick the INT8 checkpoint, or close other GPU work |
+| Render fails out of memory | another program is using the GPU | close other GPU work; see Requirements |
+| **Write lyrics** is greyed out | Gemma is not in `models/text_encoders` | `sh scripts/fetch-models.sh`, then `docker compose restart engine` |
+| Header says the checkpoint is missing | `yue2_3b_bf16.safetensors` is not in `models/checkpoints` | `sh scripts/fetch-models.sh`, then `docker compose restart engine` |
 | **Render this score** and **Write a new plan** are greyed out | no take's score is in the editor | press **Score** on a take in the library, or write a plan |
 | The app restarts, and its log says it cannot open the database | `data/` belongs to root, because Docker created it | `sudo chown -R 1000:1000 data engine-state/output`, or the uid in compose.yml |
 | The page says *This host name is not allowed* | you reached it by a name not in `ALLOWED_HOSTS` | add that name or address to `ALLOWED_HOSTS` in compose.yml |

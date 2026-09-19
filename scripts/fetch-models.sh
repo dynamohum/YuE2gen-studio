@@ -1,20 +1,21 @@
 #!/bin/sh
-# Fetch the YuE2 checkpoints into ./models.
+# Fetch the models into ./models, about 17 GB:
 #
-#   sh scripts/fetch-models.sh          # INT8 checkpoint + the SheetSage2 encoder, about 5 GB
-#   sh scripts/fetch-models.sh --bf16   # also the unquantised checkpoint, about 13 GB total
+#   checkpoints/yue2_3b_bf16.safetensors                 YuE2, plans and renders       7.8 GB
+#   audio_encoders/sheetsage2_bf16.safetensors           SheetSage2, transcription      1.4 GB
+#   text_encoders/gemma4_e4b_it_int8_convrot.safetensors Gemma 4 E4B, lyric drafts      8.1 GB
 #
+#   sh scripts/fetch-models.sh
+#
+# A file that is already there is kept, and an interrupted download resumes.
 # It also creates data/ and engine-state/output/, which the app needs to own.
-#
-# INT8 is the default because it is what ComfyUI's own YuE2 blueprints use, and
-# it peaks around 10 GB of VRAM.  The BF16 checkpoint sounds slightly better and
-# peaks around 14.6 GB, which is tight on a 16 GB card.
 set -eu
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-BASE=https://huggingface.co/Comfy-Org/YuE2/resolve/main
+YUE2=https://huggingface.co/Comfy-Org/YuE2/resolve/main
+GEMMA=https://huggingface.co/Comfy-Org/gemma-4/resolve/main
 
-mkdir -p "$ROOT/models/checkpoints" "$ROOT/models/audio_encoders"
+mkdir -p "$ROOT/models/checkpoints" "$ROOT/models/audio_encoders" "$ROOT/models/text_encoders"
 # The folders compose.yml mounts into the app.  Created here, as you, because a
 # folder Docker creates for a mount belongs to root, and the app cannot write to it.
 mkdir -p "$ROOT/data" "$ROOT/engine-state/output"
@@ -26,23 +27,18 @@ fetch() {
     return 0
   fi
   echo "fetch $(basename "$dest")"
-  curl -L --fail --retry 5 --retry-all-errors -C - -o "$dest" "$url"
+  curl -L --fail --retry 5 --retry-all-errors -C - -o "$dest.part" "$url"
+  mv "$dest.part" "$dest"
 }
 
-fetch "$BASE/checkpoints/yue2_3b_int8_convrot.safetensors" \
-      "$ROOT/models/checkpoints/yue2_3b_int8_convrot.safetensors"
+fetch "$YUE2/checkpoints/yue2_3b_bf16.safetensors" \
+      "$ROOT/models/checkpoints/yue2_3b_bf16.safetensors"
 
-fetch "$BASE/audio_encoders/sheetsage2_bf16.safetensors" \
+fetch "$YUE2/audio_encoders/sheetsage2_bf16.safetensors" \
       "$ROOT/models/audio_encoders/sheetsage2_bf16.safetensors"
 
-for arg in "$@"; do
-  case "$arg" in
-    --bf16)
-      fetch "$BASE/checkpoints/yue2_3b_bf16.safetensors" \
-            "$ROOT/models/checkpoints/yue2_3b_bf16.safetensors"
-      ;;
-  esac
-done
+fetch "$GEMMA/text_encoders/gemma4_e4b_it_int8_convrot.safetensors" \
+      "$ROOT/models/text_encoders/gemma4_e4b_it_int8_convrot.safetensors"
 
 echo "done.  models/ now holds:"
-ls -la "$ROOT/models/checkpoints" "$ROOT/models/audio_encoders" | grep -v '^total' | grep -v '^d'
+ls -la "$ROOT/models/checkpoints" "$ROOT/models/audio_encoders" "$ROOT/models/text_encoders" | grep -v '^total' | grep -v '^d'

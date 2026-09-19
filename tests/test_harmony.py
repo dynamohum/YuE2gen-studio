@@ -1,5 +1,5 @@
 """The Harmony control in the app: step mapping, storage, validation, replan."""
-from app import jobs
+from app import config, jobs
 from app.db import conn, one
 
 from conftest import make_take
@@ -27,7 +27,7 @@ def test_the_database_has_the_column():
 
 
 def test_song_stores_harmony_and_rejects_out_of_range(client, monkeypatch):
-    monkeypatch.setitem(jobs.ENGINE.options, "checkpoints", ["ck"])
+    monkeypatch.setitem(jobs.ENGINE.options, "checkpoints", [config.CHECKPOINT])
     monkeypatch.setitem(jobs.ENGINE.options, "harmony", True)
     monkeypatch.setattr(jobs.ENGINE, "options_loaded", True)
     made = client.post("/api/songs", json={"lyrics": "la", "harmony": 3}).json()
@@ -36,7 +36,7 @@ def test_song_stores_harmony_and_rejects_out_of_range(client, monkeypatch):
 
 
 def test_harmony_is_refused_when_the_engine_lacks_the_node(client, monkeypatch):
-    monkeypatch.setitem(jobs.ENGINE.options, "checkpoints", ["ck"])
+    monkeypatch.setitem(jobs.ENGINE.options, "checkpoints", [config.CHECKPOINT])
     monkeypatch.setitem(jobs.ENGINE.options, "harmony", False)
     monkeypatch.setattr(jobs.ENGINE, "options_loaded", True)
     refused = client.post("/api/songs", json={"lyrics": "la", "harmony": 2})

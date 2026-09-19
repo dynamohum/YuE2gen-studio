@@ -50,7 +50,7 @@ def make_take(**fields):
     take = {
         "id": uuid.uuid4().hex[:12], "kind": "song", "source_id": None, "title": "Test song",
         "style": "rock", "lyrics": "[Verse]\nla la", "abc": "", "mode": "full", "seed": 1,
-        "checkpoint": "yue2_3b_int8_convrot.safetensors", "max_duration": 60, "status": "done",
+        "checkpoint": "yue2_3b_bf16.safetensors", "max_duration": 60, "status": "done",
         "created_at": time.time(), "audio_path": None,
     }
     take.update(fields)
