@@ -13,7 +13,7 @@ model. It runs two Docker containers — a lightweight **app** (FastAPI + static
 JS) and a GPU-heavy **engine** (ComfyUI) — and requires no API keys, accounts,
 or cloud services.
 
-**Current version:** `0.0.3` (see `VERSION`).  
+**Current version:** `0.0.4` (see `VERSION`).  
 **License:** Apache 2.0 for the studio code; model weights carry their own
 licenses (see `THIRD_PARTY_NOTICES.md`).
 
@@ -663,4 +663,4 @@ docker compose logs -f engine
 
 ---
 
-*Generated 2026-09-19. Version 0.0.3.*
+*Generated 2026-09-20. Version 0.0.4.*

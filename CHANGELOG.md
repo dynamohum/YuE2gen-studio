@@ -16,6 +16,14 @@ Release notes live in two places and neither is a file in this repository: this 
 history, and each GitHub release holds its published notes. `RELEASE-NOTES-*.md` is ignored so it
 cannot creep back in.
 
+## 0.0.4 - 2026-09-20
+
+- **Vocal Identities**: Create and manage custom vocal identities to maintain a consistent singing voice across takes. Point to a folder of reference recordings (own voice or with explicit consent) to isolate vocal stems, detect key and tempo with SheetSage, and generate section-tagged lyric drafts with Whisper. Export structured datasets ready for voice model training.
+- **Voice LoRA Conditioning**: Attach trained vocal identity LoRAs directly during render, with automatic trigger word insertion and checkpoint selection (Best or individual step snapshots).
+- **Production Polish (Realaudio)**: Integrated Mothersuperior v9 real-audio decoder LoRA into the render pipeline to eliminate boxy mid-range haze, enhance bass and drum punch, and provide studio-grade frequency separation with upfront lead vocals.
+- **Realaudio Tokenizer**: Added pipeline utility to extract 25 Hz discrete semantic tokens from vocal recordings using MERT-v2 and a transformer head for voice conditioning and modeling.
+- **Database & API**: Added `/api/identities` management endpoints, database schema migration for identities and identity songs, and `identity_id` tracking across takes and renders.
+
 ## 0.0.3 - 2026-09-19
 
 - **Instrumental**, a third mode beside Cover and Song. Style and structure in, a piece with no
