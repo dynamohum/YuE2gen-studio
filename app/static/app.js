@@ -340,7 +340,20 @@ function renderNotationView() {
   }
 }
 
+/* An instrumental's third view: each section of the plan with its chords.  The
+   lyrics box is hidden in this mode and may hold another take's words. */
+function renderSectionsView() {
+  var sections = abcSections($('score-big').value || '');
+  $('score-view-note').textContent = 'Sections as the plan names them, with the chords of their bars.';
+  $('lyrics-view').innerHTML = sections.length ? sections.map(function (section) {
+    var chords = sectionChords(section);
+    return '<div class="lyric-section"><span class="lyric-head">' + esc(section.name) + '</span>' +
+      (chords.length ? '<span class="lyric-chords">' + esc(chords.join('  ')) + '</span>' : '') + '</div>';
+  }).join('') : '<p class="hint">No sections in this score yet.</p>';
+}
+
 function renderLyricsView() {
+  if (State.mode === 'inst') { renderSectionsView(); return; }
   var host = $('lyrics-view');
   var lyrics = ($('lyrics-big').value || $('lyrics').value || '').trim();
   if (!lyrics) {
@@ -376,6 +389,7 @@ function renderLyricsView() {
 
 function paintScoreView() {
   var view = scoreView();
+  $('score-views').querySelector('[data-view="lyrics"]').textContent = State.mode === 'inst' ? 'Sections' : 'Lyrics';
   Array.prototype.forEach.call(document.querySelectorAll('#score-views .chip'), function (chip) {
     chip.classList.toggle('active', chip.dataset.view === view);
   });
@@ -460,6 +474,8 @@ function insertTag(tag) {
 }
 
 function refreshTitleHint() {
+  // An instrumental has no words to borrow a title from.
+  if (State.mode === 'inst') { $('title').placeholder = 'Name the piece, or leave blank'; return; }
   var guess = guessTitle($('lyrics').value);
   $('title').placeholder = guess ? 'Leave blank to use: ' + guess : 'Leave blank and the first lyric line is used';
 }
@@ -956,7 +972,7 @@ function setMode(mode) {
   show('create-song', mode === 'song');
   show('create-inst', inst);
   $('start-fresh').textContent = cover ? 'New cover' : (inst ? 'New instrumental' : 'New song');
-  $('title').placeholder = inst ? 'Name the piece' : 'Leave blank and the first lyric line is used';
+  refreshTitleHint();
   paintPresets();
   if (inst) { paintStructure(); }
   $('source-status').textContent = '';
