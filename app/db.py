@@ -86,11 +86,12 @@ CREATE TABLE IF NOT EXISTS takes (
     interpretation TEXT NOT NULL DEFAULT 'standard',
     feel TEXT NOT NULL DEFAULT 'steady',
     realaudio INTEGER NOT NULL DEFAULT 0,
+    identity_id TEXT,
     persona_id TEXT,
     voice_lora TEXT,
     voice_lora_strength REAL NOT NULL DEFAULT 1.0
 );
-CREATE TABLE IF NOT EXISTS personas (
+CREATE TABLE IF NOT EXISTS identities (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     trigger_word TEXT NOT NULL,
@@ -103,9 +104,9 @@ CREATE TABLE IF NOT EXISTS personas (
     export_dir TEXT,
     lora TEXT
 );
-CREATE TABLE IF NOT EXISTS persona_songs (
+CREATE TABLE IF NOT EXISTS identity_songs (
     id TEXT PRIMARY KEY,
-    persona_id TEXT NOT NULL,
+    identity_id TEXT NOT NULL,
     file TEXT NOT NULL,
     title TEXT NOT NULL,
     sha256 TEXT NOT NULL,
@@ -223,23 +224,67 @@ def _realaudio() -> None:
 
 def _personas() -> None:
     conn().executescript(BASE_SCHEMA)
-    execute("CREATE INDEX IF NOT EXISTS persona_songs_persona ON persona_songs(persona_id, position)")
+    tbls = {row["name"] for row in rows("SELECT name FROM sqlite_master WHERE type='table'")}
+    if "persona_songs" in tbls:
+        execute("CREATE INDEX IF NOT EXISTS persona_songs_persona ON persona_songs(persona_id, position)")
+    if "identity_songs" in tbls:
+        execute("CREATE INDEX IF NOT EXISTS identity_songs_identity ON identity_songs(identity_id, position)")
 
 
 def _persona_song_description() -> None:
-    if "description" not in _columns("persona_songs"):
-        execute("ALTER TABLE persona_songs ADD COLUMN description TEXT NOT NULL DEFAULT ''")
+    tbls = {row["name"] for row in rows("SELECT name FROM sqlite_master WHERE type='table'")}
+    for tbl in ("identity_songs", "persona_songs"):
+        if tbl in tbls and "description" not in _columns(tbl):
+            execute(f"ALTER TABLE {tbl} ADD COLUMN description TEXT NOT NULL DEFAULT ''")
 
 
 def _persona_loras() -> None:
-    if "lora" not in _columns("personas"):
-        execute("ALTER TABLE personas ADD COLUMN lora TEXT")
+    tbls = {row["name"] for row in rows("SELECT name FROM sqlite_master WHERE type='table'")}
+    for tbl in ("identities", "personas"):
+        if tbl in tbls and "lora" not in _columns(tbl):
+            execute(f"ALTER TABLE {tbl} ADD COLUMN lora TEXT")
     if "persona_id" not in _columns("takes"):
         execute("ALTER TABLE takes ADD COLUMN persona_id TEXT")
+    if "identity_id" not in _columns("takes"):
+        execute("ALTER TABLE takes ADD COLUMN identity_id TEXT")
     if "voice_lora" not in _columns("takes"):
         execute("ALTER TABLE takes ADD COLUMN voice_lora TEXT")
     if "voice_lora_strength" not in _columns("takes"):
         execute("ALTER TABLE takes ADD COLUMN voice_lora_strength REAL NOT NULL DEFAULT 1.0")
+
+
+def _identities() -> None:
+    tbls = {row["name"] for row in rows("SELECT name FROM sqlite_master WHERE type='table'")}
+    if "personas" in tbls and "identities" not in tbls:
+        execute("ALTER TABLE personas RENAME TO identities")
+    elif "identities" not in tbls:
+        conn().executescript(BASE_SCHEMA)
+
+    if "persona_songs" in tbls and "identity_songs" not in tbls:
+        execute("ALTER TABLE persona_songs RENAME TO identity_songs")
+    elif "identity_songs" not in tbls:
+        conn().executescript(BASE_SCHEMA)
+
+    id_cols = _columns("identity_songs")
+    if "persona_id" in id_cols and "identity_id" not in id_cols:
+        execute("ALTER TABLE identity_songs RENAME COLUMN persona_id TO identity_id")
+
+    take_cols = _columns("takes")
+    if "identity_id" not in take_cols:
+        execute("ALTER TABLE takes ADD COLUMN identity_id TEXT")
+        if "persona_id" in take_cols:
+            execute("UPDATE takes SET identity_id = persona_id WHERE identity_id IS NULL AND persona_id IS NOT NULL")
+    if "persona_id" not in take_cols:
+        execute("ALTER TABLE takes ADD COLUMN persona_id TEXT")
+
+    execute("CREATE INDEX IF NOT EXISTS identity_songs_identity ON identity_songs(identity_id, position)")
+
+    views = {row["name"] for row in rows("SELECT name FROM sqlite_master WHERE type='view'")}
+    tbls_now = {row["name"] for row in rows("SELECT name FROM sqlite_master WHERE type='table'")}
+    if "personas" not in tbls_now and "personas" not in views:
+        conn().execute("CREATE VIEW personas AS SELECT * FROM identities")
+    if "persona_songs" not in tbls_now and "persona_songs" not in views:
+        conn().execute("CREATE VIEW persona_songs AS SELECT id, identity_id AS persona_id, identity_id, file, title, sha256, duration, bit_rate, include, flag, stored_path, vocals_state, score_state, lyrics_state, style_state, error, key, tempo, lyrics, lyrics_checked, style_hint, position, description FROM identity_songs")
 
 
 def _indexes() -> None:
@@ -266,6 +311,7 @@ MIGRATIONS = [
     _personas,                                                       # -> 8
     _persona_song_description,                                       # -> 9
     _persona_loras,                                                  # -> 10
+    _identities,                                                     # -> 11
 ]
 
 

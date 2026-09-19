@@ -10,10 +10,12 @@ import shutil
 import time
 from pathlib import Path
 
-from . import config, instrumental, lyrics, personas, score, stems
+from . import config, identities, instrumental, lyrics, score, stems
 from .db import bump_average, execute, one
 from .engine import Engine, load_template
 from .library import audio_duration, ensure_peaks, inside, remove_tree, take_audio_path, write_take_note
+
+personas = identities
 
 log = logging.getLogger("yue2.jobs")
 
@@ -26,11 +28,17 @@ CURRENT: dict = {}
 CURRENT_STEMS: dict = {}
 # Ids whose running job was cancelled.  The job notices and stops.
 CANCELLED: set[str] = set()
-# Persona songs being copied in and having their vocal separated, on the CPU.
-PERSONA_QUEUE: "asyncio.Queue[dict]" = asyncio.Queue()
-CURRENT_PERSONA: dict = {}
-# GPU steps for a persona song.  Copying in, the vocal and the lyrics run on the CPU.
-PERSONA_FIELDS = {"persona_score": "score_state", "persona_style": "style_state"}
+# Identity songs being copied in and having their vocal separated, on the CPU.
+IDENTITY_QUEUE: "asyncio.Queue[dict]" = asyncio.Queue()
+CURRENT_IDENTITY: dict = {}
+# GPU steps for an identity song.  Copying in, the vocal and the lyrics run on the CPU.
+IDENTITY_FIELDS = {
+    "identity_score": "score_state", "identity_style": "style_state",
+    "persona_score": "score_state", "persona_style": "style_state",
+}
+PERSONA_QUEUE = IDENTITY_QUEUE
+CURRENT_PERSONA = CURRENT_IDENTITY
+PERSONA_FIELDS = IDENTITY_FIELDS
 # Lyric drafts, by id.  Kept in memory only: a draft is copied into the form as soon
 # as it lands, so nothing is lost when the app restarts.
 LYRICS: dict[str, dict] = {}
@@ -150,9 +158,12 @@ def with_realaudio_lora(graph: dict, loader: str = "10", lora: str | None = None
     return with_render_lora(graph, "25", lora_name, loader=loader, strength_model=strength, strength_clip=0.0)
 
 
-def with_persona_lora(graph: dict, lora: str, loader: str = "10", strength: float = 1.0) -> dict:
-    """Put the Persona voice LoRA between the checkpoint (or upstream LoRA) and KSampler."""
+def with_identity_lora(graph: dict, lora: str, loader: str = "10", strength: float = 1.0) -> dict:
+    """Put the Identity voice LoRA between the checkpoint (or upstream LoRA) and KSampler."""
     return with_render_lora(graph, "26", lora, loader=loader, strength_model=strength, strength_clip=0.0)
+
+
+with_persona_lora = with_identity_lora
 
 
 def build_render_graph(take: dict) -> dict:
@@ -176,7 +187,7 @@ def build_render_graph(take: dict) -> dict:
     voice_lora = take.get("voice_lora")
     if voice_lora:
         strength = float(take.get("voice_lora_strength") or 1.0)
-        with_persona_lora(graph, voice_lora, loader="10", strength=strength)
+        with_identity_lora(graph, voice_lora, loader="10", strength=strength)
     if take.get("kind") == "instrumental":
         node["mode"] = "full"
         instrumental.with_lora(graph, "10", config.INSTRUMENTAL_LORA, ("11",), feel_strength(take))
@@ -299,8 +310,8 @@ async def _wait_for(kind: str, ref_id: str, prompt_id: str) -> tuple[str, dict |
 async def run_job(kind: str, ref_id: str) -> None:
     started = time.time()
     record = None
-    if kind in PERSONA_FIELDS:
-        await run_persona_job(kind, ref_id)
+    if kind in IDENTITY_FIELDS:
+        await run_identity_job(kind, ref_id)
         return
     if kind == "lyrics":
         record = LYRICS.get(ref_id)
@@ -467,51 +478,61 @@ async def cancel_current() -> dict | None:
     return {"kind": CURRENT["kind"], "id": CURRENT["id"]}
 
 
-# ---------------------------------------------------------------------- personas
-def persona_song(song_id: str) -> dict | None:
-    return one("SELECT * FROM persona_songs WHERE id = ?", (song_id,))
+# ---------------------------------------------------------------------- identities
+def identity_song(song_id: str) -> dict | None:
+    return one("SELECT * FROM identity_songs WHERE id = ?", (song_id,))
+
+
+persona_song = identity_song
 
 
 def set_song(song_id: str, **fields) -> None:
     if fields:
-        execute(f"UPDATE persona_songs SET {', '.join(f'{k} = ?' for k in fields)} WHERE id = ?", (*fields.values(), song_id))
+        execute(f"UPDATE identity_songs SET {', '.join(f'{k} = ?' for k in fields)} WHERE id = ?", (*fields.values(), song_id))
 
 
-async def persona_worker() -> None:
+set_identity_song = set_song
+
+
+async def identity_worker() -> None:
     """Copies each song into the library and separates its vocal, one at a time,
     then hands the song to the GPU lane for key, tempo, lyrics and style."""
     while True:
-        job = await PERSONA_QUEUE.get()
-        CURRENT_PERSONA.clear()
-        CURRENT_PERSONA.update({"id": job["id"], "started": time.time()})
+        job = await IDENTITY_QUEUE.get()
+        CURRENT_IDENTITY.clear()
+        CURRENT_IDENTITY.update({"id": job["id"], "started": time.time()})
         try:
             await prepare_song(job["id"])
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001
-            log.exception("persona song %s failed", job["id"])
+            log.exception("identity song %s failed", job["id"])
             set_song(job["id"], vocals_state="failed", error=f"could not prepare the song: {exc}"[:400])
         finally:
-            CURRENT_PERSONA.clear()
-            PERSONA_QUEUE.task_done()
+            CURRENT_IDENTITY.clear()
+            IDENTITY_QUEUE.task_done()
+
+
+persona_worker = identity_worker
 
 
 async def prepare_song(song_id: str) -> None:
     """Copy in, separate the vocal, and transcribe it with Whisper, skipping whatever
     is already done.  Key and tempo, and the style hint, go to the GPU lane."""
-    song = persona_song(song_id)
+    song = identity_song(song_id)
     if not song or "queued" not in (song["vocals_state"], song["lyrics_state"]):
         return
     if not song["include"]:
         # Unticked while it waited: leave it for later rather than spend the time.
         set_song(song_id, **{f: "none" for f in ("vocals_state", "lyrics_state") if song[f] == "queued"})
         return
-    persona = one("SELECT * FROM personas WHERE id = ?", (song["persona_id"],))
-    source = Path(persona["folder"]) / song["file"]
-    if not personas.allowed(source) or not source.is_file():
+    id_val = song.get("identity_id") or song.get("persona_id")
+    identity = one("SELECT * FROM identities WHERE id = ?", (id_val,))
+    source = Path(identity["folder"]) / song["file"]
+    if not identities.allowed(source) or not source.is_file():
         raise RuntimeError("the song is no longer in its folder")
     set_song(song_id, vocals_state="running", error=None)
-    folder = personas.song_dir(persona["id"], song)
+    folder = identities.song_dir(identity["id"], song)
     folder.mkdir(parents=True, exist_ok=True)
     stored = folder / f"original{source.suffix.lower()}"
     if not stored.exists():
@@ -520,17 +541,17 @@ async def prepare_song(song_id: str) -> None:
     # Key and tempo only need the recording, so the GPU can start while demucs runs.
     if song["score_state"] in ("none", "failed"):
         set_song(song_id, score_state="queued")
-        await QUEUE.put({"kind": "persona_score", "id": song_id})
+        await QUEUE.put({"kind": "identity_score", "id": song_id})
     if not (folder / "vocals.wav").exists():
         await stems.separate(stored, folder, "htdemucs", ["vocals"], "wav", work_root=config.WORK_DIR)
     set_song(song_id, vocals_state="done")
-    if persona_song(song_id)["style_state"] in ("none", "failed"):
+    if identity_song(song_id)["style_state"] in ("none", "failed"):
         set_song(song_id, style_state="queued")
-        await QUEUE.put({"kind": "persona_style", "id": song_id})
+        await QUEUE.put({"kind": "identity_style", "id": song_id})
     if not (folder / "whisper.json").exists():
         set_song(song_id, lyrics_state="running")
         try:
-            lines = await asyncio.to_thread(personas.transcribe, folder / "vocals.wav")
+            lines = await asyncio.to_thread(identities.transcribe, folder / "vocals.wav")
         except Exception as exc:  # noqa: BLE001
             set_song(song_id, lyrics_state="failed", error=f"lyrics: {exc}"[:400])
             return
@@ -541,7 +562,7 @@ async def prepare_song(song_id: str) -> None:
 def maybe_draft(song_id: str) -> None:
     """Tag Whisper's lines with the score's sections once both are in.  A score that
     failed still gets a draft, under one verse."""
-    song = persona_song(song_id)
+    song = identity_song(song_id)
     if not song or not song["stored_path"]:
         return
     folder = Path(song["stored_path"]).parent
@@ -550,7 +571,7 @@ def maybe_draft(song_id: str) -> None:
         return
     lines = json.loads((folder / "whisper.json").read_text(encoding="utf-8"))
     abc = (folder / "score.abc").read_text(encoding="utf-8") if (folder / "score.abc").exists() else ""
-    draft = personas.tag_lyrics(lines, personas.score_sections(abc), song["duration"] or 0)
+    draft = identities.tag_lyrics(lines, identities.score_sections(abc), song["duration"] or 0)
     # Words the user has already checked are theirs: a new draft never replaces them.
     if song["lyrics_checked"]:
         set_song(song_id, lyrics_state="done")
@@ -605,9 +626,9 @@ async def _upload(path: Path, name: str) -> str:
     return result["name"]
 
 
-async def run_persona_job(kind: str, song_id: str) -> None:
-    field = PERSONA_FIELDS[kind]
-    song = persona_song(song_id)
+async def run_identity_job(kind: str, song_id: str) -> None:
+    field = IDENTITY_FIELDS[kind]
+    song = identity_song(song_id)
     if not song or song[field] != "queued":
         return
     if not song["include"]:
@@ -616,27 +637,30 @@ async def run_persona_job(kind: str, song_id: str) -> None:
     set_song(song_id, **{field: "running"})
     folder = Path(song["stored_path"]).parent
     try:
-        if kind == "persona_score":
-            name = await _upload(Path(song["stored_path"]), f"persona-{song_id}{Path(song['stored_path']).suffix}")
+        if kind in ("identity_score", "persona_score"):
+            name = await _upload(Path(song["stored_path"]), f"identity-{song_id}{Path(song['stored_path']).suffix}")
             job = await _run_graph(kind, song_id, build_transcribe_graph(name))
             abc = extract_text_output(job, "SheetSage2AudioToABC", "PreviewAny") or ""
             (folder / "score.abc").write_text(abc, encoding="utf-8")
-            key, tempo = personas.key_and_tempo(abc)
+            key, tempo = identities.key_and_tempo(abc)
             set_song(song_id, key=key, tempo=tempo, score_state="done")
             maybe_draft(song_id)
-        elif kind == "persona_style":
-            samples = await asyncio.to_thread(personas.read_mono, Path(song["stored_path"]))
-            middle = len(samples) / personas.CHUNK_RATE * 0.4
-            clip = personas.write_chunk(samples, (middle, middle + 30), folder / "style-clip.wav")
-            name = await _upload(clip, f"persona-{song_id}-style.wav")
-            job = await _run_graph(kind, song_id, _gemma_graph(personas.DESCRIBE, [name], 120))
+        elif kind in ("identity_style", "persona_style"):
+            samples = await asyncio.to_thread(identities.read_mono, Path(song["stored_path"]))
+            middle = len(samples) / identities.CHUNK_RATE * 0.4
+            clip = identities.write_chunk(samples, (middle, middle + 30), folder / "style-clip.wav")
+            name = await _upload(clip, f"identity-{song_id}-style.wav")
+            job = await _run_graph(kind, song_id, _gemma_graph(identities.DESCRIBE, [name], 120))
             hint = " ".join((_texts_in_order(job) or [""])[0].split())[:300]
             set_song(song_id, style_hint=hint, style_state="done")
     except Exception as exc:  # noqa: BLE001
         log.warning("%s for %s failed: %s", kind, song_id, exc)
         set_song(song_id, **{field: "failed"}, error=f"{kind.split('_')[1]}: {exc}"[:400])
-        if kind == "persona_score":
+        if kind in ("identity_score", "persona_score"):
             maybe_draft(song_id)
+
+
+run_persona_job = run_identity_job
 
 
 async def cancel_lyrics(record: dict) -> None:

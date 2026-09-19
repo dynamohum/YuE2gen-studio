@@ -13,7 +13,7 @@
     <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
   </button>
   <div class="topbar-right">
-    <button id="personas-open" class="ghost personas-open" title="Prepare a singer's songs for training a voice">Personas</button>
+    <button id="identities-open" class="ghost identities-open" title="Prepare a singer's songs for training a voice">Identities</button>
     <span id="app-version" class="version"></span>
     <div id="engine-pill" class="pill pill-off">Connecting</div>
   </div>
@@ -97,12 +97,12 @@
     <div class="field" id="vocal-field">
       <div class="label-row">
         <label>Vocal</label>
-        <div class="vocal-persona-wrap">
-          <label for="vocal-persona" class="muted">Persona:</label>
-          <select id="vocal-persona" title="Select a trained vocal persona">
+        <div class="vocal-identity-wrap vocal-persona-wrap">
+          <label for="vocal-identity" class="muted">Identity:</label>
+          <select id="vocal-identity" title="Select a trained vocal identity">
             <option value="">None (Stock Voice)</option>
           </select>
-          <select id="vocal-persona-lora" class="hidden" title="Select LoRA checkpoint">
+          <select id="vocal-identity-lora" class="hidden" title="Select LoRA checkpoint">
           </select>
         </div>
       </div>
@@ -309,14 +309,14 @@
   </div>
 </div>
 
-<div id="personas-modal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Personas">
-  <div class="modal-box personas">
+<div id="identities-modal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Identities">
+  <div class="modal-box identities personas">
     <div class="modal-head">
-      <strong id="personas-heading">Personas</strong>
-      <button id="personas-back" class="ghost hidden">All personas</button>
-      <button id="personas-close" class="ghost">Close</button>
+      <strong id="identities-heading">Identities</strong>
+      <button id="identities-back" class="ghost hidden">All identities</button>
+      <button id="identities-close" class="ghost">Close</button>
     </div>
-    <div id="personas-body"></div>
+    <div id="identities-body"></div>
   </div>
 </div>
 

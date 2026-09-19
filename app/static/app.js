@@ -152,8 +152,12 @@ function saveForm() {
     data.auto_render = $('auto-render').checked;
     data.seed_fixed = $('seed-fixed').checked;
     data.realaudio = $('realaudio').checked;
-    data.vocal_persona = $('vocal-persona') ? $('vocal-persona').value : '';
-    data.vocal_persona_lora = ($('vocal-persona-lora') && !$('vocal-persona-lora').classList.contains('hidden')) ? $('vocal-persona-lora').value : '';
+    var idSel = $('vocal-identity') || $('vocal-persona');
+    var loraSel = $('vocal-identity-lora') || $('vocal-persona-lora');
+    data.vocal_identity = idSel ? idSel.value : '';
+    data.vocal_identity_lora = (loraSel && !loraSel.classList.contains('hidden')) ? loraSel.value : '';
+    data.vocal_persona = data.vocal_identity;
+    data.vocal_persona_lora = data.vocal_identity_lora;
     data.left_take = State.leftTakeId || '';
     data.structure = { kind: STRUCTURE.kind, sections: STRUCTURE.sections };
     data.feel = FEEL.value;
@@ -174,8 +178,10 @@ function loadForm() {
   if (typeof data.auto_render === 'boolean') { $('auto-render').checked = data.auto_render; }
   if (typeof data.seed_fixed === 'boolean') { $('seed-fixed').checked = data.seed_fixed; }
   if (typeof data.realaudio === 'boolean') { $('realaudio').checked = data.realaudio; }
-  if (typeof data.vocal_persona === 'string') { State.savedVocalPersona = data.vocal_persona; }
-  if (typeof data.vocal_persona_lora === 'string') { State.savedVocalPersonaLora = data.vocal_persona_lora; }
+  if (typeof data.vocal_identity === 'string') { State.savedVocalIdentity = data.vocal_identity; }
+  else if (typeof data.vocal_persona === 'string') { State.savedVocalIdentity = data.vocal_persona; }
+  if (typeof data.vocal_identity_lora === 'string') { State.savedVocalIdentityLora = data.vocal_identity_lora; }
+  else if (typeof data.vocal_persona_lora === 'string') { State.savedVocalIdentityLora = data.vocal_persona_lora; }
   if (data.style) { $('style').dataset.touched = '1'; }
   if (data.left_take) { State.leftTakeId = data.left_take; }
   if (FEELS[data.feel]) { FEEL.value = data.feel; }
@@ -742,32 +748,38 @@ function paintVocals() {
   }).join('');
 }
 
-var PERSONAS_LIST = [];
+var IDENTITIES_LIST = [];
+var PERSONAS_LIST = IDENTITIES_LIST;
 
-async function loadVocalPersonas(preferredId, preferredLora) {
+async function loadVocalIdentities(preferredId, preferredLora) {
   try {
-    PERSONAS_LIST = await api('/api/personas');
+    IDENTITIES_LIST = await api('/api/identities');
   } catch (err) {
-    PERSONAS_LIST = [];
+    IDENTITIES_LIST = [];
   }
-  var targetId = preferredId !== undefined ? preferredId : (State.savedVocalPersona || '');
-  var targetLora = preferredLora !== undefined ? preferredLora : (State.savedVocalPersonaLora || '');
-  paintVocalPersonaSelect(targetId, targetLora);
+  PERSONAS_LIST = IDENTITIES_LIST;
+  var targetId = preferredId !== undefined ? preferredId : (State.savedVocalIdentity || State.savedVocalPersona || '');
+  var targetLora = preferredLora !== undefined ? preferredLora : (State.savedVocalIdentityLora || State.savedVocalPersonaLora || '');
+  paintVocalIdentitySelect(targetId, targetLora);
 }
 
-function personaName(id) {
+var loadVocalPersonas = loadVocalIdentities;
+
+function identityName(id) {
   if (!id) { return null; }
-  for (var i = 0; i < PERSONAS_LIST.length; i++) {
-    if (PERSONAS_LIST[i].id === id) { return PERSONAS_LIST[i].name; }
+  for (var i = 0; i < IDENTITIES_LIST.length; i++) {
+    if (IDENTITIES_LIST[i].id === id) { return IDENTITIES_LIST[i].name; }
   }
   return null;
 }
 
-function getPersonaLoRAs(persona) {
-  if (!persona) { return []; }
+var personaName = identityName;
+
+function getIdentityLoRAs(identity) {
+  if (!identity) { return []; }
   var allLoras = (State.options && State.options.loras) || [];
-  var trigger = (persona.trigger_word || '').toLowerCase();
-  var name = (persona.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  var trigger = (identity.trigger_word || '').toLowerCase();
+  var name = (identity.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
   var matches = allLoras.filter(function (l) {
     var lower = l.toLowerCase();
     return (trigger && lower.indexOf(trigger) !== -1) || (name && lower.indexOf(name) !== -1);
@@ -785,37 +797,41 @@ function getPersonaLoRAs(persona) {
   return matches;
 }
 
-function paintVocalPersonaSelect(currentPersonaId, currentLora) {
-  var sel = $('vocal-persona');
+var getPersonaLoRAs = getIdentityLoRAs;
+
+function paintVocalIdentitySelect(currentId, currentLora) {
+  var sel = $('vocal-identity') || $('vocal-persona');
   if (!sel) { return; }
-  var chosenId = currentPersonaId !== undefined ? currentPersonaId : sel.value;
+  var chosenId = currentId !== undefined ? currentId : sel.value;
   var options = ['<option value="">None (Stock Voice)</option>'];
-  PERSONAS_LIST.forEach(function (p) {
+  IDENTITIES_LIST.forEach(function (p) {
     var label = p.name + ' (' + p.trigger_word + ')';
     options.push('<option value="' + esc(p.id) + '"' + (p.id === chosenId ? ' selected' : '') + '>' + esc(label) + '</option>');
   });
   sel.innerHTML = options.join('');
   if (chosenId) { sel.value = chosenId; }
-  updatePersonaLoraSelect(currentLora);
+  updateIdentityLoraSelect(currentLora);
 }
 
-function updatePersonaLoraSelect(currentLora) {
-  var sel = $('vocal-persona');
-  var loraSel = $('vocal-persona-lora');
+var paintVocalPersonaSelect = paintVocalIdentitySelect;
+
+function updateIdentityLoraSelect(currentLora) {
+  var sel = $('vocal-identity') || $('vocal-persona');
+  var loraSel = $('vocal-identity-lora') || $('vocal-persona-lora');
   if (!sel || !loraSel) { return; }
-  var persona = PERSONAS_LIST.filter(function (p) { return p.id === sel.value; })[0];
-  if (!persona) {
+  var identity = IDENTITIES_LIST.filter(function (p) { return p.id === sel.value; })[0];
+  if (!identity) {
     loraSel.classList.add('hidden');
     loraSel.innerHTML = '';
     return;
   }
-  var loras = getPersonaLoRAs(persona);
+  var loras = getIdentityLoRAs(identity);
   if (!loras.length) {
     loraSel.classList.add('hidden');
     loraSel.innerHTML = '';
     return;
   }
-  var chosenLora = currentLora || persona.lora || loras[0];
+  var chosenLora = currentLora || identity.lora || loras[0];
   var opts = loras.map(function (l) {
     var label = l;
     if (l.indexOf('_best') !== -1) {
@@ -831,10 +847,12 @@ function updatePersonaLoraSelect(currentLora) {
   loraSel.classList.remove('hidden');
 }
 
-function onVocalPersonaChange() {
-  var sel = $('vocal-persona');
-  var p = PERSONAS_LIST.filter(function (item) { return item.id === sel.value; })[0];
-  updatePersonaLoraSelect();
+var updatePersonaLoraSelect = updateIdentityLoraSelect;
+
+function onVocalIdentityChange() {
+  var sel = $('vocal-identity') || $('vocal-persona');
+  var p = IDENTITIES_LIST.filter(function (item) { return item.id === sel.value; })[0];
+  updateIdentityLoraSelect();
   saveForm();
   if (!p) { return; }
   if (p.trigger_word) {
@@ -851,6 +869,8 @@ function onVocalPersonaChange() {
     setVocalSex(p.voice);
   }
 }
+
+var onVocalPersonaChange = onVocalIdentityChange;
 
 /* ---------------------------------------------------------------- settings */
 function setting(key, fallback) {
@@ -1257,10 +1277,10 @@ async function doPlan() {
   }
   statusLine('Queued…');
   try {
-    var personaSel = $('vocal-persona');
-    var pId = personaSel ? personaSel.value : null;
-    var loraSel = $('vocal-persona-lora');
-    var vLora = (pId && loraSel && !loraSel.classList.contains('hidden')) ? loraSel.value : null;
+    var identitySel = $('vocal-identity') || $('vocal-persona');
+    var idVal = identitySel ? identitySel.value : null;
+    var loraSel = $('vocal-identity-lora') || $('vocal-persona-lora');
+    var vLora = (idVal && loraSel && !loraSel.classList.contains('hidden')) ? loraSel.value : null;
     var take = await api('/api/songs', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1275,7 +1295,8 @@ async function doPlan() {
         harmony: harmonyStep(),
         space_id: State.spaceId,
         realaudio: $('realaudio').checked,
-        persona_id: pId || null,
+        identity_id: idVal || null,
+        persona_id: idVal || null,
         voice_lora: vLora || null
       })
     });
@@ -1300,16 +1321,17 @@ async function doRenderTake() {
       body: JSON.stringify({ abc: $('abc').value })
     });
     // The Interpretation menu applies to this render.
-    var personaSel = $('vocal-persona');
-    var pId = personaSel ? personaSel.value : null;
-    var loraSel = $('vocal-persona-lora');
-    var vLora = (pId && loraSel && !loraSel.classList.contains('hidden')) ? loraSel.value : null;
+    var identitySel = $('vocal-identity') || $('vocal-persona');
+    var idVal = identitySel ? identitySel.value : null;
+    var loraSel = $('vocal-identity-lora') || $('vocal-persona-lora');
+    var vLora = (idVal && loraSel && !loraSel.classList.contains('hidden')) ? loraSel.value : null;
     await api('/api/takes/' + id + '/render', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         interpretation: $('interpretation').value,
         realaudio: $('realaudio').checked,
-        persona_id: pId || null,
+        identity_id: idVal || null,
+        persona_id: idVal || null,
         voice_lora: vLora || null
       })
     });
@@ -1846,57 +1868,79 @@ async function stopWrite() {
   try { await api('/api/lyrics/' + WRITE.id + '/cancel', { method: 'POST' }); } catch (err) { /* the poll reports it */ }
 }
 
-/* ---------------------------------------------------------------- personas
+/* ---------------------------------------------------------------- identities
    One singer's songs, prepared for training a voice.  The folder is only read;
    the app keeps its own copies, and the review happens here, song by song. */
-var PERSONA = { view: 'list', id: null, data: null, open: {}, timer: null, browse: null };
+var IDENTITY = { view: 'list', id: null, data: null, open: {}, timer: null, browse: null };
+var PERSONA = IDENTITY;
 var STEP_NAMES = [['vocals_state', 'Vocal'], ['score_state', 'Key & tempo'], ['lyrics_state', 'Lyrics'], ['style_state', 'Style']];
 var STEP_MARKS = { none: '', queued: '· queued', running: '…', done: '✓', failed: '✕' };
 
-function openPersonas() {
-  $('personas-modal').classList.remove('hidden');
+function getIdentityModal() { return $('identities-modal') || $('personas-modal'); }
+function getIdentityHeading() { return $('identities-heading') || $('personas-heading'); }
+function getIdentityBack() { return $('identities-back') || $('personas-back'); }
+function getIdentityClose() { return $('identities-close') || $('personas-close'); }
+function getIdentityBody() { return $('identities-body') || $('personas-body'); }
+
+function openIdentities() {
+  var modal = getIdentityModal();
+  if (modal) { modal.classList.remove('hidden'); }
   document.body.style.overflow = 'hidden';
-  showPersonaList();
+  showIdentityList();
 }
+var openPersonas = openIdentities;
 
-function closePersonas() {
-  $('personas-modal').classList.add('hidden');
+function closeIdentities() {
+  var modal = getIdentityModal();
+  if (modal) { modal.classList.add('hidden'); }
   document.body.style.overflow = '';
-  clearTimeout(PERSONA.timer);
-  PERSONA.timer = null;
-  loadVocalPersonas();
+  clearTimeout(IDENTITY.timer);
+  IDENTITY.timer = null;
+  loadVocalIdentities();
 }
+var closePersonas = closeIdentities;
 
-async function showPersonaList() {
-  PERSONA.view = 'list';
-  PERSONA.id = null;
-  clearTimeout(PERSONA.timer);
-  $('personas-heading').textContent = 'Personas';
-  $('personas-back').classList.add('hidden');
+async function showIdentityList() {
+  IDENTITY.view = 'list';
+  IDENTITY.id = null;
+  clearTimeout(IDENTITY.timer);
+  var heading = getIdentityHeading();
+  if (heading) { heading.textContent = 'Identities'; }
+  var back = getIdentityBack();
+  if (back) { back.classList.add('hidden'); }
   var list = [];
-  try { list = await api('/api/personas'); } catch (err) { list = []; }
-  $('personas-body').innerHTML =
-    '<p class="persona-intro">A persona is one singer’s voice, prepared from their songs. Point at a folder of songs: ' +
+  try { list = await api('/api/identities'); } catch (err) {
+    try { list = await api('/api/personas'); } catch (e) { list = []; }
+  }
+  var body = getIdentityBody();
+  if (!body) { return; }
+  body.innerHTML =
+    '<p class="identity-intro persona-intro">An identity is one singer’s voice, prepared from their songs. Point at a folder of songs: ' +
     'the app separates each vocal, finds its key and tempo, and drafts its lyrics for you to check. The result is a ' +
     'training set. Only use your own voice, or a singer who has given you permission.</p>' +
-    '<button id="persona-new" class="ghost">New persona</button>' +
-    '<div class="persona-cards">' + list.map(function (item) {
-      return '<div class="persona-card" data-persona="' + esc(item.id) + '"><strong>' + esc(item.name) + '</strong>' +
+    '<button id="identity-new" class="ghost">New identity</button>' +
+    '<div class="identity-cards persona-cards">' + list.map(function (item) {
+      return '<div class="identity-card persona-card" data-identity="' + esc(item.id) + '" data-persona="' + esc(item.id) + '"><strong>' + esc(item.name) + '</strong>' +
         '<span class="muted">trigger <code>' + esc(item.trigger_word) + '</code> · ' + (item.included || 0) + ' of ' +
         (item.songs || 0) + ' songs' + (item.exported_at ? ' · exported' : '') + '</span></div>';
     }).join('') + '</div>';
 }
+var showPersonaList = showIdentityList;
 
 function triggerFrom(name) {
   return String(name || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 24);
 }
 
-async function showPersonaNew() {
-  PERSONA.view = 'new';
-  $('personas-heading').textContent = 'New persona';
-  $('personas-back').classList.remove('hidden');
-  $('personas-body').innerHTML =
-    '<div class="persona-form">' +
+async function showIdentityNew() {
+  IDENTITY.view = 'new';
+  var heading = getIdentityHeading();
+  if (heading) { heading.textContent = 'New identity'; }
+  var back = getIdentityBack();
+  if (back) { back.classList.remove('hidden'); }
+  var body = getIdentityBody();
+  if (!body) { return; }
+  body.innerHTML =
+    '<div class="identity-form persona-form">' +
       '<div class="field"><label for="pn-name">Name</label><input id="pn-name" type="text" maxlength="80" placeholder="Paul Shields"></div>' +
       '<div class="field"><label for="pn-trigger">Trigger word</label><input id="pn-trigger" type="text" maxlength="40" placeholder="paulshields">' +
         '<div class="hint">Starts every style caption, so a trained model knows when to use this voice. Letters and digits only.</div></div>' +
@@ -1918,12 +1962,13 @@ async function showPersonaNew() {
   browseFolder(null);
   $('pn-name').focus();
 }
+var showPersonaNew = showIdentityNew;
 
 async function browseFolder(path) {
   var host = $('pn-folder');
   try {
     var data = await api('/api/import/browse' + (path ? '?path=' + encodeURIComponent(path) : ''));
-    PERSONA.browse = data;
+    IDENTITY.browse = data;
     var html = data.path ? '<div class="here">' + esc(data.path) + ' · ' + data.songs + ' song' + (data.songs === 1 ? '' : 's') + ' here</div>' : '';
     if (data.parent) { html += '<button data-folder="' + esc(data.parent) + '">← up</button>'; }
     html += data.folders.map(function (folder) {
@@ -1936,27 +1981,28 @@ async function browseFolder(path) {
   }
 }
 
-async function scanNewPersona() {
+async function scanNewIdentity() {
   var status = $('pn-status');
-  var folder = PERSONA.browse && PERSONA.browse.path;
+  var folder = IDENTITY.browse && IDENTITY.browse.path;
   if (!folder) { status.textContent = 'Open the folder that holds the songs.'; status.className = 'status bad'; return; }
   if (!$('pn-consent').checked) { status.textContent = 'Confirm that the voice is yours, or that you have permission.'; status.className = 'status bad'; return; }
   status.textContent = 'Scanning…';
   status.className = 'status';
   $('pn-scan').disabled = true;
   try {
-    var made = await api('/api/personas', {
+    var made = await api('/api/identities', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: $('pn-name').value.trim() || 'My voice', trigger_word: $('pn-trigger').value || triggerFrom($('pn-name').value) || 'myvoice',
         voice: $('pn-voice').value, description: $('pn-desc').value, folder: folder, consent: true })
     });
-    showPersona(made.id, made);
+    showIdentity(made.id, made);
   } catch (err) {
     status.textContent = err.message;
     status.className = 'status bad';
     $('pn-scan').disabled = false;
   }
 }
+var scanNewPersona = scanNewIdentity;
 
 function stepChips(song) {
   return STEP_NAMES.map(function (step) {
@@ -1965,17 +2011,18 @@ function stepChips(song) {
   }).join('');
 }
 
-function personaSummary(data) {
+function identitySummary(data) {
   var sum = data.summary;
   return '<span><strong>' + sum.included + '</strong> of ' + sum.songs + ' songs included · ' + sum.minutes + ' min</span>' +
     '<span>' + sum.analysed + ' analysed · ' + sum.checked + ' lyrics checked</span>' +
     '<span class="muted">trigger <code>' + esc(data.trigger_word) + '</code> · ' + esc(data.voice || 'voice not stated') +
     ' · ' + esc(data.description || 'no description') + '</span>';
 }
+var personaSummary = identitySummary;
 
 function songRow(song) {
-  var detail = PERSONA.open[song.id]
-    ? '<tr class="persona-detail" data-detail="' + song.id + '"><td colspan="5">' + songDetail(song) + '</td></tr>' : '';
+  var detail = IDENTITY.open[song.id]
+    ? '<tr class="identity-detail persona-detail" data-detail="' + song.id + '"><td colspan="5">' + songDetail(song) + '</td></tr>' : '';
   return '<tr data-song="' + song.id + '"' + (song.include ? '' : ' class="off"') + '>' +
     '<td><input type="checkbox" data-include="' + song.id + '"' + (song.include ? ' checked' : '') + ' title="Include in the training set"></td>' +
     '<td>' + esc(song.title) + '<span class="file">' + esc(song.file) + '</span>' +
@@ -1983,12 +2030,12 @@ function songRow(song) {
     '<td>' + secs(song.duration) + '</td>' +
     '<td data-steps="' + song.id + '">' + stepChips(song) + '<div class="muted" data-keytempo="' + song.id + '">' +
       esc([song.key, song.tempo ? song.tempo + ' BPM' : ''].filter(Boolean).join(', ')) + '</div></td>' +
-    '<td><button class="link" data-open="' + song.id + '">' + (PERSONA.open[song.id] ? 'Close' : 'Review') + '</button></td>' +
+    '<td><button class="link" data-open="' + song.id + '">' + (IDENTITY.open[song.id] ? 'Close' : 'Review') + '</button></td>' +
   '</tr>' + detail;
 }
 
 function songDetail(song) {
-  var base = '/api/personas/' + PERSONA.id + '/songs/' + song.id + '/audio';
+  var base = '/api/identities/' + IDENTITY.id + '/songs/' + song.id + '/audio';
   var players = song.stored_path
     ? '<div class="muted">Your recording</div><audio controls preload="none" src="' + base + '?which=original"></audio>' +
       (song.vocals_state === 'done' ? '<div class="muted">The separated vocal</div><audio controls preload="none" src="' + base + '?which=vocals"></audio>' : '')
@@ -2002,51 +2049,58 @@ function songDetail(song) {
     '</div><div>' + players +
       '<div class="field" style="margin:10px 0 0"><label for="pd-' + song.id + '">This song\u2019s sound</label>' +
       '<input id="pd-' + song.id + '" type="text" maxlength="400" data-description="' + song.id + '" value="' + esc(song.description || '') + '" ' +
-      'placeholder="' + esc((PERSONA.data && PERSONA.data.description) || 'the persona\u2019s description') + '">' +
-      '<div class="hint">Only where it differs from the rest, say stripped back or acoustic. Blank uses the persona\u2019s. Saved with Save.</div></div>' +
+      'placeholder="' + esc((IDENTITY.data && IDENTITY.data.description) || 'the identity\u2019s description') + '">' +
+      '<div class="hint">Only where it differs from the rest, say stripped back or acoustic. Blank uses the identity\u2019s. Saved with Save.</div></div>' +
       '<div class="muted" style="margin-top:8px">Style caption</div><div class="caption" data-caption="' + song.id + '">' + esc(song.caption) + '</div>' +
       (song.style_hint ? '<div class="muted" style="margin-top:8px">What Gemma heard (a suggestion only)</div><div class="caption">' + esc(song.style_hint) + '</div>' : '') +
       (song.error ? '<div class="status bad" style="margin-top:8px">' + esc(song.error) + '</div>' : '') +
     '</div></div>';
 }
 
-async function showPersona(id, preloaded) {
-  PERSONA.view = 'persona';
-  PERSONA.id = id;
-  PERSONA.open = {};
-  $('personas-back').classList.remove('hidden');
-  var data = preloaded || await api('/api/personas/' + id);
-  PERSONA.data = data;
-  $('personas-heading').textContent = data.name;
-  $('personas-body').innerHTML =
-    '<div id="persona-summary" class="persona-summary">' + personaSummary(data) + '</div>' +
-    '<div id="persona-edit" class="persona-form hidden"></div>' +
-    '<div class="persona-actions">' +
-      '<button id="persona-edit-open" class="ghost">Edit</button>' +
-      '<button id="persona-analyse" class="ghost">Analyse</button>' +
-      '<button id="persona-export" class="ghost">Export training set</button>' +
-      '<button id="persona-delete" class="ghost">Delete persona</button>' +
-      '<span id="persona-status" class="status"></span>' +
+async function showIdentity(id, preloaded) {
+  IDENTITY.view = 'identity';
+  IDENTITY.id = id;
+  IDENTITY.open = {};
+  var back = getIdentityBack();
+  if (back) { back.classList.remove('hidden'); }
+  var data = preloaded || await api('/api/identities/' + id);
+  IDENTITY.data = data;
+  var heading = getIdentityHeading();
+  if (heading) { heading.textContent = data.name; }
+  var body = getIdentityBody();
+  if (!body) { return; }
+  body.innerHTML =
+    '<div id="identity-summary" class="identity-summary persona-summary">' + identitySummary(data) + '</div>' +
+    '<div id="identity-edit" class="identity-form persona-form hidden"></div>' +
+    '<div class="identity-actions persona-actions">' +
+      '<button id="identity-edit-open" class="ghost">Edit</button>' +
+      '<button id="identity-analyse" class="ghost">Analyse</button>' +
+      '<button id="identity-export" class="ghost">Export training set</button>' +
+      '<button id="identity-delete" class="ghost">Delete identity</button>' +
+      '<span id="identity-status" class="status"></span>' +
     '</div>' +
     '<p class="hint">Analyse separates each included song’s vocal, finds its key, tempo and sections with SheetSage, ' +
     'and drafts its lyrics with Whisper, tagged by section. The first song also downloads Whisper, about 1.6 GB. ' +
     'Drafts get most words right, not all: open each song with Review, correct it against the recording, and tick checked.</p>' +
-    '<table class="persona-songs"><thead><tr><th></th><th>Song</th><th>Length</th><th>Progress</th><th></th></tr></thead>' +
-    '<tbody id="persona-rows">' + data.songs.map(songRow).join('') + '</tbody></table>' +
-    '<div id="persona-export-result" class="persona-export"></div>';
-  pollPersona();
+    '<table class="identity-songs persona-songs"><thead><tr><th></th><th>Song</th><th>Length</th><th>Progress</th><th></th></tr></thead>' +
+    '<tbody id="identity-rows">' + data.songs.map(songRow).join('') + '</tbody></table>' +
+    '<div id="identity-export-result" class="identity-export persona-export"></div>';
+  pollIdentity();
 }
+var showPersona = showIdentity;
 
 /* Keeps the table current without touching what is being typed: only the progress,
    key and tempo, and a lyrics draft that lands in a box nobody has edited. */
-async function pollPersona() {
-  clearTimeout(PERSONA.timer);
-  if (PERSONA.view !== 'persona' || $('personas-modal').classList.contains('hidden')) { return; }
+async function pollIdentity() {
+  clearTimeout(IDENTITY.timer);
+  var modal = getIdentityModal();
+  if (IDENTITY.view !== 'identity' || (modal && modal.classList.contains('hidden'))) { return; }
   var data;
-  try { data = await api('/api/personas/' + PERSONA.id); } catch (err) { data = null; }
-  if (data && PERSONA.view === 'persona' && data.id === PERSONA.id) {
-    PERSONA.data = data;
-    $('persona-summary').innerHTML = personaSummary(data);
+  try { data = await api('/api/identities/' + IDENTITY.id); } catch (err) { data = null; }
+  if (data && IDENTITY.view === 'identity' && data.id === IDENTITY.id) {
+    IDENTITY.data = data;
+    var sumEl = $('identity-summary') || $('persona-summary');
+    if (sumEl) { sumEl.innerHTML = identitySummary(data); }
     data.songs.forEach(function (song) {
       var steps = document.querySelector('[data-steps="' + song.id + '"]');
       if (steps) {
@@ -2059,14 +2113,16 @@ async function pollPersona() {
       if (cap) { cap.textContent = song.caption; }
     });
   }
-  PERSONA.timer = setTimeout(pollPersona, data && data.busy ? 3000 : 8000);
+  IDENTITY.timer = setTimeout(pollIdentity, data && data.busy ? 3000 : 8000);
 }
+var pollPersona = pollIdentity;
 
-/* The persona's own settings.  Changing the description or trigger word changes every
+/* The identity's own settings.  Changing the description or trigger word changes every
    caption that has no song description of its own; export again afterwards. */
-function openPersonaEdit() {
-  var data = PERSONA.data;
-  var box = $('persona-edit');
+function openIdentityEdit() {
+  var data = IDENTITY.data;
+  var box = $('identity-edit') || $('persona-edit');
+  if (!box) { return; }
   box.innerHTML =
     '<div class="field"><label for="pe-name">Name</label><input id="pe-name" type="text" maxlength="80" value="' + esc(data.name) + '"></div>' +
     '<div class="field"><label for="pe-trigger">Trigger word</label><input id="pe-trigger" type="text" maxlength="40" value="' + esc(data.trigger_word) + '"></div>' +
@@ -2080,42 +2136,51 @@ function openPersonaEdit() {
   box.classList.remove('hidden');
   $('pe-desc').focus();
 }
+var openPersonaEdit = openIdentityEdit;
 
-async function savePersonaEdit() {
+async function saveIdentityEdit() {
   try {
-    var data = await api('/api/personas/' + PERSONA.id, {
+    var data = await api('/api/identities/' + IDENTITY.id, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: $('pe-name').value.trim() || PERSONA.data.name, trigger_word: $('pe-trigger').value,
+      body: JSON.stringify({ name: $('pe-name').value.trim() || IDENTITY.data.name, trigger_word: $('pe-trigger').value,
         voice: $('pe-voice').value, description: $('pe-desc').value })
     });
-    PERSONA.data = data;
-    $('personas-heading').textContent = data.name;
-    $('persona-edit').classList.add('hidden');
-    $('persona-status').textContent = PERSONA.data.exported_at ? 'Saved. Export again to update the training set.' : 'Saved.';
-    $('persona-status').className = 'status good';
-    pollPersona();
+    IDENTITY.data = data;
+    var heading = getIdentityHeading();
+    if (heading) { heading.textContent = data.name; }
+    var editBox = $('identity-edit') || $('persona-edit');
+    if (editBox) { editBox.classList.add('hidden'); }
+    var status = $('identity-status') || $('persona-status');
+    if (status) {
+      status.textContent = IDENTITY.data.exported_at ? 'Saved. Export again to update the training set.' : 'Saved.';
+      status.className = 'status good';
+    }
+    pollIdentity();
   } catch (err) {
     $('pe-status').textContent = err.message;
     $('pe-status').className = 'status bad';
   }
 }
+var savePersonaEdit = saveIdentityEdit;
 
-function personaSong(id) {
-  return ((PERSONA.data && PERSONA.data.songs) || []).filter(function (song) { return song.id === id; })[0] || null;
+function identitySong(id) {
+  return ((IDENTITY.data && IDENTITY.data.songs) || []).filter(function (song) { return song.id === id; })[0] || null;
 }
+var personaSong = identitySong;
 
-async function personaClick(event) {
+async function identityClick(event) {
   var target = event.target;
-  var card = target.closest('[data-persona]');
-  if (card) { showPersona(card.dataset.persona); return; }
-  if (target.closest('#persona-new')) { showPersonaNew(); return; }
+  var card = target.closest('[data-identity]') || target.closest('[data-persona]');
+  if (card) { showIdentity(card.dataset.identity || card.dataset.persona); return; }
+  if (target.closest('#identity-new') || target.closest('#persona-new')) { showIdentityNew(); return; }
   var folder = target.closest('[data-folder]');
   if (folder) { browseFolder(folder.dataset.folder); return; }
-  if (target.closest('#pn-scan')) { scanNewPersona(); return; }
+  if (target.closest('#pn-scan')) { scanNewIdentity(); return; }
   var open = target.closest('[data-open]');
   if (open) {
-    PERSONA.open[open.dataset.open] = !PERSONA.open[open.dataset.open];
-    $('persona-rows').innerHTML = PERSONA.data.songs.map(songRow).join('');
+    IDENTITY.open[open.dataset.open] = !IDENTITY.open[open.dataset.open];
+    var rows = $('identity-rows') || $('persona-rows');
+    if (rows) { rows.innerHTML = IDENTITY.data.songs.map(songRow).join(''); }
     return;
   }
   var save = target.closest('[data-save]');
@@ -2125,68 +2190,84 @@ async function personaClick(event) {
     var note = document.querySelector('[data-saved="' + sid + '"]');
     try {
       var sound = document.querySelector('[data-description="' + sid + '"]');
-      await api('/api/personas/' + PERSONA.id + '/songs/' + sid, {
+      await api('/api/identities/' + IDENTITY.id + '/songs/' + sid, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ lyrics: box.value, description: sound ? sound.value : undefined })
       });
       delete box.dataset.edited;
       note.textContent = 'Saved.';
-      pollPersona();
+      pollIdentity();
       note.className = 'status good';
     } catch (err) { note.textContent = err.message; note.className = 'status bad'; }
     return;
   }
-  if (target.closest('#persona-edit-open')) { openPersonaEdit(); return; }
-  if (target.closest('#pe-cancel')) { $('persona-edit').classList.add('hidden'); return; }
-  if (target.closest('#pe-save')) { savePersonaEdit(); return; }
-  var status = $('persona-status');
-  if (target.closest('#persona-analyse')) {
-    try {
-      var queued = await api('/api/personas/' + PERSONA.id + '/analyse', { method: 'POST' });
-      status.textContent = queued.queued ? 'Queued ' + queued.queued + ' step' + (queued.queued === 1 ? '' : 's') + '. It carries on if you close this window.'
-        : 'Nothing left to analyse.';
-      status.className = 'status good';
-      pollPersona();
-    } catch (err) { status.textContent = err.message; status.className = 'status bad'; }
+  if (target.closest('#identity-edit-open') || target.closest('#persona-edit-open')) { openIdentityEdit(); return; }
+  if (target.closest('#pe-cancel')) {
+    var editBox = $('identity-edit') || $('persona-edit');
+    if (editBox) { editBox.classList.add('hidden'); }
     return;
   }
-  if (target.closest('#persona-export')) {
-    status.textContent = 'Writing the training set…';
-    status.className = 'status';
+  if (target.closest('#pe-save')) { saveIdentityEdit(); return; }
+  var status = $('identity-status') || $('persona-status');
+  if (target.closest('#identity-analyse') || target.closest('#persona-analyse')) {
     try {
-      var out = await api('/api/personas/' + PERSONA.id + '/export', { method: 'POST' });
-      status.textContent = '';
-      $('persona-export-result').innerHTML = 'Wrote ' + out.written.length + ' song' + (out.written.length === 1 ? '' : 's') +
-        ' to <code>' + esc(out.folder) + '</code>.' +
-        (out.unchecked.length ? '<br><span class="status bad">Lyrics not checked yet: ' + esc(out.unchecked.join(', ')) + '</span>' : '') +
-        (out.skipped.length ? '<br><span class="muted">Skipped, not analysed or no lyrics: ' + esc(out.skipped.join(', ')) + '</span>' : '');
-    } catch (err) { status.textContent = err.message; status.className = 'status bad'; }
+      var queued = await api('/api/identities/' + IDENTITY.id + '/analyse', { method: 'POST' });
+      if (status) {
+        status.textContent = queued.queued ? 'Queued ' + queued.queued + ' step' + (queued.queued === 1 ? '' : 's') + '. It carries on if you close this window.'
+          : 'Nothing left to analyse.';
+        status.className = 'status good';
+      }
+      pollIdentity();
+    } catch (err) { if (status) { status.textContent = err.message; status.className = 'status bad'; } }
     return;
   }
-  if (target.closest('#persona-delete')) {
-    if (!confirm('Delete the persona “' + PERSONA.data.name + '” and the app’s copies of its songs? The original folder is not touched.')) { return; }
-    try { await api('/api/personas/' + PERSONA.id, { method: 'DELETE' }); showPersonaList(); } catch (err) { status.textContent = err.message; status.className = 'status bad'; }
+  if (target.closest('#identity-export') || target.closest('#persona-export')) {
+    if (status) {
+      status.textContent = 'Writing the training set…';
+      status.className = 'status';
+    }
+    try {
+      var out = await api('/api/identities/' + IDENTITY.id + '/export', { method: 'POST' });
+      if (status) { status.textContent = ''; }
+      var expRes = $('identity-export-result') || $('persona-export-result');
+      if (expRes) {
+        expRes.innerHTML = 'Wrote ' + out.written.length + ' song' + (out.written.length === 1 ? '' : 's') +
+          ' to <code>' + esc(out.folder) + '</code>.' +
+          (out.unchecked.length ? '<br><span class="status bad">Lyrics not checked yet: ' + esc(out.unchecked.join(', ')) + '</span>' : '') +
+          (out.skipped.length ? '<br><span class="muted">Skipped, not analysed or no lyrics: ' + esc(out.skipped.join(', ')) + '</span>' : '');
+      }
+    } catch (err) { if (status) { status.textContent = err.message; status.className = 'status bad'; } }
+    return;
+  }
+  if (target.closest('#identity-delete') || target.closest('#persona-delete')) {
+    if (!confirm('Delete the identity “' + IDENTITY.data.name + '” and the app’s copies of its songs? The original folder is not touched.')) { return; }
+    try {
+      await api('/api/identities/' + IDENTITY.id, { method: 'DELETE' });
+      showIdentityList();
+    } catch (err) { if (status) { status.textContent = err.message; status.className = 'status bad'; } }
   }
 }
+var personaClick = identityClick;
 
-async function personaChange(event) {
+async function identityChange(event) {
   var target = event.target;
   if (target.dataset.include) {
-    await api('/api/personas/' + PERSONA.id + '/songs/' + target.dataset.include, {
+    await api('/api/identities/' + IDENTITY.id + '/songs/' + target.dataset.include, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ include: target.checked })
     });
-    var song = personaSong(target.dataset.include);
+    var song = identitySong(target.dataset.include);
     if (song) { song.include = target.checked ? 1 : 0; }
     target.closest('tr').classList.toggle('off', !target.checked);
-    pollPersona();
+    pollIdentity();
   }
   if (target.dataset.checked) {
-    await api('/api/personas/' + PERSONA.id + '/songs/' + target.dataset.checked, {
+    await api('/api/identities/' + IDENTITY.id + '/songs/' + target.dataset.checked, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lyrics_checked: target.checked })
     });
-    pollPersona();
+    pollIdentity();
   }
 }
+var personaChange = identityChange;
 
 /* Action tiles. Colour carries meaning: green acts, violet inspects, blue keeps,
    amber reworks, gold remembers, red removes. */
@@ -2283,8 +2364,8 @@ function selectTake(take) {
   if (take.realaudio !== undefined) {
     $('realaudio').checked = Boolean(take.realaudio);
   }
-  if (take.persona_id !== undefined) {
-    paintVocalPersonaSelect(take.persona_id || '', take.voice_lora || '');
+  if (take.identity_id !== undefined || take.persona_id !== undefined) {
+    paintVocalIdentitySelect((take.identity_id !== undefined ? take.identity_id : take.persona_id) || '', take.voice_lora || '');
   }
   $('interpretation').value = INTERPRETATIONS[take.interpretation] ? take.interpretation : 'standard';
   paintInterpretation();
@@ -2439,8 +2520,8 @@ function paintTakes() {
     if (take.kind === 'instrumental' && take.feel === 'varied') { meta.push('varied'); }
     if ((take.kind === 'song' || take.kind === 'instrumental') && take.harmony) { meta.push(HARMONY_WORDS[take.harmony].toLowerCase() + ' harmony'); }
     if (take.realaudio) { meta.push('realaudio'); }
-    if (take.persona_id || take.voice_lora) {
-      meta.push(personaName(take.persona_id) || 'persona');
+    if (take.identity_id || take.persona_id || take.voice_lora) {
+      meta.push(identityName(take.identity_id || take.persona_id) || 'identity');
     }
     meta.push('seed ' + take.seed);
     if (take.interpretation && take.interpretation !== 'standard' && INTERPRETATIONS[take.interpretation]) {
@@ -2996,9 +3077,9 @@ async function doRender() {
     seed = Math.floor(Math.random() * 4294967295);
     $('seed').value = seed;
   }
-  var personaSel = $('vocal-persona');
-  var pId = personaSel ? personaSel.value : null;
-  var loraSel = $('vocal-persona-lora');
+  var identitySel = $('vocal-identity') || $('vocal-persona');
+  var pId = identitySel ? identitySel.value : null;
+  var loraSel = $('vocal-identity-lora') || $('vocal-persona-lora');
   var vLora = (pId && loraSel && !loraSel.classList.contains('hidden')) ? loraSel.value : null;
   var body = {
     source_id: source.id,
@@ -3012,6 +3093,7 @@ async function doRender() {
     max_duration: parseFloat($('max-duration').value) || 360,
     space_id: State.spaceId,
     realaudio: $('realaudio').checked,
+    identity_id: pId || null,
     persona_id: pId || null,
     voice_lora: vLora || null
   };
@@ -3138,8 +3220,10 @@ function wire() {
     var button = event.target.closest('[data-tone]');
     if (button) { toggleVocalTone(button.dataset.tone); }
   });
-  $('vocal-persona').addEventListener('change', onVocalPersonaChange);
-  $('vocal-persona-lora').addEventListener('change', saveForm);
+  var vocalIdSel = $('vocal-identity') || $('vocal-persona');
+  if (vocalIdSel) { vocalIdSel.addEventListener('change', onVocalIdentityChange); }
+  var vocalLoraSel = $('vocal-identity-lora') || $('vocal-persona-lora');
+  if (vocalLoraSel) { vocalLoraSel.addEventListener('change', saveForm); }
   $('style').addEventListener('input', paintVocals);
   $('harmony').addEventListener('input', paintHarmony);
 
@@ -3279,18 +3363,24 @@ function wire() {
   });
   $('source-delete').addEventListener('click', deleteSource);
   $('start-fresh').addEventListener('click', startFresh);
-  $('personas-open').addEventListener('click', openPersonas);
-  $('personas-close').addEventListener('click', closePersonas);
-  $('personas-back').addEventListener('click', showPersonaList);
-  $('personas-body').addEventListener('click', function (event) {
-    personaClick(event).catch(function (err) { statusLine(err.message, 'bad'); });
-  });
-  $('personas-body').addEventListener('change', function (event) {
-    personaChange(event).catch(function (err) { statusLine(err.message, 'bad'); });
-  });
-  $('personas-body').addEventListener('input', function (event) {
-    if (event.target.dataset.lyrics) { event.target.dataset.edited = '1'; }
-  });
+  var openBtn = $('identities-open') || $('personas-open');
+  if (openBtn) { openBtn.addEventListener('click', openIdentities); }
+  var closeBtn = $('identities-close') || $('personas-close');
+  if (closeBtn) { closeBtn.addEventListener('click', closeIdentities); }
+  var backBtn = $('identities-back') || $('personas-back');
+  if (backBtn) { backBtn.addEventListener('click', showIdentityList); }
+  var bodyEl = $('identities-body') || $('personas-body');
+  if (bodyEl) {
+    bodyEl.addEventListener('click', function (event) {
+      identityClick(event).catch(function (err) { statusLine(err.message, 'bad'); });
+    });
+    bodyEl.addEventListener('change', function (event) {
+      identityChange(event).catch(function (err) { statusLine(err.message, 'bad'); });
+    });
+    bodyEl.addEventListener('input', function (event) {
+      if (event.target.dataset.lyrics) { event.target.dataset.edited = '1'; }
+    });
+  }
   wireStructure();
   $('interpretation').addEventListener('change', paintInterpretation);
   $('lyrics-write').addEventListener('click', openWrite);
@@ -3431,7 +3521,7 @@ function wire() {
   wireWave();
   wireTransport();
   paintVocals();
-  loadVocalPersonas();
+  loadVocalIdentities();
 
   FORM_FIELDS.forEach(function (id) {
     $(id).addEventListener('input', function () {
@@ -3515,7 +3605,8 @@ function wire() {
   });
   document.addEventListener('keydown', function (event) {
     if (event.key === 'Escape' && !$('move-modal').classList.contains('hidden')) { closeMoveModal(); return; }
-    if (event.key === 'Escape' && !$('personas-modal').classList.contains('hidden')) { closePersonas(); return; }
+    var idModal = $('identities-modal') || $('personas-modal');
+    if (event.key === 'Escape' && idModal && !idModal.classList.contains('hidden')) { closeIdentities(); return; }
     if (event.key === 'Escape' && !$('write-modal').classList.contains('hidden')) { closeWrite(); return; }
     if (event.key === 'Escape' && !$('variations-modal').classList.contains('hidden')) { closeVariations(); return; }
     if (event.key === 'Escape' && !$('lyrics-modal').classList.contains('hidden')) { closeLyricsEditor(); return; }

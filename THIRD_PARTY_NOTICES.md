@@ -44,7 +44,7 @@ differ, the publisher's terms apply.
   Instrumental mode.
 - Official licence: as declared on its [model card](https://huggingface.co/Mothersuperior/YuE2-instrumental-cot-full-loras).
 
-### YuE2 Realaudio Tokenizer & Production LoRA (Realaudio polish & vocal persona)
+### YuE2 Realaudio Tokenizer & Production LoRA (Realaudio polish & vocal identity)
 
 - By Mothersuperior. **CC BY-NC 4.0**, inherited from YuE2-3B.
   Source: [Mothersuperior/yue2-mothersuperior-realaudio-tokenizer-v4](https://huggingface.co/Mothersuperior/yue2-mothersuperior-realaudio-tokenizer-v4).

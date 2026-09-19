@@ -3,7 +3,7 @@ import sys
 from unittest.mock import patch
 import pytest
 
-from scripts.tokenize_persona import verify_consent
+from scripts.tokenize_identity import verify_consent
 
 
 def test_verify_consent_with_flag():

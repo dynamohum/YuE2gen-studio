@@ -30,7 +30,7 @@ licenses (see `THIRD_PARTY_NOTICES.md`).
 | **Write Lyrics** | Gemma 4 E4B drafts structured lyrics from a brief |
 | **Stems Extraction** | Demucs on CPU splits tracks into vocals/drums/bass/other (optionally guitar/piano) |
 | **Production Polish (Realaudio)** | Mothersuperior v9 real-audio decoder LoRA applied during render for studio separation & clarity |
-| **Realaudio Tokenizer & Persona** | MERT-v2 (layer 20 @ 25 Hz) + Transformer head extracts persona tokens for voice conditioning |
+| **Realaudio Tokenizer & Identity** | MERT-v2 (layer 20 @ 25 Hz) + Transformer head extracts identity tokens for voice conditioning |
 | **Spaces & Library** | Organise takes into workspaces; waveform player, starred takes, compact/comfy layouts |
 | **Score Editor** | Full-screen editor with chord find-and-replace, chart view, lyrics-with-chords, staff notation via abcjs |
 

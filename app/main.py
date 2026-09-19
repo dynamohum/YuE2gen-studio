@@ -33,8 +33,10 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 
-from . import config, instrumental, jobs, lyrics, personas, score, stems
+from . import config, identities, instrumental, jobs, lyrics, score, stems
 from .db import DEFAULT_SPACE, execute, get_setting, migrate, one, rows, set_setting
+
+personas = identities
 from .engine import stage_label
 from .jobs import (CURRENT, CURRENT_STEMS, ENGINE, HARMONY_STEPS, INTERPRETATION_NAMES, INTERPRETATIONS, LYRICS,
                    PLAN_VARIETY, QUEUE, STEM_QUEUE)
@@ -150,13 +152,13 @@ async def lifespan(app: FastAPI):
         except OSError as exc:
             log.warning("engine output folder not usable, renders stay in the engine: %s", exc)
     await ENGINE.start()
-    # Persona analysis is not queued again after a restart: its states go back to
+    # Identity analysis is not queued again after a restart: its states go back to
     # none, and Analyse picks up whatever is left.
-    execute("""UPDATE persona_songs SET vocals_state = 'none' WHERE vocals_state IN ('queued', 'running')""")
+    execute("""UPDATE identity_songs SET vocals_state = 'none' WHERE vocals_state IN ('queued', 'running')""")
     for field in ("score_state", "lyrics_state", "style_state"):
-        execute(f"UPDATE persona_songs SET {field} = 'none' WHERE {field} IN ('queued', 'running')")
+        execute(f"UPDATE identity_songs SET {field} = 'none' WHERE {field} IN ('queued', 'running')")
     tasks = [asyncio.create_task(jobs.worker()), asyncio.create_task(jobs.stems_worker()), asyncio.create_task(jobs.keeper()),
-             asyncio.create_task(jobs.persona_worker())]
+             asyncio.create_task(jobs.identity_worker())]
     log.info("YuE2 Studio %s up. engine=%s (%s) data=%s", config.VERSION, config.ENGINE_URL,
              "online" if ENGINE.online else "offline", config.DATA_DIR)
     try:
@@ -237,6 +239,7 @@ class SongIn(BaseModel):
     harmony: int = Field(0, ge=0, le=len(HARMONY_STEPS) - 1)
     space_id: str = Field(DEFAULT_SPACE, max_length=64)
     realaudio: bool = True
+    identity_id: str | None = Field(None, max_length=64)
     persona_id: str | None = Field(None, max_length=64)
     voice_lora: str | None = Field(None, max_length=200)
     voice_lora_strength: float = 1.0
@@ -260,6 +263,7 @@ class TakeIn(BaseModel):
     space_id: str = Field(DEFAULT_SPACE, max_length=64)
     interpretation: str = "standard"
     realaudio: bool = True
+    identity_id: str | None = Field(None, max_length=64)
     persona_id: str | None = Field(None, max_length=64)
     voice_lora: str | None = Field(None, max_length=200)
     voice_lora_strength: float = 1.0
@@ -278,12 +282,13 @@ class InstrumentalIn(BaseModel):
     interpretation: str = "standard"
     feel: str = "steady"
     realaudio: bool = True
+    identity_id: str | None = Field(None, max_length=64)
     persona_id: str | None = Field(None, max_length=64)
     voice_lora: str | None = Field(None, max_length=200)
     voice_lora_strength: float = 1.0
 
 
-class PersonaIn(BaseModel):
+class IdentityIn(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     trigger_word: str = Field(min_length=2, max_length=40)
     description: str = Field("", max_length=400)
@@ -293,7 +298,10 @@ class PersonaIn(BaseModel):
     lora: str | None = Field(None, max_length=200)
 
 
-class PersonaEdit(BaseModel):
+PersonaIn = IdentityIn
+
+
+class IdentityEdit(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=80)
     trigger_word: str | None = Field(None, min_length=2, max_length=40)
     description: str | None = Field(None, max_length=400)
@@ -301,18 +309,25 @@ class PersonaEdit(BaseModel):
     lora: str | None = Field(None, max_length=200)
 
 
-class PersonaSongEdit(BaseModel):
+PersonaEdit = IdentityEdit
+
+
+class IdentitySongEdit(BaseModel):
     include: bool | None = None
-    # This song's sound, when it differs from the persona's.  Empty means the persona's.
+    # This song's sound, when it differs from the identity's. Empty means the identity's.
     description: str | None = Field(None, max_length=400)
     lyrics: str | None = Field(None, max_length=20_000)
     lyrics_checked: bool | None = None
+
+
+PersonaSongEdit = IdentitySongEdit
 
 
 class RenderIn(BaseModel):
     # Optional: an omitted interpretation keeps the take's own.
     interpretation: str | None = None
     realaudio: bool | None = None
+    identity_id: str | None = Field(None, max_length=64)
     persona_id: str | None = Field(None, max_length=64)
     voice_lora: str | None = Field(None, max_length=200)
     voice_lora_strength: float | None = None
@@ -321,6 +336,7 @@ class RenderIn(BaseModel):
 class VariationsIn(BaseModel):
     interpretations: list[str] = Field(min_length=1, max_length=len(INTERPRETATIONS))
     realaudio: bool | None = None
+    identity_id: str | None = Field(None, max_length=64)
     persona_id: str | None = Field(None, max_length=64)
     voice_lora: str | None = Field(None, max_length=200)
     voice_lora_strength: float | None = None
@@ -370,10 +386,11 @@ def health() -> dict:
 
 
 def _job_title(kind: str, ref_id: str) -> str | None:
-    if kind in jobs.PERSONA_FIELDS:
-        row = one("SELECT title FROM persona_songs WHERE id = ?", (ref_id,))
-        label = {"persona_score": "key and tempo", "persona_style": "style"}[kind]
-        return f"Persona {label}: {row['title']}" if row else None
+    if kind in jobs.IDENTITY_FIELDS:
+        row = one("SELECT title FROM identity_songs WHERE id = ?", (ref_id,))
+        label = {"identity_score": "key and tempo", "identity_style": "style",
+                 "persona_score": "key and tempo", "persona_style": "style"}.get(kind, "analysis")
+        return f"Identity {label}: {row['title']}" if row else None
     if kind == "lyrics":
         record = LYRICS.get(ref_id)
         return ("Lyrics: " + record["brief"][:60]) if record else None
@@ -404,8 +421,8 @@ def queue_view() -> list[dict]:
             item["note"] = "sent before the app restarted"
         items.append(item)
     for job in jobs.waiting_jobs():
-        if job["kind"] in jobs.PERSONA_FIELDS:
-            song = one(f"SELECT {jobs.PERSONA_FIELDS[job['kind']]} AS status FROM persona_songs WHERE id = ?", (job["id"],))
+        if job["kind"] in jobs.IDENTITY_FIELDS:
+            song = one(f"SELECT {jobs.IDENTITY_FIELDS[job['kind']]} AS status FROM identity_songs WHERE id = ?", (job["id"],))
             row = {"title": _job_title(job["kind"], job["id"]), "status": song["status"]} if song else None
         elif job["kind"] == "lyrics":
             draft = LYRICS.get(job["id"])
@@ -740,15 +757,16 @@ async def create_take(body: TakeIn) -> dict:
         "space_id": body.space_id,
         "interpretation": _interpretation(body.interpretation),
         "realaudio": 1 if body.realaudio else 0,
-        "persona_id": body.persona_id,
+        "identity_id": body.identity_id or body.persona_id,
+        "persona_id": body.identity_id or body.persona_id,
         "voice_lora": body.voice_lora,
         "voice_lora_strength": body.voice_lora_strength,
     }
     execute(
         """INSERT INTO takes(id, source_id, title, style, lyrics, abc, mode, seed, checkpoint, max_duration, status, created_at,
-                             space_id, interpretation, realaudio, persona_id, voice_lora, voice_lora_strength)
+                             space_id, interpretation, realaudio, identity_id, persona_id, voice_lora, voice_lora_strength)
            VALUES(:id, :source_id, :title, :style, :lyrics, :abc, :mode, :seed, :checkpoint, :max_duration, 'queued', :created_at,
-                  :space_id, :interpretation, :realaudio, :persona_id, :voice_lora, :voice_lora_strength)""",
+                  :space_id, :interpretation, :realaudio, :identity_id, :persona_id, :voice_lora, :voice_lora_strength)""",
         record,
     )
     if record["mode"] == "full" and not record["abc"]:
@@ -806,17 +824,18 @@ async def _plan_new_take(kind: str, title: str, words: str, body: SongIn | Instr
         "interpretation": _interpretation(body.interpretation),
         "feel": getattr(body, "feel", "steady"),
         "realaudio": 1 if getattr(body, "realaudio", True) else 0,
-        "persona_id": getattr(body, "persona_id", None),
+        "identity_id": getattr(body, "identity_id", None) or getattr(body, "persona_id", None),
+        "persona_id": getattr(body, "identity_id", None) or getattr(body, "persona_id", None),
         "voice_lora": getattr(body, "voice_lora", None),
         "voice_lora_strength": getattr(body, "voice_lora_strength", 1.0),
     }
     execute(
         """INSERT INTO takes(id, kind, source_id, title, style, lyrics, abc, mode, seed, checkpoint,
                              max_duration, status, created_at, auto_render, variety, harmony, space_id, interpretation, feel, realaudio,
-                             persona_id, voice_lora, voice_lora_strength)
+                             identity_id, persona_id, voice_lora, voice_lora_strength)
            VALUES(:id, :kind, NULL, :title, :style, :lyrics, '', :mode, :seed, :checkpoint,
                   :max_duration, 'queued', :created_at, :auto_render, :variety, :harmony, :space_id, :interpretation, :feel, :realaudio,
-                  :persona_id, :voice_lora, :voice_lora_strength)""",
+                  :identity_id, :persona_id, :voice_lora, :voice_lora_strength)""",
         record,
     )
     await QUEUE.put({"kind": "plan", "id": take_id})
@@ -912,11 +931,15 @@ async def render_take(take_id: str, body: RenderIn | None = None) -> dict:
     _checkpoint()
     interpretation = take["interpretation"] if body is None or body.interpretation is None else _interpretation(body.interpretation)
     realaudio = take["realaudio"] if body is None or body.realaudio is None else (1 if body.realaudio else 0)
-    persona_id = take.get("persona_id") if body is None or body.persona_id is None else (body.persona_id or None)
+    identity_val = None
+    if body is not None:
+        identity_val = body.identity_id or body.persona_id
+    if identity_val is None:
+        identity_val = take.get("identity_id") or take.get("persona_id")
     voice_lora = take.get("voice_lora") if body is None or body.voice_lora is None else (body.voice_lora or None)
     voice_lora_strength = take.get("voice_lora_strength", 1.0) if body is None or body.voice_lora_strength is None else body.voice_lora_strength
-    execute("UPDATE takes SET status = 'queued', error = NULL, stage = NULL, checkpoint = ?, interpretation = ?, realaudio = ?, persona_id = ?, voice_lora = ?, voice_lora_strength = ? WHERE id = ?",
-            (config.CHECKPOINT, interpretation, realaudio, persona_id, voice_lora, voice_lora_strength, take_id))
+    execute("UPDATE takes SET status = 'queued', error = NULL, stage = NULL, checkpoint = ?, interpretation = ?, realaudio = ?, identity_id = ?, persona_id = ?, voice_lora = ?, voice_lora_strength = ? WHERE id = ?",
+            (config.CHECKPOINT, interpretation, realaudio, identity_val, identity_val, voice_lora, voice_lora_strength, take_id))
     await QUEUE.put({"kind": "render", "id": take_id})
     return {"queued": True}
 
@@ -981,7 +1004,7 @@ async def variations(take_id: str, body: VariationsIn) -> dict:
     now = time.time()
     created = []
     realaudio = take.get("realaudio", 0) if body.realaudio is None else (1 if body.realaudio else 0)
-    persona_id = take.get("persona_id") if body.persona_id is None else (body.persona_id or None)
+    identity_val = (body.identity_id or body.persona_id) if (body.identity_id is not None or body.persona_id is not None) else (take.get("identity_id") or take.get("persona_id"))
     voice_lora = take.get("voice_lora") if body.voice_lora is None else (body.voice_lora or None)
     voice_lora_strength = take.get("voice_lora_strength", 1.0) if body.voice_lora_strength is None else body.voice_lora_strength
     for offset, name in enumerate(wanted):
@@ -991,15 +1014,16 @@ async def variations(take_id: str, body: VariationsIn) -> dict:
             "abc": take["abc"], "mode": take["mode"], "seed": take["seed"], "checkpoint": config.CHECKPOINT,
             "max_duration": take["max_duration"], "created_at": now + offset * 0.001, "variety": take["variety"],
             "harmony": take["harmony"], "space_id": take["space_id"], "interpretation": name, "feel": take["feel"],
-            "realaudio": realaudio, "persona_id": persona_id, "voice_lora": voice_lora, "voice_lora_strength": voice_lora_strength,
+            "realaudio": realaudio, "identity_id": identity_val, "persona_id": identity_val,
+            "voice_lora": voice_lora, "voice_lora_strength": voice_lora_strength,
         }
         execute(
             """INSERT INTO takes(id, kind, source_id, title, style, lyrics, abc, mode, seed, checkpoint, max_duration,
                                  status, created_at, variety, harmony, space_id, interpretation, feel, realaudio,
-                                 persona_id, voice_lora, voice_lora_strength)
+                                 identity_id, persona_id, voice_lora, voice_lora_strength)
                VALUES(:id, :kind, :source_id, :title, :style, :lyrics, :abc, :mode, :seed, :checkpoint, :max_duration,
                       'queued', :created_at, :variety, :harmony, :space_id, :interpretation, :feel, :realaudio,
-                      :persona_id, :voice_lora, :voice_lora_strength)""",
+                      :identity_id, :persona_id, :voice_lora, :voice_lora_strength)""",
             record,
         )
         await QUEUE.put({"kind": "render", "id": record["id"]})
@@ -1007,29 +1031,36 @@ async def variations(take_id: str, body: VariationsIn) -> dict:
     return {"created": created}
 
 
-# ---------------------------------------------------------------------- personas
-PERSONA_STEPS = ("vocals_state", "score_state", "lyrics_state", "style_state")
+# ---------------------------------------------------------------------- identities
+IDENTITY_STEPS = ("vocals_state", "score_state", "lyrics_state", "style_state")
+PERSONA_STEPS = IDENTITY_STEPS
 
 
-def _persona(persona_id: str) -> dict:
-    persona = one("SELECT * FROM personas WHERE id = ?", (persona_id,))
-    if not persona:
-        raise HTTPException(404, "no such persona")
-    return persona
+def _identity(identity_id: str) -> dict:
+    identity = one("SELECT * FROM identities WHERE id = ?", (identity_id,))
+    if not identity:
+        raise HTTPException(404, "no such identity")
+    return identity
 
 
-def _persona_view(persona: dict) -> dict:
-    songs = rows("SELECT * FROM persona_songs WHERE persona_id = ? ORDER BY position", (persona["id"],))
+_persona = _identity
+
+
+def _identity_view(identity: dict) -> dict:
+    songs = rows("SELECT * FROM identity_songs WHERE identity_id = ? ORDER BY position", (identity["id"],))
     for song in songs:
-        song["caption"] = personas.caption(persona["trigger_word"], song["description"] or persona["description"],
-                                           persona["voice"], song["key"], song["tempo"])
+        song["caption"] = identities.caption(identity["trigger_word"], song["description"] or identity["description"],
+                                            identity["voice"], song["key"], song["tempo"])
     chosen = [s for s in songs if s["include"]]
-    busy = any(s[f] in ("queued", "running") for s in songs for f in PERSONA_STEPS)
-    return {**persona, "songs": songs, "busy": busy,
+    busy = any(s[f] in ("queued", "running") for s in songs for f in IDENTITY_STEPS)
+    return {**identity, "songs": songs, "busy": busy,
             "summary": {"songs": len(songs), "included": len(chosen),
                         "minutes": round(sum(s["duration"] or 0 for s in chosen) / 60, 1),
-                        "analysed": sum(1 for s in chosen if all(s[f] == "done" for f in PERSONA_STEPS)),
+                        "analysed": sum(1 for s in chosen if all(s[f] == "done" for f in IDENTITY_STEPS)),
                         "checked": sum(1 for s in chosen if s["lyrics_checked"])}}
+
+
+_persona_view = _identity_view
 
 
 def _clean_trigger(word: str) -> str:
@@ -1042,75 +1073,96 @@ def _clean_trigger(word: str) -> str:
 @app.get("/api/import/browse")
 def import_browse(path: str | None = None) -> dict:
     try:
-        return personas.browse(path)
+        return identities.browse(path)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 
 
-@app.get("/api/personas")
-def list_personas() -> list[dict]:
-    return rows("""SELECT p.id, p.name, p.trigger_word, p.voice, p.lora, p.created_at, p.exported_at,
+@app.get("/api/identities")
+@app.get("/api/personas", include_in_schema=False)
+def list_identities() -> list[dict]:
+    return rows("""SELECT i.id, i.name, i.trigger_word, i.voice, i.lora, i.created_at, i.exported_at,
                           COUNT(s.id) AS songs, SUM(s.include) AS included
-                   FROM personas p LEFT JOIN persona_songs s ON s.persona_id = p.id
-                   GROUP BY p.id ORDER BY p.created_at DESC""")
+                   FROM identities i LEFT JOIN identity_songs s ON s.identity_id = i.id
+                   GROUP BY i.id ORDER BY i.created_at DESC""")
 
 
-@app.post("/api/personas")
-async def create_persona(body: PersonaIn) -> dict:
+list_personas = list_identities
+
+
+@app.post("/api/identities")
+@app.post("/api/personas", include_in_schema=False)
+async def create_identity(body: IdentityIn) -> dict:
     """Scan a folder of one singer's songs.  The folder is only read."""
     if not body.consent:
         raise HTTPException(400, "confirm that the voice is yours, or that the singer has given permission")
     folder = Path(body.folder)
     try:
-        found = await asyncio.to_thread(personas.scan, folder)
+        found = await asyncio.to_thread(identities.scan, folder)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     if not found:
         raise HTTPException(400, "there are no songs in that folder")
-    persona_id = uuid.uuid4().hex[:12]
-    execute("""INSERT INTO personas(id, name, trigger_word, description, voice, folder, consent, created_at, lora)
+    identity_id = uuid.uuid4().hex[:12]
+    execute("""INSERT INTO identities(id, name, trigger_word, description, voice, folder, consent, created_at, lora)
                VALUES(?, ?, ?, ?, ?, ?, 1, ?, ?)""",
-            (persona_id, body.name.strip(), _clean_trigger(body.trigger_word), body.description.strip(),
+            (identity_id, body.name.strip(), _clean_trigger(body.trigger_word), body.description.strip(),
              body.voice.strip().lower(), str(folder), time.time(), (body.lora or "").strip() or None))
     for position, song in enumerate(found):
-        execute("""INSERT INTO persona_songs(id, persona_id, file, title, sha256, duration, bit_rate, include, flag, position)
+        execute("""INSERT INTO identity_songs(id, identity_id, file, title, sha256, duration, bit_rate, include, flag, position)
                    VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (uuid.uuid4().hex[:12], persona_id, song["file"], song["title"], song["sha256"], song["duration"],
+                (uuid.uuid4().hex[:12], identity_id, song["file"], song["title"], song["sha256"], song["duration"],
                  song["bit_rate"], 1 if song["include"] else 0, song["flag"], position))
-    return _persona_view(_persona(persona_id))
+    return _identity_view(_identity(identity_id))
 
 
-@app.get("/api/personas/{persona_id}")
-def get_persona(persona_id: str) -> dict:
-    return _persona_view(_persona(persona_id))
+create_persona = create_identity
 
 
-@app.put("/api/personas/{persona_id}")
-def edit_persona(persona_id: str, body: PersonaEdit) -> dict:
-    _persona(persona_id)
+@app.get("/api/identities/{identity_id}")
+@app.get("/api/personas/{identity_id}", include_in_schema=False)
+def get_identity(identity_id: str) -> dict:
+    return _identity_view(_identity(identity_id))
+
+
+get_persona = get_identity
+
+
+@app.put("/api/identities/{identity_id}")
+@app.put("/api/personas/{identity_id}", include_in_schema=False)
+def edit_identity(identity_id: str, body: IdentityEdit) -> dict:
+    _identity(identity_id)
     changes = {k: v.strip() for k, v in body.model_dump().items() if v is not None}
     if "trigger_word" in changes:
         changes["trigger_word"] = _clean_trigger(changes["trigger_word"])
     if "voice" in changes:
         changes["voice"] = changes["voice"].lower()
     if changes:
-        execute(f"UPDATE personas SET {', '.join(f'{k} = ?' for k in changes)} WHERE id = ?", (*changes.values(), persona_id))
-    return _persona_view(_persona(persona_id))
+        execute(f"UPDATE identities SET {', '.join(f'{k} = ?' for k in changes)} WHERE id = ?", (*changes.values(), identity_id))
+    return _identity_view(_identity(identity_id))
 
 
-@app.delete("/api/personas/{persona_id}")
-async def delete_persona(persona_id: str) -> dict:
-    """Removes the persona and its copies in the library.  The original folder is untouched."""
-    _persona(persona_id)
-    execute("DELETE FROM persona_songs WHERE persona_id = ?", (persona_id,))
-    execute("DELETE FROM personas WHERE id = ?", (persona_id,))
-    await asyncio.to_thread(remove_tree, config.DATA_DIR / "personas" / persona_id)
+edit_persona = edit_identity
+
+
+@app.delete("/api/identities/{identity_id}")
+@app.delete("/api/personas/{identity_id}", include_in_schema=False)
+async def delete_identity(identity_id: str) -> dict:
+    """Removes the identity and its copies in the library.  The original folder is untouched."""
+    _identity(identity_id)
+    execute("DELETE FROM identity_songs WHERE identity_id = ?", (identity_id,))
+    execute("DELETE FROM identities WHERE id = ?", (identity_id,))
+    await asyncio.to_thread(remove_tree, config.DATA_DIR / "identities" / identity_id)
     return {"deleted": True}
 
 
-@app.put("/api/personas/{persona_id}/songs/{song_id}")
-def edit_persona_song(persona_id: str, song_id: str, body: PersonaSongEdit) -> dict:
-    song = one("SELECT * FROM persona_songs WHERE id = ? AND persona_id = ?", (song_id, persona_id))
+delete_persona = delete_identity
+
+
+@app.put("/api/identities/{identity_id}/songs/{song_id}")
+@app.put("/api/personas/{identity_id}/songs/{song_id}", include_in_schema=False)
+def edit_identity_song(identity_id: str, song_id: str, body: IdentitySongEdit) -> dict:
+    song = one("SELECT * FROM identity_songs WHERE id = ? AND identity_id = ?", (song_id, identity_id))
     if not song:
         raise HTTPException(404, "no such song")
     changes = {}
@@ -1124,33 +1176,41 @@ def edit_persona_song(persona_id: str, song_id: str, body: PersonaSongEdit) -> d
         changes["description"] = " ".join(body.description.split())
     if changes:
         jobs.set_song(song_id, **changes)
-    return one("SELECT * FROM persona_songs WHERE id = ?", (song_id,))
+    return one("SELECT * FROM identity_songs WHERE id = ?", (song_id,))
 
 
-@app.post("/api/personas/{persona_id}/analyse")
-async def analyse_persona(persona_id: str) -> dict:
+edit_persona_song = edit_identity_song
+
+
+@app.post("/api/identities/{identity_id}/analyse")
+@app.post("/api/personas/{identity_id}/analyse", include_in_schema=False)
+async def analyse_identity(identity_id: str) -> dict:
     """Queue every step not yet done for each included song.  Safe to press again:
     finished steps are kept, failed ones are tried again."""
-    _persona(persona_id)
+    _identity(identity_id)
     queued = 0
-    for song in rows("SELECT * FROM persona_songs WHERE persona_id = ? AND include = 1 ORDER BY position", (persona_id,)):
+    for song in rows("SELECT * FROM identity_songs WHERE identity_id = ? AND include = 1 ORDER BY position", (identity_id,)):
         cpu = {f: "queued" for f in ("vocals_state", "lyrics_state") if song[f] in ("none", "failed")}
         if cpu:
             jobs.set_song(song["id"], **cpu, error=None)
-            await jobs.PERSONA_QUEUE.put({"id": song["id"]})
+            await jobs.IDENTITY_QUEUE.put({"id": song["id"]})
             queued += 1
         if song["vocals_state"] == "done":
-            for kind, field in jobs.PERSONA_FIELDS.items():
-                if song[field] in ("none", "failed"):
+            for kind, field in jobs.IDENTITY_FIELDS.items():
+                if song[field] in ("none", "failed") and kind.startswith("identity_"):
                     jobs.set_song(song["id"], **{field: "queued"}, error=None)
                     await QUEUE.put({"kind": kind, "id": song["id"]})
                     queued += 1
     return {"queued": queued}
 
 
-@app.get("/api/personas/{persona_id}/songs/{song_id}/audio")
-def persona_song_audio(persona_id: str, song_id: str, which: str = "original") -> FileResponse:
-    song = one("SELECT * FROM persona_songs WHERE id = ? AND persona_id = ?", (song_id, persona_id))
+analyse_persona = analyse_identity
+
+
+@app.get("/api/identities/{identity_id}/songs/{song_id}/audio")
+@app.get("/api/personas/{identity_id}/songs/{song_id}/audio", include_in_schema=False)
+def identity_song_audio(identity_id: str, song_id: str, which: str = "original") -> FileResponse:
+    song = one("SELECT * FROM identity_songs WHERE id = ? AND identity_id = ?", (song_id, identity_id))
     if not song or not song["stored_path"]:
         raise HTTPException(404, "this song has not been copied in yet. Press Analyse.")
     path = Path(song["stored_path"]) if which == "original" else Path(song["stored_path"]).parent / "vocals.wav"
@@ -1159,13 +1219,17 @@ def persona_song_audio(persona_id: str, song_id: str, which: str = "original") -
     return FileResponse(path)
 
 
-@app.post("/api/personas/{persona_id}/export")
-async def export_persona(persona_id: str) -> dict:
+persona_song_audio = identity_song_audio
+
+
+@app.post("/api/identities/{identity_id}/export")
+@app.post("/api/personas/{identity_id}/export", include_in_schema=False)
+async def export_identity(identity_id: str) -> dict:
     """Write the training set: per included song, the audio as FLAC, its lyrics and
     its style caption.  Songs without a copy yet are skipped and listed."""
-    persona = _persona(persona_id)
-    view = _persona_view(persona)
-    dest = config.DATA_DIR / "personas" / persona_id / "dataset"
+    identity = _identity(identity_id)
+    view = _identity_view(identity)
+    dest = config.DATA_DIR / "identities" / identity_id / "dataset"
     await asyncio.to_thread(remove_tree, dest)
     dest.mkdir(parents=True, exist_ok=True)
     written, skipped, unchecked = [], [], []
@@ -1173,7 +1237,7 @@ async def export_persona(persona_id: str) -> dict:
         if not song["stored_path"] or not Path(song["stored_path"]).is_file() or not song["lyrics"].strip():
             skipped.append(song["title"])
             continue
-        name = personas.export_name(song)
+        name = identities.export_name(song)
         await asyncio.to_thread(subprocess.run, ["ffmpeg", "-v", "error", "-y", "-i", song["stored_path"], str(dest / f"{name}.flac")],
                                 check=True, timeout=600)
         (dest / f"{name}.lyrics.txt").write_text(song["lyrics"].strip() + "\n", encoding="utf-8")
@@ -1181,11 +1245,14 @@ async def export_persona(persona_id: str) -> dict:
         written.append(song["title"])
         if not song["lyrics_checked"]:
             unchecked.append(song["title"])
-    manifest = {"persona": persona["name"], "trigger_word": persona["trigger_word"], "consent": True,
+    manifest = {"identity": identity["name"], "trigger_word": identity["trigger_word"], "consent": True,
                 "songs": written, "unchecked_lyrics": unchecked, "exported_at": time.time(), "app": config.VERSION}
     (dest / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-    execute("UPDATE personas SET exported_at = ?, export_dir = ? WHERE id = ?", (time.time(), str(dest), persona_id))
+    execute("UPDATE identities SET exported_at = ?, export_dir = ? WHERE id = ?", (time.time(), str(dest), identity_id))
     return {"folder": _host_path(dest), "written": written, "skipped": skipped, "unchecked": unchecked}
+
+
+export_persona = export_identity
 
 
 def _host_path(path: Path) -> str:
