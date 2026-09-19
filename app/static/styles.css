@@ -330,6 +330,8 @@ details.block > summary::before {
 details.block[open] > summary::before { transform: rotate(45deg); }
 details.block[open] > summary { margin-bottom: 10px; }
 .hint { color: var(--muted); font-size: 12.5px; margin: 0 0 8px; }
+.info-tip { display: inline-block; margin-left: 5px; color: var(--muted); font-size: 13px; cursor: help; vertical-align: middle; }
+.info-tip:hover { color: var(--text); }
 .badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--card-2); color: var(--muted); }
 .badge.ok { color: var(--good); }
 .chart {

@@ -132,7 +132,13 @@ function paintOptions() {
     $('realaudio').checked = false;
     $('realaudio-field').title = 'The engine has no Realaudio LoRA. Run scripts/fetch-models.sh, then restart the engine.';
   } else {
-    $('realaudio-field').title = '';
+    var tip = 'Applies Mothersuperior v9 real-audio decoder LoRA for studio-grade acoustic clarity, frequency separation, and clean lead vocals.';
+    $('realaudio-field').title = tip;
+    var raw = null;
+    try { raw = localStorage.getItem(FORM_KEY); } catch (e) {}
+    if (!raw || raw.indexOf('"realaudio"') === -1) {
+      $('realaudio').checked = true;
+    }
   }
   var styleNode = $('style');
   var busy = document.activeElement === styleNode;
@@ -178,6 +184,7 @@ function loadForm() {
   if (typeof data.auto_render === 'boolean') { $('auto-render').checked = data.auto_render; }
   if (typeof data.seed_fixed === 'boolean') { $('seed-fixed').checked = data.seed_fixed; }
   if (typeof data.realaudio === 'boolean') { $('realaudio').checked = data.realaudio; }
+  else { $('realaudio').checked = true; }
   if (typeof data.vocal_identity === 'string') { State.savedVocalIdentity = data.vocal_identity; }
   else if (typeof data.vocal_persona === 'string') { State.savedVocalIdentity = data.vocal_persona; }
   if (typeof data.vocal_identity_lora === 'string') { State.savedVocalIdentityLora = data.vocal_identity_lora; }
@@ -3532,6 +3539,7 @@ function wire() {
   });
   $('auto-render').addEventListener('change', saveForm);
   $('seed-fixed').addEventListener('change', saveForm);
+  $('realaudio').addEventListener('change', saveForm);
   $('lyrics').addEventListener('input', function () {
     State.formEdited = true;
     refreshTitleHint();
