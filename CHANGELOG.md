@@ -32,6 +32,9 @@ cannot creep back in.
 - API: `POST /api/instrumentals`. An instrumental take has `kind` `instrumental`, its structure
   in `lyrics`, and its `feel`.
 - The database gains `takes.feel` on the first start (migration 6).
+- **Licensing.** The code is now licensed under Apache 2.0 (`LICENSE`), and
+  `THIRD_PARTY_NOTICES.md` lists each model and program the app runs, with its licence and a link to
+  the publisher's own terms. The README has a short License section.
 
 ## 0.0.2 - 2026-09-19
 
