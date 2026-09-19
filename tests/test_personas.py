@@ -106,3 +106,15 @@ def test_api_needs_consent_scans_and_queues(client, tmp_path, monkeypatch):
         PERSONA_QUEUE.get_nowait()
     assert client.delete(f"/api/personas/{made['id']}").json() == {"deleted": True}
     assert (folder / "01 Modern Girl.wav").exists()           # the original folder is untouched
+
+
+def test_a_song_unticked_while_it_waits_is_skipped(client, tmp_path, monkeypatch):
+    import asyncio
+    _, folder = make_folder(tmp_path, monkeypatch)
+    made = client.post("/api/personas", json={"name": "Me", "trigger_word": "me", "folder": str(folder), "consent": True}).json()
+    song = next(s for s in made["songs"] if s["include"])
+    jobs.set_song(song["id"], include=0, vocals_state="queued", lyrics_state="queued", score_state="queued")
+    asyncio.run(jobs.prepare_song(song["id"]))
+    asyncio.run(jobs.run_persona_job("persona_score", song["id"]))
+    row = one("SELECT * FROM persona_songs WHERE id = ?", (song["id"],))
+    assert (row["vocals_state"], row["lyrics_state"], row["score_state"], row["stored_path"]) == ("none", "none", "none", None)

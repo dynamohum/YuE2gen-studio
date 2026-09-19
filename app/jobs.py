@@ -466,6 +466,10 @@ async def prepare_song(song_id: str) -> None:
     song = persona_song(song_id)
     if not song or "queued" not in (song["vocals_state"], song["lyrics_state"]):
         return
+    if not song["include"]:
+        # Unticked while it waited: leave it for later rather than spend the time.
+        set_song(song_id, **{f: "none" for f in ("vocals_state", "lyrics_state") if song[f] == "queued"})
+        return
     persona = one("SELECT * FROM personas WHERE id = ?", (song["persona_id"],))
     source = Path(persona["folder"]) / song["file"]
     if not personas.allowed(source) or not source.is_file():
@@ -569,6 +573,9 @@ async def run_persona_job(kind: str, song_id: str) -> None:
     field = PERSONA_FIELDS[kind]
     song = persona_song(song_id)
     if not song or song[field] != "queued":
+        return
+    if not song["include"]:
+        set_song(song_id, **{field: "none"})
         return
     set_song(song_id, **{field: "running"})
     folder = Path(song["stored_path"]).parent
