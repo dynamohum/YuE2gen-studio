@@ -1,0 +1,102 @@
+"""Personas: scanning a folder (read only), flags, chunking, captions, the API."""
+import numpy as np
+
+from app import config, jobs, personas
+from app.db import one
+from app.jobs import PERSONA_QUEUE
+
+from conftest import tone
+
+
+def make_folder(tmp_path, monkeypatch):
+    root = tmp_path / "import"
+    songs = root / "Under"
+    songs.mkdir(parents=True)
+    monkeypatch.setattr(config, "IMPORT_ROOTS", [str(root)])
+    tone(songs / "01 Modern Girl.wav", 100)
+    (songs / "Modern Girl copy.wav").write_bytes((songs / "01 Modern Girl.wav").read_bytes())
+    tone(songs / "02 Falling.wav", 95)
+    tone(songs / "09 Falling (acoustic).wav", 96)
+    tone(songs / "14. Did It Ever (Ft. Alan Williams on vocals).wav", 101)
+    tone(songs / "08 It's Only Love Short.wav", 30)
+    tone(songs / "did_it_ever.wav", 102)
+    (songs / "cover.jpg").write_bytes(b"not audio")
+    return root, songs
+
+
+def test_scan_flags_copies_versions_other_singers_and_short_files(tmp_path, monkeypatch):
+    _, folder = make_folder(tmp_path, monkeypatch)
+    found = {s["file"]: s for s in personas.scan(folder)}
+    assert "cover.jpg" not in found and len(found) == 7
+    assert "names another singer" in found["did_it_ever.wav"]["flag"]
+    assert found["01 Modern Girl.wav"]["include"] and found["01 Modern Girl.wav"]["title"] == "Modern Girl"
+    assert "exact copy" in found["Modern Girl copy.wav"]["flag"]
+    assert "another version" in found["09 Falling (acoustic).wav"]["flag"]
+    assert "another singer" in found["14. Did It Ever (Ft. Alan Williams on vocals).wav"]["flag"]
+    assert "shorter" in found["08 It's Only Love Short.wav"]["flag"]
+    assert [s["file"] for s in found.values() if s["include"]] == ["01 Modern Girl.wav", "02 Falling.wav"]
+
+
+def test_folders_outside_the_import_roots_are_refused(tmp_path, monkeypatch):
+    make_folder(tmp_path, monkeypatch)
+    assert not personas.allowed(tmp_path)
+    assert personas.browse(None)["folders"] == [str(tmp_path / "import")]
+    assert personas.browse(str(tmp_path / "import"))["folders"] == [str(tmp_path / "import" / "Under")]
+
+
+def test_chunks_cut_at_quiet_points_and_skip_silence():
+    rate = personas.CHUNK_RATE
+    t = np.arange(rate * 70) / rate
+    voice = 0.5 * np.sin(2 * np.pi * 220 * t)
+    voice[: rate * 5] = 0                                  # 5 s of silence at the start
+    voice[rate * 22: rate * 23] *= 0.001                   # a breath at 22 s
+    chunks = personas.sung_chunks(voice.astype(np.float32))
+    assert chunks[0][0] >= 4.9 and all(b - a <= personas.CHUNK_MAX + 0.1 for a, b in chunks)
+    assert abs(chunks[0][1] - 22.0) < 1.1                  # the first cut lands on the breath
+
+
+def test_key_tempo_and_caption():
+    assert personas.key_and_tempo("X:1\nQ:1/4=70\nK:Dm\n") == ("D minor", 70)
+    assert personas.key_and_tempo("K:Bb\n") == ("Bb major", None)
+    assert personas.caption("pshields", "pop rock, guitars", "male", "D minor", 70) == "pshields, pop rock, guitars, male vocal, D minor, 70 BPM"
+
+
+def test_score_sections_count_bars_by_time_signature():
+    abc = ("X:1\nM:4/4\nV: Vocal\nV: Ins\nK:C\n% intro\nV: Vocal\n|z4|z4|\nV: Ins\n|c4|c4|\n"
+           "% verse\nV: Vocal\nM:2/4\n|c2|d2|e2|f2|\n% interlude\nV: Vocal\nM:4/4\n|z4|\n% nonsense\n|z4|\n")
+    assert personas.score_sections(abc) == [("intro", 2.0), ("verse", 2.0), ("interlude", 2.0)]
+
+
+def test_lines_are_tagged_by_the_section_playing():
+    lines = [{"start": 1, "end": 4, "text": "first verse line"}, {"start": 28, "end": 30, "text": "a chorus line"},
+             {"start": 31, "end": 34, "text": "the chorus again"}, {"start": 58, "end": 59, "text": "last words"}]
+    sections = [("intro", 1.0), ("verse", 2.0), ("chorus", 2.0), ("interlude", 1.0), ("outro", 0.5)]
+    # 60 s over 6.5 lengths: intro 0-9.2, verse 9.2-27.7, chorus 27.7-46.2, interlude as bridge, outro 55.4-60.
+    assert personas.tag_lyrics(lines, sections, 60) == (
+        "[Intro]\nfirst verse line\n\n[Verse]\n\n[Chorus]\na chorus line\nthe chorus again\n\n[Bridge]\n\n[Outro]\nlast words")
+    assert personas.tag_lyrics(lines, [], 60).startswith("[Verse]\nfirst verse line")
+    assert personas.tag_lyrics([], sections, 60) == ""
+
+
+def test_api_needs_consent_scans_and_queues(client, tmp_path, monkeypatch):
+    async def hold(song_id):   # the worker is running: keep it from separating test tones
+        return None
+    monkeypatch.setattr(jobs, "prepare_song", hold)
+    _, folder = make_folder(tmp_path, monkeypatch)
+    body = {"name": "Me", "trigger_word": "P Shields!", "description": "pop rock", "voice": "Male", "folder": str(folder)}
+    assert client.post("/api/personas", json=body).status_code == 400
+    assert client.post("/api/personas", json={**body, "consent": True, "folder": str(tmp_path)}).status_code == 400
+    made = client.post("/api/personas", json={**body, "consent": True}).json()
+    assert made["trigger_word"] == "pshields" and made["summary"]["included"] == 2
+    song = next(s for s in made["songs"] if s["include"])
+    assert song["caption"].startswith("pshields, pop rock, male vocal")
+    assert client.put(f"/api/personas/{made['id']}/songs/{song['id']}", json={"lyrics": "[Verse]\nla", "lyrics_checked": True}).status_code == 200
+    while not PERSONA_QUEUE.empty():
+        PERSONA_QUEUE.get_nowait()
+    assert client.post(f"/api/personas/{made['id']}/analyse").json() == {"queued": 2}
+    assert one("SELECT vocals_state FROM persona_songs WHERE id = ?", (song["id"],))["vocals_state"] == "queued"
+    assert client.post(f"/api/personas/{made['id']}/analyse").json() == {"queued": 0}   # nothing twice
+    while not PERSONA_QUEUE.empty():
+        PERSONA_QUEUE.get_nowait()
+    assert client.delete(f"/api/personas/{made['id']}").json() == {"deleted": True}
+    assert (folder / "01 Modern Girl.wav").exists()           # the original folder is untouched

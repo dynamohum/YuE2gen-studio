@@ -13,6 +13,7 @@
     <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
   </button>
   <div class="topbar-right">
+    <button id="personas-open" class="ghost personas-open" title="Prepare a singer's songs for training a voice">Personas</button>
     <span id="app-version" class="version"></span>
     <div id="engine-pill" class="pill pill-off">Connecting</div>
   </div>
@@ -287,6 +288,17 @@
       </div>
     </div>
     <div id="move-status" class="status"></div>
+  </div>
+</div>
+
+<div id="personas-modal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Personas">
+  <div class="modal-box personas">
+    <div class="modal-head">
+      <strong id="personas-heading">Personas</strong>
+      <button id="personas-back" class="ghost hidden">All personas</button>
+      <button id="personas-close" class="ghost">Close</button>
+    </div>
+    <div id="personas-body"></div>
   </div>
 </div>
 

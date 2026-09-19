@@ -33,6 +33,10 @@ ENGINE_OUTPUT_DIR = Path(os.environ["ENGINE_OUTPUT_DIR"]) if os.environ.get("ENG
 
 MAX_UPLOAD_MB = int(os.environ.get("MAX_UPLOAD_MB", "300"))
 
+# Folders the app may read songs from for a persona, as paths inside the container.
+# compose.yml mounts them read-only.  Nothing under them is ever written.
+IMPORT_ROOTS = [p.strip() for p in os.environ.get("IMPORT_ROOTS", "/import").split(",") if p.strip()]
+
 # Host names the app answers to.  Anything else is refused, which stops DNS
 # rebinding.  "*" turns the check off.
 ALLOWED_HOSTS = [h.strip().lower() for h in os.environ.get("ALLOWED_HOSTS", "localhost,127.0.0.1,::1").split(",") if h.strip()]
@@ -46,6 +50,7 @@ DEFAULT_STYLE = "English, warm indie rock, expressive lead vocal, drums, bass, g
 
 # How long a job may run once the engine has started it.  Time spent waiting in the
 # engine's queue does not count.
-TIMEOUTS = {"transcribe": 12 * 60, "plan": 10 * 60, "render": 25 * 60, "lyrics": 15 * 60}
+TIMEOUTS = {"transcribe": 12 * 60, "plan": 10 * 60, "render": 25 * 60, "lyrics": 15 * 60,
+            "persona_score": 12 * 60, "persona_style": 10 * 60}
 # Give up on a job when the engine has been unreachable this long.
 ENGINE_LOST_AFTER = 5 * 60

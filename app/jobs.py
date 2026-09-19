@@ -6,10 +6,11 @@ import asyncio
 import contextlib
 import json
 import logging
+import shutil
 import time
 from pathlib import Path
 
-from . import config, instrumental, lyrics, score, stems
+from . import config, instrumental, lyrics, personas, score, stems
 from .db import bump_average, execute, one
 from .engine import Engine, load_template
 from .library import audio_duration, ensure_peaks, inside, remove_tree, take_audio_path, write_take_note
@@ -25,6 +26,11 @@ CURRENT: dict = {}
 CURRENT_STEMS: dict = {}
 # Ids whose running job was cancelled.  The job notices and stops.
 CANCELLED: set[str] = set()
+# Persona songs being copied in and having their vocal separated, on the CPU.
+PERSONA_QUEUE: "asyncio.Queue[dict]" = asyncio.Queue()
+CURRENT_PERSONA: dict = {}
+# GPU steps for a persona song.  Copying in, the vocal and the lyrics run on the CPU.
+PERSONA_FIELDS = {"persona_score": "score_state", "persona_style": "style_state"}
 # Lyric drafts, by id.  Kept in memory only: a draft is copied into the form as soon
 # as it lands, so nothing is lost when the app restarts.
 LYRICS: dict[str, dict] = {}
@@ -257,6 +263,9 @@ async def _wait_for(kind: str, ref_id: str, prompt_id: str) -> tuple[str, dict |
 async def run_job(kind: str, ref_id: str) -> None:
     started = time.time()
     record = None
+    if kind in PERSONA_FIELDS:
+        await run_persona_job(kind, ref_id)
+        return
     if kind == "lyrics":
         record = LYRICS.get(ref_id)
         if not record or record["status"] != "queued":
@@ -420,6 +429,171 @@ async def cancel_current() -> dict | None:
     if CURRENT.get("prompt_id"):
         await ENGINE.cancel(CURRENT["prompt_id"])
     return {"kind": CURRENT["kind"], "id": CURRENT["id"]}
+
+
+# ---------------------------------------------------------------------- personas
+def persona_song(song_id: str) -> dict | None:
+    return one("SELECT * FROM persona_songs WHERE id = ?", (song_id,))
+
+
+def set_song(song_id: str, **fields) -> None:
+    if fields:
+        execute(f"UPDATE persona_songs SET {', '.join(f'{k} = ?' for k in fields)} WHERE id = ?", (*fields.values(), song_id))
+
+
+async def persona_worker() -> None:
+    """Copies each song into the library and separates its vocal, one at a time,
+    then hands the song to the GPU lane for key, tempo, lyrics and style."""
+    while True:
+        job = await PERSONA_QUEUE.get()
+        CURRENT_PERSONA.clear()
+        CURRENT_PERSONA.update({"id": job["id"], "started": time.time()})
+        try:
+            await prepare_song(job["id"])
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            log.exception("persona song %s failed", job["id"])
+            set_song(job["id"], vocals_state="failed", error=f"could not prepare the song: {exc}"[:400])
+        finally:
+            CURRENT_PERSONA.clear()
+            PERSONA_QUEUE.task_done()
+
+
+async def prepare_song(song_id: str) -> None:
+    """Copy in, separate the vocal, and transcribe it with Whisper, skipping whatever
+    is already done.  Key and tempo, and the style hint, go to the GPU lane."""
+    song = persona_song(song_id)
+    if not song or "queued" not in (song["vocals_state"], song["lyrics_state"]):
+        return
+    persona = one("SELECT * FROM personas WHERE id = ?", (song["persona_id"],))
+    source = Path(persona["folder"]) / song["file"]
+    if not personas.allowed(source) or not source.is_file():
+        raise RuntimeError("the song is no longer in its folder")
+    set_song(song_id, vocals_state="running", error=None)
+    folder = personas.song_dir(persona["id"], song)
+    folder.mkdir(parents=True, exist_ok=True)
+    stored = folder / f"original{source.suffix.lower()}"
+    if not stored.exists():
+        await asyncio.to_thread(shutil.copy2, source, stored)
+    set_song(song_id, stored_path=str(stored))
+    # Key and tempo only need the recording, so the GPU can start while demucs runs.
+    if song["score_state"] in ("none", "failed"):
+        set_song(song_id, score_state="queued")
+        await QUEUE.put({"kind": "persona_score", "id": song_id})
+    if not (folder / "vocals.wav").exists():
+        await stems.separate(stored, folder, "htdemucs", ["vocals"], "wav", work_root=config.WORK_DIR)
+    set_song(song_id, vocals_state="done")
+    if persona_song(song_id)["style_state"] in ("none", "failed"):
+        set_song(song_id, style_state="queued")
+        await QUEUE.put({"kind": "persona_style", "id": song_id})
+    if not (folder / "whisper.json").exists():
+        set_song(song_id, lyrics_state="running")
+        try:
+            lines = await asyncio.to_thread(personas.transcribe, folder / "vocals.wav")
+        except Exception as exc:  # noqa: BLE001
+            set_song(song_id, lyrics_state="failed", error=f"lyrics: {exc}"[:400])
+            return
+        (folder / "whisper.json").write_text(json.dumps(lines, indent=1), encoding="utf-8")
+    maybe_draft(song_id)
+
+
+def maybe_draft(song_id: str) -> None:
+    """Tag Whisper's lines with the score's sections once both are in.  A score that
+    failed still gets a draft, under one verse."""
+    song = persona_song(song_id)
+    if not song or not song["stored_path"]:
+        return
+    folder = Path(song["stored_path"]).parent
+    if not (folder / "whisper.json").exists() or song["score_state"] not in ("done", "failed"):
+        set_song(song_id, lyrics_state="running")
+        return
+    lines = json.loads((folder / "whisper.json").read_text(encoding="utf-8"))
+    abc = (folder / "score.abc").read_text(encoding="utf-8") if (folder / "score.abc").exists() else ""
+    draft = personas.tag_lyrics(lines, personas.score_sections(abc), song["duration"] or 0)
+    # Words the user has already checked are theirs: a new draft never replaces them.
+    if song["lyrics_checked"]:
+        set_song(song_id, lyrics_state="done")
+    else:
+        set_song(song_id, lyrics=draft, lyrics_state="done")
+
+
+def _gemma_graph(prompt: str, audio_files: list[str], max_length: int) -> dict:
+    """Gemma on the engine: one CLIPLoader, then one TextGenerate per audio file (or
+    one with no audio).  Greedy, so a transcription does not invent words."""
+    graph = {"1": {"class_type": "CLIPLoader", "inputs": {"clip_name": config.LYRICS_MODEL, "type": "stable_diffusion"}}}
+    for index, name in enumerate(audio_files or [None]):
+        base = 10 + index * 3
+        inputs = {"clip": ["1", 0], "prompt": prompt, "max_length": max_length, "thinking": False, "sampling_mode": "off"}
+        if name:
+            graph[str(base)] = {"class_type": "LoadAudio", "inputs": {"audio": name}}
+            inputs["audio"] = [str(base), 0]
+        graph[str(base + 1)] = {"class_type": "TextGenerate", "inputs": inputs}
+        graph[str(base + 2)] = {"class_type": "PreviewAny", "inputs": {"source": [str(base + 1), 0]}}
+    return graph
+
+
+def _texts_in_order(job: dict) -> list[str]:
+    outputs = (job or {}).get("outputs") or {}
+    return [outputs[nid]["text"][0] for nid in sorted(outputs, key=int) if outputs[nid].get("text")]
+
+
+async def _run_graph(kind: str, ref_id: str, graph: dict) -> dict:
+    prompt_id = await ENGINE.submit(graph)
+    CURRENT.clear()
+    CURRENT.update({"kind": kind, "id": ref_id, "prompt_id": prompt_id, "started": time.time()})
+    try:
+        outcome, job = await _wait_for(kind, ref_id, prompt_id)
+        if outcome != "done":
+            if outcome in ("cancelled", "timeout"):
+                await ENGINE.cancel(prompt_id)
+            raise RuntimeError({"cancelled": "cancelled", "timeout": "timed out"}.get(outcome, "the engine lost the job"))
+        if job.get("status", {}).get("status_str") != "success":
+            raise RuntimeError("engine error: " + json.dumps(job.get("status", {}).get("messages") or [])[-300:])
+        return job
+    finally:
+        ENGINE.forget(prompt_id)
+        CURRENT.clear()
+        CANCELLED.discard(ref_id)
+
+
+async def _upload(path: Path, name: str) -> str:
+    data = await asyncio.to_thread(path.read_bytes)
+    result = await ENGINE.upload(name, data)
+    if not result.get("name"):
+        raise RuntimeError("the engine did not accept the audio")
+    return result["name"]
+
+
+async def run_persona_job(kind: str, song_id: str) -> None:
+    field = PERSONA_FIELDS[kind]
+    song = persona_song(song_id)
+    if not song or song[field] != "queued":
+        return
+    set_song(song_id, **{field: "running"})
+    folder = Path(song["stored_path"]).parent
+    try:
+        if kind == "persona_score":
+            name = await _upload(Path(song["stored_path"]), f"persona-{song_id}{Path(song['stored_path']).suffix}")
+            job = await _run_graph(kind, song_id, build_transcribe_graph(name))
+            abc = extract_text_output(job, "SheetSage2AudioToABC", "PreviewAny") or ""
+            (folder / "score.abc").write_text(abc, encoding="utf-8")
+            key, tempo = personas.key_and_tempo(abc)
+            set_song(song_id, key=key, tempo=tempo, score_state="done")
+            maybe_draft(song_id)
+        elif kind == "persona_style":
+            samples = await asyncio.to_thread(personas.read_mono, Path(song["stored_path"]))
+            middle = len(samples) / personas.CHUNK_RATE * 0.4
+            clip = personas.write_chunk(samples, (middle, middle + 30), folder / "style-clip.wav")
+            name = await _upload(clip, f"persona-{song_id}-style.wav")
+            job = await _run_graph(kind, song_id, _gemma_graph(personas.DESCRIBE, [name], 120))
+            hint = " ".join((_texts_in_order(job) or [""])[0].split())[:300]
+            set_song(song_id, style_hint=hint, style_state="done")
+    except Exception as exc:  # noqa: BLE001
+        log.warning("%s for %s failed: %s", kind, song_id, exc)
+        set_song(song_id, **{field: "failed"}, error=f"{kind.split('_')[1]}: {exc}"[:400])
+        if kind == "persona_score":
+            maybe_draft(song_id)
 
 
 async def cancel_lyrics(record: dict) -> None:

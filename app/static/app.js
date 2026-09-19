@@ -1705,6 +1705,297 @@ async function stopWrite() {
   try { await api('/api/lyrics/' + WRITE.id + '/cancel', { method: 'POST' }); } catch (err) { /* the poll reports it */ }
 }
 
+/* ---------------------------------------------------------------- personas
+   One singer's songs, prepared for training a voice.  The folder is only read;
+   the app keeps its own copies, and the review happens here, song by song. */
+var PERSONA = { view: 'list', id: null, data: null, open: {}, timer: null, browse: null };
+var STEP_NAMES = [['vocals_state', 'Vocal'], ['score_state', 'Key & tempo'], ['lyrics_state', 'Lyrics'], ['style_state', 'Style']];
+var STEP_MARKS = { none: '', queued: '· queued', running: '…', done: '✓', failed: '✕' };
+
+function openPersonas() {
+  $('personas-modal').classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+  showPersonaList();
+}
+
+function closePersonas() {
+  $('personas-modal').classList.add('hidden');
+  document.body.style.overflow = '';
+  clearTimeout(PERSONA.timer);
+  PERSONA.timer = null;
+}
+
+async function showPersonaList() {
+  PERSONA.view = 'list';
+  PERSONA.id = null;
+  clearTimeout(PERSONA.timer);
+  $('personas-heading').textContent = 'Personas';
+  $('personas-back').classList.add('hidden');
+  var list = [];
+  try { list = await api('/api/personas'); } catch (err) { list = []; }
+  $('personas-body').innerHTML =
+    '<p class="persona-intro">A persona is one singer’s voice, prepared from their songs. Point at a folder of songs: ' +
+    'the app separates each vocal, finds its key and tempo, and drafts its lyrics for you to check. The result is a ' +
+    'training set. Only use your own voice, or a singer who has given you permission.</p>' +
+    '<button id="persona-new" class="ghost">New persona</button>' +
+    '<div class="persona-cards">' + list.map(function (item) {
+      return '<div class="persona-card" data-persona="' + esc(item.id) + '"><strong>' + esc(item.name) + '</strong>' +
+        '<span class="muted">trigger <code>' + esc(item.trigger_word) + '</code> · ' + (item.included || 0) + ' of ' +
+        (item.songs || 0) + ' songs' + (item.exported_at ? ' · exported' : '') + '</span></div>';
+    }).join('') + '</div>';
+}
+
+function triggerFrom(name) {
+  return String(name || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 24);
+}
+
+async function showPersonaNew() {
+  PERSONA.view = 'new';
+  $('personas-heading').textContent = 'New persona';
+  $('personas-back').classList.remove('hidden');
+  $('personas-body').innerHTML =
+    '<div class="persona-form">' +
+      '<div class="field"><label for="pn-name">Name</label><input id="pn-name" type="text" maxlength="80" placeholder="Paul Shields"></div>' +
+      '<div class="field"><label for="pn-trigger">Trigger word</label><input id="pn-trigger" type="text" maxlength="40" placeholder="paulshields">' +
+        '<div class="hint">Starts every style caption, so a trained model knows when to use this voice. Letters and digits only.</div></div>' +
+      '<div class="field"><label for="pn-voice">Voice</label><select id="pn-voice"><option value="male">male</option>' +
+        '<option value="female">female</option><option value="">not stated</option></select></div>' +
+      '<div class="field"><label for="pn-desc">The sound, for every song</label><input id="pn-desc" type="text" maxlength="400" ' +
+        'placeholder="pop rock, electric guitars, bass, drums">' +
+        '<div class="hint">Goes into each caption, with each song’s own key and tempo.</div></div>' +
+      '<div class="field wide"><label>Folder of songs</label><div id="pn-folder" class="folder-pick"></div>' +
+        '<div class="hint">Only read: nothing in it is changed.</div></div>' +
+      '<label class="check wide"><input id="pn-consent" type="checkbox"> These recordings are my own voice, or the singer has given me permission to train on them.</label>' +
+      '<div class="wide row" style="margin-top:10px"><button id="pn-scan" class="ghost">Scan the folder</button>' +
+        '<span id="pn-status" class="status"></span></div>' +
+    '</div>';
+  $('pn-name').addEventListener('input', function () {
+    if (!$('pn-trigger').dataset.touched) { $('pn-trigger').value = triggerFrom($('pn-name').value); }
+  });
+  $('pn-trigger').addEventListener('input', function () { $('pn-trigger').dataset.touched = '1'; });
+  browseFolder(null);
+  $('pn-name').focus();
+}
+
+async function browseFolder(path) {
+  var host = $('pn-folder');
+  try {
+    var data = await api('/api/import/browse' + (path ? '?path=' + encodeURIComponent(path) : ''));
+    PERSONA.browse = data;
+    var html = data.path ? '<div class="here">' + esc(data.path) + ' · ' + data.songs + ' song' + (data.songs === 1 ? '' : 's') + ' here</div>' : '';
+    if (data.parent) { html += '<button data-folder="' + esc(data.parent) + '">← up</button>'; }
+    html += data.folders.map(function (folder) {
+      return '<button data-folder="' + esc(folder) + '">▸ ' + esc(folder.split('/').pop() || folder) + '</button>';
+    }).join('');
+    if (!data.path && !data.folders.length) { html = '<div class="here">No import folders are mounted. See the README.</div>'; }
+    host.innerHTML = html;
+  } catch (err) {
+    host.innerHTML = '<div class="here">' + esc(err.message) + '</div>';
+  }
+}
+
+async function scanNewPersona() {
+  var status = $('pn-status');
+  var folder = PERSONA.browse && PERSONA.browse.path;
+  if (!folder) { status.textContent = 'Open the folder that holds the songs.'; status.className = 'status bad'; return; }
+  if (!$('pn-consent').checked) { status.textContent = 'Confirm that the voice is yours, or that you have permission.'; status.className = 'status bad'; return; }
+  status.textContent = 'Scanning…';
+  status.className = 'status';
+  $('pn-scan').disabled = true;
+  try {
+    var made = await api('/api/personas', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: $('pn-name').value.trim() || 'My voice', trigger_word: $('pn-trigger').value || triggerFrom($('pn-name').value) || 'myvoice',
+        voice: $('pn-voice').value, description: $('pn-desc').value, folder: folder, consent: true })
+    });
+    showPersona(made.id, made);
+  } catch (err) {
+    status.textContent = err.message;
+    status.className = 'status bad';
+    $('pn-scan').disabled = false;
+  }
+}
+
+function stepChips(song) {
+  return STEP_NAMES.map(function (step) {
+    var state = song[step[0]] || 'none';
+    return '<span class="step ' + state + '">' + step[1] + (STEP_MARKS[state] ? ' ' + STEP_MARKS[state] : '') + '</span>';
+  }).join('');
+}
+
+function personaSummary(data) {
+  var sum = data.summary;
+  return '<span><strong>' + sum.included + '</strong> of ' + sum.songs + ' songs included · ' + sum.minutes + ' min</span>' +
+    '<span>' + sum.analysed + ' analysed · ' + sum.checked + ' lyrics checked</span>' +
+    '<span class="muted">trigger <code>' + esc(data.trigger_word) + '</code> · ' + esc(data.voice || 'voice not stated') +
+    ' · ' + esc(data.description || 'no description') + '</span>';
+}
+
+function songRow(song) {
+  var detail = PERSONA.open[song.id]
+    ? '<tr class="persona-detail" data-detail="' + song.id + '"><td colspan="5">' + songDetail(song) + '</td></tr>' : '';
+  return '<tr data-song="' + song.id + '"' + (song.include ? '' : ' class="off"') + '>' +
+    '<td><input type="checkbox" data-include="' + song.id + '"' + (song.include ? ' checked' : '') + ' title="Include in the training set"></td>' +
+    '<td>' + esc(song.title) + '<span class="file">' + esc(song.file) + '</span>' +
+      (song.flag ? '<span class="flag">' + esc(song.flag) + '</span>' : '') + '</td>' +
+    '<td>' + secs(song.duration) + '</td>' +
+    '<td data-steps="' + song.id + '">' + stepChips(song) + '<div class="muted" data-keytempo="' + song.id + '">' +
+      esc([song.key, song.tempo ? song.tempo + ' BPM' : ''].filter(Boolean).join(', ')) + '</div></td>' +
+    '<td><button class="link" data-open="' + song.id + '">' + (PERSONA.open[song.id] ? 'Close' : 'Review') + '</button></td>' +
+  '</tr>' + detail;
+}
+
+function songDetail(song) {
+  var base = '/api/personas/' + PERSONA.id + '/songs/' + song.id + '/audio';
+  var players = song.stored_path
+    ? '<div class="muted">Your recording</div><audio controls preload="none" src="' + base + '?which=original"></audio>' +
+      (song.vocals_state === 'done' ? '<div class="muted">The separated vocal</div><audio controls preload="none" src="' + base + '?which=vocals"></audio>' : '')
+    : '<p class="muted">Press Analyse to copy this song in.</p>';
+  return '<div class="grid"><div>' +
+      '<div class="label-row"><label>Lyrics' + (song.lyrics_state === 'done' && !song.lyrics_checked ? ' <span class="muted">(a draft: correct it)</span>' : '') +
+      '</label><label class="check"><input type="checkbox" data-checked="' + song.id + '"' + (song.lyrics_checked ? ' checked' : '') + '> checked</label></div>' +
+      '<textarea data-lyrics="' + song.id + '" spellcheck="false" placeholder="[Verse]&#10;...">' + esc(song.lyrics || '') + '</textarea>' +
+      '<div class="row" style="margin-top:6px"><button class="ghost" data-save="' + song.id + '">Save lyrics</button>' +
+      '<span class="status" data-saved="' + song.id + '"></span></div>' +
+    '</div><div>' + players +
+      '<div class="muted" style="margin-top:8px">Style caption</div><div class="caption" data-caption="' + song.id + '">' + esc(song.caption) + '</div>' +
+      (song.style_hint ? '<div class="muted" style="margin-top:8px">What Gemma heard (a suggestion only)</div><div class="caption">' + esc(song.style_hint) + '</div>' : '') +
+      (song.error ? '<div class="status bad" style="margin-top:8px">' + esc(song.error) + '</div>' : '') +
+    '</div></div>';
+}
+
+async function showPersona(id, preloaded) {
+  PERSONA.view = 'persona';
+  PERSONA.id = id;
+  PERSONA.open = {};
+  $('personas-back').classList.remove('hidden');
+  var data = preloaded || await api('/api/personas/' + id);
+  PERSONA.data = data;
+  $('personas-heading').textContent = data.name;
+  $('personas-body').innerHTML =
+    '<div id="persona-summary" class="persona-summary">' + personaSummary(data) + '</div>' +
+    '<div class="persona-actions">' +
+      '<button id="persona-analyse" class="ghost">Analyse</button>' +
+      '<button id="persona-export" class="ghost">Export training set</button>' +
+      '<button id="persona-delete" class="ghost">Delete persona</button>' +
+      '<span id="persona-status" class="status"></span>' +
+    '</div>' +
+    '<p class="hint">Analyse separates each included song’s vocal, finds its key, tempo and sections with SheetSage, ' +
+    'and drafts its lyrics with Whisper, tagged by section. The first song also downloads Whisper, about 1.6 GB. ' +
+    'Drafts get most words right, not all: open each song with Review, correct it against the recording, and tick checked.</p>' +
+    '<table class="persona-songs"><thead><tr><th></th><th>Song</th><th>Length</th><th>Progress</th><th></th></tr></thead>' +
+    '<tbody id="persona-rows">' + data.songs.map(songRow).join('') + '</tbody></table>' +
+    '<div id="persona-export-result" class="persona-export"></div>';
+  pollPersona();
+}
+
+/* Keeps the table current without touching what is being typed: only the progress,
+   key and tempo, and a lyrics draft that lands in a box nobody has edited. */
+async function pollPersona() {
+  clearTimeout(PERSONA.timer);
+  if (PERSONA.view !== 'persona' || $('personas-modal').classList.contains('hidden')) { return; }
+  var data;
+  try { data = await api('/api/personas/' + PERSONA.id); } catch (err) { data = null; }
+  if (data && PERSONA.view === 'persona' && data.id === PERSONA.id) {
+    PERSONA.data = data;
+    $('persona-summary').innerHTML = personaSummary(data);
+    data.songs.forEach(function (song) {
+      var steps = document.querySelector('[data-steps="' + song.id + '"]');
+      if (steps) {
+        steps.innerHTML = stepChips(song) + '<div class="muted" data-keytempo="' + song.id + '">' +
+          esc([song.key, song.tempo ? song.tempo + ' BPM' : ''].filter(Boolean).join(', ')) + '</div>';
+      }
+      var box = document.querySelector('[data-lyrics="' + song.id + '"]');
+      if (box && !box.dataset.edited && document.activeElement !== box && box.value !== (song.lyrics || '')) { box.value = song.lyrics || ''; }
+      var cap = document.querySelector('[data-caption="' + song.id + '"]');
+      if (cap) { cap.textContent = song.caption; }
+    });
+  }
+  PERSONA.timer = setTimeout(pollPersona, data && data.busy ? 3000 : 8000);
+}
+
+function personaSong(id) {
+  return ((PERSONA.data && PERSONA.data.songs) || []).filter(function (song) { return song.id === id; })[0] || null;
+}
+
+async function personaClick(event) {
+  var target = event.target;
+  var card = target.closest('[data-persona]');
+  if (card) { showPersona(card.dataset.persona); return; }
+  if (target.closest('#persona-new')) { showPersonaNew(); return; }
+  var folder = target.closest('[data-folder]');
+  if (folder) { browseFolder(folder.dataset.folder); return; }
+  if (target.closest('#pn-scan')) { scanNewPersona(); return; }
+  var open = target.closest('[data-open]');
+  if (open) {
+    PERSONA.open[open.dataset.open] = !PERSONA.open[open.dataset.open];
+    $('persona-rows').innerHTML = PERSONA.data.songs.map(songRow).join('');
+    return;
+  }
+  var save = target.closest('[data-save]');
+  if (save) {
+    var sid = save.dataset.save;
+    var box = document.querySelector('[data-lyrics="' + sid + '"]');
+    var note = document.querySelector('[data-saved="' + sid + '"]');
+    try {
+      await api('/api/personas/' + PERSONA.id + '/songs/' + sid, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lyrics: box.value })
+      });
+      delete box.dataset.edited;
+      note.textContent = 'Saved.';
+      note.className = 'status good';
+    } catch (err) { note.textContent = err.message; note.className = 'status bad'; }
+    return;
+  }
+  var status = $('persona-status');
+  if (target.closest('#persona-analyse')) {
+    try {
+      var queued = await api('/api/personas/' + PERSONA.id + '/analyse', { method: 'POST' });
+      status.textContent = queued.queued ? 'Queued ' + queued.queued + ' step' + (queued.queued === 1 ? '' : 's') + '. It carries on if you close this window.'
+        : 'Nothing left to analyse.';
+      status.className = 'status good';
+      pollPersona();
+    } catch (err) { status.textContent = err.message; status.className = 'status bad'; }
+    return;
+  }
+  if (target.closest('#persona-export')) {
+    status.textContent = 'Writing the training set…';
+    status.className = 'status';
+    try {
+      var out = await api('/api/personas/' + PERSONA.id + '/export', { method: 'POST' });
+      status.textContent = '';
+      $('persona-export-result').innerHTML = 'Wrote ' + out.written.length + ' song' + (out.written.length === 1 ? '' : 's') +
+        ' to <code>' + esc(out.folder) + '</code>.' +
+        (out.unchecked.length ? '<br><span class="status bad">Lyrics not checked yet: ' + esc(out.unchecked.join(', ')) + '</span>' : '') +
+        (out.skipped.length ? '<br><span class="muted">Skipped, not analysed or no lyrics: ' + esc(out.skipped.join(', ')) + '</span>' : '');
+    } catch (err) { status.textContent = err.message; status.className = 'status bad'; }
+    return;
+  }
+  if (target.closest('#persona-delete')) {
+    if (!confirm('Delete the persona “' + PERSONA.data.name + '” and the app’s copies of its songs? The original folder is not touched.')) { return; }
+    try { await api('/api/personas/' + PERSONA.id, { method: 'DELETE' }); showPersonaList(); } catch (err) { status.textContent = err.message; status.className = 'status bad'; }
+  }
+}
+
+async function personaChange(event) {
+  var target = event.target;
+  if (target.dataset.include) {
+    await api('/api/personas/' + PERSONA.id + '/songs/' + target.dataset.include, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ include: target.checked })
+    });
+    var song = personaSong(target.dataset.include);
+    if (song) { song.include = target.checked ? 1 : 0; }
+    target.closest('tr').classList.toggle('off', !target.checked);
+    pollPersona();
+  }
+  if (target.dataset.checked) {
+    await api('/api/personas/' + PERSONA.id + '/songs/' + target.dataset.checked, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lyrics_checked: target.checked })
+    });
+    pollPersona();
+  }
+}
+
 /* Action tiles. Colour carries meaning: green acts, violet inspects, blue keeps,
    amber reworks, gold remembers, red removes. */
 var ICONS = {
@@ -2777,6 +3068,18 @@ function wire() {
   });
   $('source-delete').addEventListener('click', deleteSource);
   $('start-fresh').addEventListener('click', startFresh);
+  $('personas-open').addEventListener('click', openPersonas);
+  $('personas-close').addEventListener('click', closePersonas);
+  $('personas-back').addEventListener('click', showPersonaList);
+  $('personas-body').addEventListener('click', function (event) {
+    personaClick(event).catch(function (err) { statusLine(err.message, 'bad'); });
+  });
+  $('personas-body').addEventListener('change', function (event) {
+    personaChange(event).catch(function (err) { statusLine(err.message, 'bad'); });
+  });
+  $('personas-body').addEventListener('input', function (event) {
+    if (event.target.dataset.lyrics) { event.target.dataset.edited = '1'; }
+  });
   wireStructure();
   $('interpretation').addEventListener('change', paintInterpretation);
   $('lyrics-write').addEventListener('click', openWrite);
@@ -2997,6 +3300,7 @@ function wire() {
   });
   document.addEventListener('keydown', function (event) {
     if (event.key === 'Escape' && !$('move-modal').classList.contains('hidden')) { closeMoveModal(); return; }
+    if (event.key === 'Escape' && !$('personas-modal').classList.contains('hidden')) { closePersonas(); return; }
     if (event.key === 'Escape' && !$('write-modal').classList.contains('hidden')) { closeWrite(); return; }
     if (event.key === 'Escape' && !$('variations-modal').classList.contains('hidden')) { closeVariations(); return; }
     if (event.key === 'Escape' && !$('lyrics-modal').classList.contains('hidden')) { closeLyricsEditor(); return; }
