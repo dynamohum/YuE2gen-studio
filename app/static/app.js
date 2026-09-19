@@ -145,6 +145,7 @@ function saveForm() {
     data.seed_fixed = $('seed-fixed').checked;
     data.left_take = State.leftTakeId || '';
     data.structure = { kind: STRUCTURE.kind, sections: STRUCTURE.sections };
+    data.feel = FEEL.value;
     localStorage.setItem(FORM_KEY, JSON.stringify(data));
   } catch (err) { /* private mode, or storage full. Not worth a message. */ }
 }
@@ -163,6 +164,7 @@ function loadForm() {
   if (typeof data.seed_fixed === 'boolean') { $('seed-fixed').checked = data.seed_fixed; }
   if (data.style) { $('style').dataset.touched = '1'; }
   if (data.left_take) { State.leftTakeId = data.left_take; }
+  if (FEELS[data.feel]) { FEEL.value = data.feel; }
   if (data.structure && Array.isArray(data.structure.sections)) {
     STRUCTURE.kind = ['free', 'sections', 'timed'].indexOf(data.structure.kind) >= 0 ? data.structure.kind : 'free';
     STRUCTURE.sections = data.structure.sections.filter(function (item) {
@@ -961,6 +963,7 @@ function setMode(mode) {
   show('lyrics-field', !inst);
   show('vocal-field', !inst);
   show('structure-field', inst);
+  show('feel-field', inst);
   show('mode-field', !inst);
   $('headline').textContent = cover ? 'Cover a song' : (inst ? 'Write an instrumental' : 'Write a song');
   $('sub').textContent = cover
@@ -974,7 +977,7 @@ function setMode(mode) {
   $('start-fresh').textContent = cover ? 'New cover' : (inst ? 'New instrumental' : 'New song');
   refreshTitleHint();
   paintPresets();
-  if (inst) { paintStructure(); }
+  if (inst) { paintStructure(); paintFeel(); }
   $('source-status').textContent = '';
   var ownedByTake = Boolean(takeIdInEditor());
   if (cover) {
@@ -1386,6 +1389,19 @@ function paintPresets() {
    What goes into the lyrics slot for an instrumental: [instrumental], a list of
    section tags, or tags with times.  The LoRA only knows these six sections. */
 var SECTIONS = ['intro', 'verse', 'pre-chorus', 'chorus', 'bridge', 'outro'];
+/* How firmly the instrumental LoRA holds the model: Steady at full strength, Varied a little looser. */
+var FEELS = {
+  steady: 'Sticks to its loop: repetitive and laid-back.',
+  varied: 'More movement and variation between sections.'
+};
+var FEEL = { value: 'steady' };
+
+function paintFeel() {
+  Array.prototype.forEach.call(document.querySelectorAll('#feel button'), function (button) {
+    button.classList.toggle('active', button.dataset.feel === FEEL.value);
+  });
+  $('feel-hint').textContent = FEELS[FEEL.value];
+}
 var SECTION_SECONDS = { intro: 15, verse: 30, 'pre-chorus': 15, chorus: 25, bridge: 20, outro: 15 };
 var STRUCTURE = {
   kind: 'free',
@@ -1456,6 +1472,7 @@ async function doInstrumental() {
         structure: structureText(),
         seed: seed,
         interpretation: $('interpretation').value,
+        feel: FEEL.value,
         max_duration: parseFloat($('max-duration').value) || 360,
         auto_render: $('auto-render').checked,
         variety: $('variety').value,
@@ -1510,6 +1527,13 @@ function paintStructure() {
 }
 
 function wireStructure() {
+  $('feel').addEventListener('click', function (event) {
+    var button = event.target.closest('[data-feel]');
+    if (!button) { return; }
+    FEEL.value = button.dataset.feel;
+    paintFeel();
+    saveForm();
+  });
   $('structure-kind').addEventListener('click', function (event) {
     var button = event.target.closest('[data-kind]');
     if (!button) { return; }
@@ -1758,7 +1782,13 @@ function selectTake(take) {
   $('style').dataset.touched = '1';
   // An instrumental keeps its structure where a song keeps its lyrics.  The lyrics box
   // is left alone, so browsing instrumentals cannot wipe the words of a song.
-  if (isInst) { loadStructure(take.lyrics); } else { $('lyrics').value = take.lyrics || ''; }
+  if (isInst) {
+    loadStructure(take.lyrics);
+    FEEL.value = FEELS[take.feel] ? take.feel : 'steady';
+    paintFeel();
+  } else {
+    $('lyrics').value = take.lyrics || '';
+  }
   $('abc').value = take.abc || '';
   scoreBaseline(take.abc || '');
   if (take.mode) { $('mode').value = take.mode; }
@@ -1917,6 +1947,7 @@ function paintTakes() {
     var meta = [];
     meta.push(take.kind === 'song' ? 'from a prompt' : (take.kind === 'instrumental' ? 'instrumental' : 'cover'));
     if (take.duration) { meta.push(secs(take.duration)); }
+    if (take.kind === 'instrumental' && take.feel === 'varied') { meta.push('varied'); }
     if ((take.kind === 'song' || take.kind === 'instrumental') && take.harmony) { meta.push(HARMONY_WORDS[take.harmony].toLowerCase() + ' harmony'); }
     meta.push('seed ' + take.seed);
     if (take.interpretation && take.interpretation !== 'standard' && INTERPRETATIONS[take.interpretation]) {

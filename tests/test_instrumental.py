@@ -77,3 +77,26 @@ def test_variations_of_an_instrumental_stay_instrumental(client):
     made = client.post(f"/api/takes/{take['id']}/variations", json={"interpretations": ["loose"]}).json()["created"]
     assert one("SELECT kind FROM takes WHERE id = ?", (made[0]["id"],))["kind"] == "instrumental"
     drain()
+
+
+def test_feel_sets_the_lora_strength_in_both_graphs():
+    steady = jobs.build_plan_graph(TAKE)["20"]["inputs"]["strength_clip"]
+    varied_plan = jobs.build_plan_graph({**TAKE, "feel": "varied"})["20"]["inputs"]["strength_clip"]
+    varied_render = jobs.build_render_graph({**TAKE, "feel": "varied"})["20"]["inputs"]["strength_clip"]
+    assert (steady, varied_plan, varied_render) == (1.0, 0.8, 0.8)
+
+
+def test_the_api_keeps_the_feel_and_variations_copy_it(client, monkeypatch):
+    monkeypatch.setitem(jobs.ENGINE.options, "instrumental", True)
+    monkeypatch.setattr(jobs.ENGINE, "options_loaded", True)
+    monkeypatch.setitem(jobs.ENGINE.options, "checkpoints", [config.CHECKPOINT])
+    assert client.post("/api/instrumentals", json={"feel": "wobbly"}).status_code == 400
+    made = client.post("/api/instrumentals", json={"feel": "varied"}).json()
+    assert one("SELECT feel FROM takes WHERE id = ?", (made["id"],))["feel"] == "varied"
+    drain()
+    take = make_take(kind="instrumental", title="Lemon", lyrics="[instrumental]", abc=PLAN)
+    from app.db import execute
+    execute("UPDATE takes SET feel = 'varied' WHERE id = ?", (take["id"],))
+    copy = client.post(f"/api/takes/{take['id']}/variations", json={"interpretations": ["tight"]}).json()["created"][0]
+    assert one("SELECT feel FROM takes WHERE id = ?", (copy["id"],))["feel"] == "varied"
+    drain()

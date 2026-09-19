@@ -94,6 +94,10 @@ def interpretation_sampling(name: str | None) -> dict:
     return {**INTERPRETATIONS["standard"], **INTERPRETATIONS.get(name or "standard", {})}
 
 
+def feel_strength(take: dict) -> float:
+    return instrumental.FEELS.get(take.get("feel") or "steady", instrumental.FEELS["steady"])
+
+
 def build_plan_graph(take: dict) -> dict:
     """Write a score plan from the style and lyrics alone. No recording involved."""
     graph = load_template("song_plan.json")
@@ -111,7 +115,7 @@ def build_plan_graph(take: dict) -> dict:
         graph["2"]["class_type"] = HARMONY_NODE
         node.update({**HARMONY_OFF, **HARMONY[step]})
     if take.get("kind") == "instrumental":
-        instrumental.with_lora(graph, "1", config.INSTRUMENTAL_LORA, ("2",))
+        instrumental.with_lora(graph, "1", config.INSTRUMENTAL_LORA, ("2",), feel_strength(take))
     return graph
 
 
@@ -133,7 +137,7 @@ def build_render_graph(take: dict) -> dict:
     graph["16"]["inputs"]["filename_prefix"] = f"yue2studio/{take['id']}-{int(time.time() * 1000)}"
     if take.get("kind") == "instrumental":
         node["mode"] = "full"
-        instrumental.with_lora(graph, "10", config.INSTRUMENTAL_LORA, ("11",))
+        instrumental.with_lora(graph, "10", config.INSTRUMENTAL_LORA, ("11",), feel_strength(take))
     return graph
 
 

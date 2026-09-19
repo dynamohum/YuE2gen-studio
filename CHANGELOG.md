@@ -22,13 +22,16 @@ cannot creep back in.
   vocal out, using the YuE2 instrumental LoRA. The structure is built in the panel: let YuE2 decide,
   choose the sections, or choose the sections and time each one. **Sent to YuE2** shows exactly
   what the model receives.
+- **Feel** in Instrumental mode: Steady (the LoRA at full strength, repetitive and laid-back) or
+  Varied (a little looser, with more movement between sections). The take keeps its feel.
 - Instrumentals get the score plan, Harmony, Plan variety, Interpretation, Variations, the chord
   chart and the length cap, like songs. Their takes are green, and clicking one loads its structure
   back into the builder. The lyrics box is left alone.
 - The mode switch reads Cover, Song and Instrumental.
 - `scripts/fetch-models.sh` also fetches the LoRA into `models/loras/`.
-- API: `POST /api/instrumentals`. An instrumental take has `kind` `instrumental`, and its structure
-  in `lyrics`.
+- API: `POST /api/instrumentals`. An instrumental take has `kind` `instrumental`, its structure
+  in `lyrics`, and its `feel`.
+- The database gains `takes.feel` on the first start (migration 6).
 
 ## 0.0.2 - 2026-09-19
 

@@ -260,6 +260,7 @@ class InstrumentalIn(BaseModel):
     harmony: int = Field(0, ge=0, le=len(HARMONY_STEPS) - 1)
     space_id: str = Field(DEFAULT_SPACE, max_length=64)
     interpretation: str = "standard"
+    feel: str = "steady"
 
 
 class RenderIn(BaseModel):
@@ -709,6 +710,8 @@ async def create_instrumental(body: InstrumentalIn) -> dict:
         structure = instrumental.normalise(body.structure)
     except ValueError as exc:
         raise HTTPException(400, f"That structure will not work: {exc}") from exc
+    if body.feel not in instrumental.FEELS:
+        raise HTTPException(400, f"unknown feel: {body.feel}")
     title = (body.title or "").strip() or "Untitled instrumental"
     return await _plan_new_take("instrumental", title, structure, body)
 
@@ -734,12 +737,13 @@ async def _plan_new_take(kind: str, title: str, words: str, body: SongIn | Instr
         "harmony": body.harmony,
         "space_id": body.space_id,
         "interpretation": _interpretation(body.interpretation),
+        "feel": getattr(body, "feel", "steady"),
     }
     execute(
         """INSERT INTO takes(id, kind, source_id, title, style, lyrics, abc, mode, seed, checkpoint,
-                             max_duration, status, created_at, auto_render, variety, harmony, space_id, interpretation)
+                             max_duration, status, created_at, auto_render, variety, harmony, space_id, interpretation, feel)
            VALUES(:id, :kind, NULL, :title, :style, :lyrics, '', :mode, :seed, :checkpoint,
-                  :max_duration, 'queued', :created_at, :auto_render, :variety, :harmony, :space_id, :interpretation)""",
+                  :max_duration, 'queued', :created_at, :auto_render, :variety, :harmony, :space_id, :interpretation, :feel)""",
         record,
     )
     await QUEUE.put({"kind": "plan", "id": take_id})
@@ -905,13 +909,13 @@ async def variations(take_id: str, body: VariationsIn) -> dict:
             "title": f"{base} \u00b7 {INTERPRETATION_NAMES[name]}", "style": take["style"], "lyrics": take["lyrics"],
             "abc": take["abc"], "mode": take["mode"], "seed": take["seed"], "checkpoint": config.CHECKPOINT,
             "max_duration": take["max_duration"], "created_at": now + offset * 0.001, "variety": take["variety"],
-            "harmony": take["harmony"], "space_id": take["space_id"], "interpretation": name,
+            "harmony": take["harmony"], "space_id": take["space_id"], "interpretation": name, "feel": take["feel"],
         }
         execute(
             """INSERT INTO takes(id, kind, source_id, title, style, lyrics, abc, mode, seed, checkpoint, max_duration,
-                                 status, created_at, variety, harmony, space_id, interpretation)
+                                 status, created_at, variety, harmony, space_id, interpretation, feel)
                VALUES(:id, :kind, :source_id, :title, :style, :lyrics, :abc, :mode, :seed, :checkpoint, :max_duration,
-                      'queued', :created_at, :variety, :harmony, :space_id, :interpretation)""",
+                      'queued', :created_at, :variety, :harmony, :space_id, :interpretation, :feel)""",
             record,
         )
         await QUEUE.put({"kind": "render", "id": record["id"]})

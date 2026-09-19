@@ -14,6 +14,9 @@ from __future__ import annotations
 import re
 
 SECTIONS = ("intro", "verse", "pre-chorus", "chorus", "bridge", "outro")
+# How firmly the LoRA holds the model to its training.  Steady is the author's own
+# setting; Varied loosens it, for more movement between sections.
+FEELS = {"steady": 1.0, "varied": 0.8}
 BARE = "[instrumental]"
 _TAG = re.compile(r"^\[\s*([a-z-]+)(?:\s+(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2}))?\s*\]$")
 
@@ -54,12 +57,12 @@ def seconds(structure: str) -> int | None:
     return int(ends[-1][0]) * 60 + int(ends[-1][1]) if ends else None
 
 
-def with_lora(graph: dict, loader: str, lora: str, text_nodes: tuple[str, ...]) -> dict:
+def with_lora(graph: dict, loader: str, lora: str, text_nodes: tuple[str, ...], strength: float = 1.0) -> dict:
     """Put the LoRA between the checkpoint and the YuE2 text nodes.  The model side
     is left alone (strength 0), so the audio sampler is unchanged."""
     graph["20"] = {"class_type": "LoraLoader", "inputs": {
         "model": [loader, 0], "clip": [loader, 1], "lora_name": lora,
-        "strength_model": 0.0, "strength_clip": 1.0}}
+        "strength_model": 0.0, "strength_clip": strength}}
     for node in text_nodes:
         graph[node]["inputs"]["clip"] = ["20", 1]
     return graph

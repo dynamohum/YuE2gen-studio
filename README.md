@@ -174,6 +174,16 @@ Add sections with the **+** chips, reorder them with the arrows, and give each a
 when timed. **Sent to YuE2** shows exactly what goes to the model. The style presets switch to
 instrumental ones, and the Vocal chips and the lyrics box are hidden.
 
+**Feel** sets how firmly the LoRA holds YuE2 to what it learned:
+
+| Feel | What you get |
+|---|---|
+| Steady | sticks to its loop: repetitive and laid-back. The LoRA at full strength, as its author uses it |
+| Varied | more movement and variation between sections. The LoRA a little looser (0.8) |
+
+Neither brought vocals back in a check with stem separation. The take keeps its feel, and the card
+says *varied* when it was used.
+
 The rest works as for a song: the score plan, Harmony, Plan variety, Interpretation, Variations,
 the chord chart and the length cap. Instrumental takes are green in the library.
 

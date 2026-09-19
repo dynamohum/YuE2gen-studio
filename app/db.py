@@ -83,7 +83,8 @@ CREATE TABLE IF NOT EXISTS takes (
     variety TEXT NOT NULL DEFAULT 'normal',
     harmony INTEGER NOT NULL DEFAULT 0,
     space_id TEXT NOT NULL DEFAULT 'default',
-    interpretation TEXT NOT NULL DEFAULT 'standard'
+    interpretation TEXT NOT NULL DEFAULT 'standard',
+    feel TEXT NOT NULL DEFAULT 'steady'
 );
 CREATE TABLE IF NOT EXISTS spaces (
     id TEXT PRIMARY KEY,
@@ -169,6 +170,11 @@ def _interpretation() -> None:
         execute("ALTER TABLE takes ADD COLUMN interpretation TEXT NOT NULL DEFAULT 'standard'")
 
 
+def _feel() -> None:
+    if "feel" not in _columns("takes"):
+        execute("ALTER TABLE takes ADD COLUMN feel TEXT NOT NULL DEFAULT 'steady'")
+
+
 def _indexes() -> None:
     conn().executescript(
         """
@@ -188,6 +194,7 @@ MIGRATIONS = [
     _harmony,                                                        # -> 3
     _spaces,                                                         # -> 4
     _interpretation,                                                 # -> 5
+    _feel,                                                           # -> 6
 ]
 
 

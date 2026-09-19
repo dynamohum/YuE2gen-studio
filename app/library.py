@@ -67,6 +67,7 @@ def write_take_note(take: dict, audio: Path) -> None:
         "variety": take.get("variety"),
         "harmony": take.get("harmony"),
         "interpretation": take.get("interpretation"),
+        "feel": take.get("feel") if take.get("kind") == "instrumental" else None,
         "checkpoint": take.get("checkpoint"),
         "duration": take.get("duration"),
         "created_at": take.get("created_at"),
