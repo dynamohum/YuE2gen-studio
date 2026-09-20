@@ -70,8 +70,62 @@ def folder() -> Path | None:
     return path if path.is_dir() else None
 
 
+def note_for(path: Path) -> dict:
+    """A LoRA's own notes, from a text file beside it.
+
+    A file name is not a description. `mltnt_roots.safetensors` says nothing
+    about what it does, and the people who publish these write a paragraph that
+    is left behind on a web page. So a `.txt` of the same name is read if it is
+    there: the first line names it, the rest describes it.
+
+    Nothing has to have one, and anything can: a LoRA of your own gets a note by
+    writing one beside it."""
+    sidecar = path.with_suffix(".txt")
+    if not sidecar.is_file():
+        return {}
+    try:
+        lines = sidecar.read_text(encoding="utf-8").strip().split("\n")
+    except (OSError, UnicodeDecodeError) as err:
+        log.warning("could not read %s: %s", sidecar.name, err)
+        return {}
+    title = lines[0].strip()
+    rest, trigger = [], None
+    for line in lines[1:]:
+        # A trigger word has to be typed into the style, or the LoRA barely
+        # shows, so it is pulled out of the prose and shown on its own.
+        if line.lower().startswith("trigger:"):
+            trigger = line.split(":", 1)[1].strip()
+            continue
+        rest.append(line)
+    body = "\n".join(rest).strip()
+    return {k: v for k, v in (("title", title), ("note", body), ("trigger", trigger)) if v}
+
+
+def families(root: Path | None) -> dict[str, str]:
+    """Readable names for the groups the picker makes, from `families.txt`.
+
+    Authors name a set with a code — chnsn, mltnt — and the picker groups on it
+    because that is what the file names carry. `chnsn = Chanson francaise` in
+    that file turns the heading into something a person can read."""
+    if not root:
+        return {}
+    path = root / "families.txt"
+    if not path.is_file():
+        return {}
+    out = {}
+    try:
+        for line in path.read_text(encoding="utf-8").split("\n"):
+            if "=" in line and not line.strip().startswith("#"):
+                key, _, label = line.partition("=")
+                out[key.strip().lower()] = label.strip()
+    except (OSError, UnicodeDecodeError) as err:
+        log.warning("could not read families.txt: %s", err)
+    return out
+
+
 def describe(name: str, root: Path | None) -> dict:
-    """One entry for the picker: what the file is, and whether it can be read."""
+    """One entry for the picker: what the file is, what it is for, and whether
+    it can be read at all."""
     entry = {"name": name, "kind": "unknown", "reserved": name in RESERVED}
     if not root:
         return entry
@@ -84,6 +138,7 @@ def describe(name: str, root: Path | None) -> dict:
         # A file the engine lists but this side cannot parse is still offered:
         # the engine is the one that has to load it.
         log.warning("could not read %s: %s", name, err)
+    entry.update(note_for(path))
     return entry
 
 
@@ -91,7 +146,15 @@ def catalogue(listed: list[str]) -> list[dict]:
     """Everything the engine can load, with what each one holds.  The engine's
     list is the authority on what exists; the files only add detail."""
     root = folder()
-    return [describe(name, root) for name in listed]
+    named = families(root)
+    entries = []
+    for name in listed:
+        entry = describe(name, root)
+        family = name.replace(".safetensors", "").split("-")[0].split("_")[0].lower()
+        if family in named:
+            entry["family"] = named[family]
+        entries.append(entry)
+    return entries
 
 
 def usable(entry: dict) -> bool:

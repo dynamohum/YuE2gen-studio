@@ -204,14 +204,19 @@ function paintStyleLoras() {
   });
   var option = function (item) {
     var note = LORA_KINDS[item.kind] ? ' \u2014 ' + LORA_KINDS[item.kind] : '';
-    return '<option value="' + esc(item.name) + '">' + esc(loraShortLabel(item.name)) + esc(note) + '</option>';
+    // The author's own name for it beats a file name every time.
+    var label = item.title || loraShortLabel(item.name);
+    return '<option value="' + esc(item.name) + '">' + esc(label) + esc(note) + '</option>';
   };
   select.innerHTML = '<option value="">None</option>' + names.map(function (family) {
     var inner = groups[family].map(option).join('');
     // One group and nothing to compare it with: the heading is noise.
     if (names.length < 2) { return inner; }
-    return '<optgroup label="' + esc(family.charAt(0).toUpperCase() + family.slice(1)) + '">' +
-      inner + '</optgroup>';
+    // Other is a bag of odds and ends, so it must not borrow a name from
+    // whichever of them happens to be first.
+    var heading = family === 'other' ? 'Other'
+      : ((groups[family][0] || {}).family || family.charAt(0).toUpperCase() + family.slice(1));
+    return '<optgroup label="' + esc(heading) + '">' + inner + '</optgroup>';
   }).join('');
   if (!chosen && select.dataset.wanted) { chosen = select.dataset.wanted; }
   if (chosen) { select.value = chosen; }
@@ -231,7 +236,31 @@ function loraShortLabel(name) {
   return (head.toLowerCase() === family && label.indexOf(' ') > 0) ? label.slice(head.length + 1) : label;
 }
 
+/* A file name says nothing about what a LoRA does, so whatever its author
+   wrote is shown under the picker, and the trigger word is shown as something
+   to click, because it has to reach the style box to do anything. */
+function paintStyleLoraNote() {
+  var name = $('style-lora').value;
+  var item = loraCatalogue().filter(function (entry) { return entry.name === name; })[0];
+  var hint = $('style-lora-hint');
+  if (!item) {
+    hint.innerHTML = 'Planner shapes the score, Sound shapes the audio.';
+    return;
+  }
+  var parts = [];
+  if (item.trigger) {
+    var already = $('style').value.toLowerCase().indexOf(item.trigger.toLowerCase()) >= 0;
+    parts.push(already
+      ? 'Style has its trigger word, <b>' + esc(item.trigger) + '</b>.'
+      : 'Needs <b>' + esc(item.trigger) + '</b> in the style. ' +
+        '<button type="button" class="link" data-act="lora-trigger">Add it</button>');
+  }
+  if (item.note) { parts.push(esc(item.note).replace(/\n+/g, '<br>')); }
+  hint.innerHTML = parts.join('<br>') || 'Planner shapes the score, Sound shapes the audio.';
+}
+
 function paintStyleLoraStrengths() {
+  paintStyleLoraNote();
   var name = $('style-lora').value;
   var kind = name ? loraKind(name) : '';
   $('style-lora-strengths').classList.toggle('hidden', !name);
@@ -3802,6 +3831,20 @@ function wire() {
   $('auto-render').addEventListener('change', saveForm);
   $('seed-fixed').addEventListener('change', saveForm);
   $('realaudio').addEventListener('change', saveForm);
+  $('style-lora-hint').addEventListener('click', function (event) {
+    var button = event.target.closest('[data-act="lora-trigger"]');
+    if (!button) { return; }
+    var item = loraCatalogue().filter(function (entry) {
+      return entry.name === $('style-lora').value;
+    })[0];
+    if (!item || !item.trigger) { return; }
+    // These LoRAs are trained on captions that start with the trigger.
+    var style = $('style');
+    style.value = item.trigger + ', ' + style.value.replace(/^\s+/, '');
+    style.dataset.touched = '1';
+    paintStyleLoraNote();
+    saveForm();
+  });
   $('style-lora').addEventListener('change', function () {
     paintStyleLoraStrengths();
     saveForm();
