@@ -243,7 +243,12 @@ function paintStyleLoras() {
       : (groups[family][0].family ? family : family.charAt(0).toUpperCase() + family.slice(1));
     return '<optgroup label="' + esc(heading) + '">' + inner + '</optgroup>';
   }).join('');
+  // A remembered name waits here only until the list it names exists, and is
+  // then spent.  Left in place it outlives the choice: the state poll repaints
+  // this picker every couple of seconds, and would put the old LoRA back every
+  // time None was chosen.
   if (!chosen && select.dataset.wanted) { chosen = select.dataset.wanted; }
+  delete select.dataset.wanted;
   if (chosen) { select.value = chosen; }
   paintStyleLoraStrengths();
 }
