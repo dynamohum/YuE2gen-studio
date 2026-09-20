@@ -5,6 +5,8 @@
 #   audio_encoders/sheetsage2_bf16.safetensors           SheetSage2, transcription      1.4 GB
 #   text_encoders/gemma4_e4b_it_int8_convrot.safetensors Gemma 4 E4B, lyric drafts      8.1 GB
 #   loras/ar_lora_inst_v3abc_comfyui.safetensors         instrumental LoRA              0.2 GB
+#   loras/nar_lora_joint_v9_comfyui.safetensors          Realaudio decoder LoRA         0.1 GB
+#   audio_encoders/tokenizer_head_joint_v9.safetensors   Realaudio tokenizer head       0.2 GB
 #
 #   sh scripts/fetch-models.sh
 #

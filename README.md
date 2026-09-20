@@ -89,8 +89,8 @@ to Docker: a folder Docker creates for a mount belongs to root, and the app, whi
 1000, then cannot write its library there. If your user is not uid 1000, change `user:` for the
 app in compose.yml to your `id -u`:`id -g`, or `chown` those two folders to 1000.
 
-The models are YuE2 (plans and renders), SheetSage2 (transcription), Gemma 4 E4B (lyric drafts) and
-the YuE2 instrumental LoRA.
+The models are YuE2 (plans and renders), SheetSage2 (transcription), Gemma 4 E4B (lyric drafts),
+the YuE2 instrumental LoRA, and the Realaudio decoder LoRA and tokenizer head.
 
 Only localhost is published, and **there is no login**: anyone who can reach the port can use the
 app. To reach it from other machines, put it behind something that authenticates, and add the
@@ -104,10 +104,15 @@ the same way. The setup around it needs care:
 
 1. **Use the WSL 2 engine.** In Docker Desktop, *Settings → General → Use the WSL 2 based engine*
    must be on. The older Hyper-V engine cannot reach the GPU.
-2. **Install a current NVIDIA driver** for Windows. It includes WSL support; nothing is installed
+2. **Turn on WSL integration** for your distribution, in *Settings → Resources → WSL
+   Integration*, then open a new terminal. Without it, `docker` in a WSL terminal cannot see
+   Desktop's daemon. If Docker is also installed inside WSL, `docker info --format
+   '{{.OperatingSystem}}'` says which one you are talking to: Docker Desktop names itself, the
+   other names the distribution.
+3. **Install a current NVIDIA driver** for Windows. It includes WSL support; nothing is installed
    inside Linux. Check with `docker run --rm --gpus all nvidia/cuda:12.8.0-base-ubuntu24.04 nvidia-smi`,
    which should print the card.
-3. **Give WSL enough memory.** It is capped at part of the PC's RAM, and a render needs about
+4. **Give WSL enough memory.** It is capped at part of the PC's RAM, and a render needs about
    11 GB. Create `%UserProfile%\.wslconfig` with:
 
    ```ini
@@ -116,10 +121,10 @@ the same way. The setup around it needs care:
    ```
 
    Set it to your RAM less 2 GB, then run `wsl --shutdown` and start Docker Desktop again.
-4. **Clone inside WSL, not on C:.** Open a WSL terminal (Ubuntu from the Store is the usual one)
+5. **Clone inside WSL, not on C:.** Open a WSL terminal (Ubuntu from the Store is the usual one)
    and run the quick start there. A clone on `C:\` works, but the 17 GB of models and the library
    then cross a slow bridge into Linux, and SQLite's locking is less dependable across it.
-5. **Run the fetch script in that WSL terminal**, or in Git Bash. PowerShell and Command Prompt
+6. **Run the fetch script in that WSL terminal**, or in Git Bash. PowerShell and Command Prompt
    cannot run `sh`.
 
 The repository forces Unix line endings, so a clone on Windows keeps its scripts runnable. If
