@@ -206,6 +206,8 @@ textarea.lyrics { min-height: 200px; font-family: ui-monospace, SFMono-Regular, 
   transition: background 0.12s, color 0.12s;
 }
 .brand-menu .menu-item:hover { background: rgba(255, 255, 255, 0.08); }
+/* One item is a link rather than a button, because it goes to a page. */
+a.menu-item { text-decoration: none; box-sizing: border-box; }
 .brand-menu .menu-icon { width: 16px; height: 16px; color: var(--muted); flex-shrink: 0; }
 .brand-menu .menu-item:hover .menu-icon { color: var(--text); }
 .setting-row {

@@ -80,6 +80,13 @@ differ, the publisher's terms apply.
 - Vendored in `app/static/abcjs-basic-min.js`, with its licence in
   [app/static/abcjs.LICENSE.md](app/static/abcjs.LICENSE.md).
 
+### marked (the guide's renderer)
+
+- By Christopher Jeffrey and contributors. **MIT**. Source: [markedjs/marked](https://github.com/markedjs/marked).
+- Vendored in `app/static/marked.min.js` (v15.0.12), with its licence in
+  [app/static/marked.LICENSE.md](app/static/marked.LICENSE.md). It renders `app/static/guide.md` in
+  the browser, so the guide stays readable markdown and the image gains no dependency.
+
 ### Python packages
 
 - The app's packages are listed, with pinned versions, in `requirements.txt`. Each is used under

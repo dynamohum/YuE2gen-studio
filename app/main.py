@@ -415,9 +415,22 @@ class SettingIn(BaseModel):
 _INDEX = (STATIC_DIR / "index.html").read_text(encoding="utf-8").replace("{{VERSION}}", config.VERSION)
 
 
+_GUIDE = (STATIC_DIR / "guide.html").read_text(encoding="utf-8").replace("{{VERSION}}", config.VERSION)
+
+
 @app.get("/")
 def index() -> HTMLResponse:
     return HTMLResponse(_INDEX)
+
+
+@app.get("/guide")
+def guide() -> HTMLResponse:
+    """The user guide, which is markdown on disk and rendered in the browser.
+
+    It is served from a tidy path rather than /static/guide.html because it is a
+    page people are sent to, and because the markdown itself stays readable in
+    the repository and on GitHub."""
+    return HTMLResponse(_GUIDE)
 
 
 @app.get("/api/health")

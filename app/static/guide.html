@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>YuE2 Studio — the guide</title>
+<link rel="stylesheet" href="/static/styles.css?v={{VERSION}}">
+<style>
+  /* The guide is a document, not an application: one column, wide margins, and
+     text sized to be read rather than scanned. */
+  body { background: var(--bg); color: var(--text); }
+  /* The app styles <main> as its two-panel grid. This page is a document, and
+     borrows only the colours, so the layout has to be stated again. */
+  main.guide-body {
+    display: block; grid-template-columns: none; gap: 0; padding: 0; margin: 0;
+    max-width: 780px;
+  }
+  .guide-top {
+    position: sticky; top: 0; z-index: 2; display: flex; align-items: baseline; gap: 14px;
+    padding: 14px 20px; background: var(--bg-2); border-bottom: 1px solid var(--line);
+  }
+  .guide-top a { color: var(--accent-a); text-decoration: none; }
+  .guide-top a:hover { text-decoration: underline; }
+  .guide-wrap { display: flex; gap: 32px; max-width: 1180px; margin: 0 auto; padding: 24px 20px 80px; }
+  .guide-toc {
+    width: 220px; flex: 0 0 auto; position: sticky; top: 64px; align-self: flex-start;
+    max-height: calc(100vh - 90px); overflow-y: auto; font-size: 13px;
+  }
+  .guide-toc a { display: block; padding: 3px 0; color: var(--muted); text-decoration: none; }
+  .guide-toc a:hover, .guide-toc a.on { color: var(--text); }
+  .guide-toc a.sub { padding-left: 12px; font-size: 12.5px; }
+  .guide-body { flex: 1; min-width: 0; max-width: 780px; line-height: 1.65; font-size: 15px; }
+  .guide-body h1 { font-size: 30px; margin: 0 0 6px; }
+  .guide-body h2 { font-size: 22px; margin: 38px 0 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+  .guide-body h3 { font-size: 17px; margin: 26px 0 8px; color: var(--text); }
+  .guide-body p, .guide-body li { color: #d9d9e3; }
+  .guide-body a { color: var(--accent-a); }
+  .guide-body code {
+    background: var(--card-2); padding: 1px 5px; border-radius: 4px; font-size: 13px;
+  }
+  .guide-body pre {
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px 14px; overflow-x: auto;
+  }
+  .guide-body pre code { background: none; padding: 0; }
+  .guide-body table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 14px; }
+  .guide-body th, .guide-body td {
+    border: 1px solid var(--line); padding: 7px 10px; text-align: left; vertical-align: top;
+  }
+  .guide-body th { background: var(--card-2); }
+  .guide-body hr { border: 0; border-top: 1px solid var(--line); margin: 34px 0; }
+  .guide-body blockquote {
+    margin: 14px 0; padding: 2px 14px; border-left: 3px solid var(--accent-a); color: var(--muted);
+  }
+  @media (max-width: 860px) {
+    .guide-wrap { flex-direction: column; gap: 10px; }
+    .guide-toc { position: static; width: auto; max-height: none; }
+  }
+  @media print {
+    .guide-top, .guide-toc { display: none; }
+    .guide-wrap { display: block; max-width: none; padding: 0; }
+    body, .guide-body p, .guide-body li { background: #fff; color: #000; }
+    .guide-body a { color: #000; }
+  }
+</style>
+</head>
+<body>
+<div class="guide-top">
+  <strong>YuE2 Studio</strong>
+  <a href="/">&larr; back to the app</a>
+  <span class="muted" style="margin-left:auto">Ctrl&#8209;P prints this</span>
+</div>
+
+<div class="guide-wrap">
+  <nav class="guide-toc" id="toc" aria-label="Contents"></nav>
+  <main class="guide-body" id="body">Loading the guide&hellip;</main>
+</div>
+
+<script src="/static/marked.min.js?v={{VERSION}}"></script>
+<script>
+/* The guide is markdown on disk so it stays diffable and readable on GitHub;
+   this renders it in the browser rather than adding a dependency to the image. */
+(function () {
+  'use strict';
+
+  function slug(text) {
+    return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  }
+
+  function buildToc(body, toc) {
+    var links = [];
+    var heads = body.querySelectorAll('h2, h3');
+    Array.prototype.forEach.call(heads, function (head) {
+      head.id = head.id || slug(head.textContent);
+      var link = document.createElement('a');
+      link.href = '#' + head.id;
+      link.textContent = head.textContent;
+      if (head.tagName === 'H3') { link.className = 'sub'; }
+      toc.appendChild(link);
+      links.push({ link: link, head: head });
+    });
+    return links;
+  }
+
+  /* Whichever heading is nearest the top of the window is the one you are
+     reading, so that is the one marked in the contents. */
+  function follow(links) {
+    var mark = function () {
+      var best = null;
+      links.forEach(function (item) {
+        var top = item.head.getBoundingClientRect().top;
+        if (top < 120 && (!best || top > best.head.getBoundingClientRect().top)) { best = item; }
+      });
+      links.forEach(function (item) { item.link.className = item.link.className.replace(' on', ''); });
+      if (best) { best.link.className += ' on'; }
+    };
+    window.addEventListener('scroll', mark, { passive: true });
+    mark();
+  }
+
+  fetch('/static/guide.md?v=' + Date.now())
+    .then(function (r) {
+      if (!r.ok) { throw new Error('the guide is missing (' + r.status + ')'); }
+      return r.text();
+    })
+    .then(function (text) {
+      var body = document.getElementById('body');
+      body.innerHTML = marked.parse(text);
+      follow(buildToc(body, document.getElementById('toc')));
+      if (location.hash) {
+        var target = document.getElementById(location.hash.slice(1));
+        if (target) { target.scrollIntoView(); }
+      }
+    })
+    .catch(function (err) {
+      document.getElementById('body').textContent = 'Could not load the guide: ' + err.message;
+    });
+}());
+</script>
+</body>
+</html>
