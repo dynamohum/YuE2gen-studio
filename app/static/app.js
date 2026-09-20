@@ -398,6 +398,7 @@ function saveForm() {
     data.auto_render = $('auto-render').checked;
     data.seed_fixed = $('seed-fixed').checked;
     data.realaudio = $('realaudio').checked;
+    data.source = $('source-select') ? $('source-select').value : '';
     data.style_lora = $('style-lora') ? $('style-lora').value : '';
     data.style_lora_model = $('style-lora-model') ? $('style-lora-model').value : '1';
     data.style_lora_clip = $('style-lora-clip') ? $('style-lora-clip').value : '1';
@@ -429,6 +430,8 @@ function loadForm() {
   if (typeof data.seed_fixed === 'boolean') { $('seed-fixed').checked = data.seed_fixed; }
   if (typeof data.realaudio === 'boolean') { $('realaudio').checked = data.realaudio; }
   else { $('realaudio').checked = true; }
+  // The list arrives from the server, so the name is held until it exists.
+  if (typeof data.source === 'string') { State.wantedSource = data.source; }
   if (data.vocal_planner !== undefined && $('vocal-planner')) {
     $('vocal-planner').value = data.vocal_planner;
   }
@@ -851,6 +854,12 @@ async function loadSources() {
     return '<option value="' + source.id + '">' + esc(source.title) + mark + '</option>';
   }).join('');
   if (previous) { select.value = previous; }
+  // Spent on use, like the LoRA picker's: left in place it would put the
+  // remembered recording back every time another was chosen.
+  if (!select.value && State.wantedSource) { select.value = State.wantedSource; }
+  State.wantedSource = null;
+  // A first visit has nothing to remember, and the newest recording is the one
+  // most likely wanted.
   if (!select.value && State.sources.length) { select.value = State.sources[0].id; }
   paintSource();
 }
@@ -3738,7 +3747,8 @@ function wire() {
   $('source-select').addEventListener('change', function () {
     claimEditorFor(null);
     paintSource();
-    });
+    saveForm();
+  });
   $('transcribe').addEventListener('click', doTranscribe);
   $('create-cover').addEventListener('click', doRender);
   $('create-song').addEventListener('click', doPlan);
