@@ -47,16 +47,61 @@ checks whether a line is already someone else's. Read it and make it yours befor
 
 ## Reading and fixing the plan
 
-The plan is ABC notation: a compact text score. You do not need to read music to work with it.
+The plan is written in **ABC notation**: music as plain text, letters instead of dots on a stave.
+Chris Walshaw devised it in the early 1990s for sending folk tunes by email, and it stuck.
 
-- **Expand** opens a full-size editor with three views below it: a **chord chart**, real **staff
-  notation**, and the **lyrics with each section's chords**.
-- Chord symbols sit in double quotes, like `"Am"`. **Find and replace** fixes one everywhere, or
-  you can change the harmony of a single section by hand.
-- The header lines matter: `Q:` is the tempo, `K:` the key, `M:` the metre, and `V:` starts a voice.
+You do not need to read it. The app renders the same plan as a **chord chart** and as real **staff
+notation** below the editor, and **Expand** opens all of it full size. But the text is what YuE2
+wrote and what it renders from, so it is worth being able to find your way around.
 
-If you edit the plan, the render uses what you edited. Repairing a plan is usually faster than
-rerolling until one comes out right.
+### Reading a plan
+
+A plan begins with a header, one letter and a colon per line:
+
+```
+X:1
+M:4/4
+L:1/32
+Q:1/4=120
+V: Vocal clef=treble name="Vocal Melody"
+V: Ins   clef=treble name="Ins Melody"
+K:D#m
+```
+
+| Line | Means |
+|---|---|
+| `X:1` | the tune's number. Every ABC file starts with one |
+| `M:4/4` | the metre — four beats in a bar |
+| `L:1/32` | the unit length: a bare letter lasts a thirty-second note |
+| `Q:1/4=120` | the tempo — a quarter note at 120 beats per minute |
+| `V:` | declares a voice. YuE2 writes two, a vocal and an instrumental line |
+| `K:D#m` | the key, D sharp minor. `K:` always comes last in the header |
+
+Then the music itself:
+
+```
+% intro
+V: Vocal
+z24z4"D#m"z4|"D#m"z32|
+V: Ins
+Z|d16a16-|a16g8a8|
+```
+
+- **Notes are letters.** `d16` is a D lasting 16 units. Lowercase sits an octave above uppercase,
+  and `'` or `,` shift it further.
+- **`-` ties** a note into the next one, so they sound as one.
+- **`z` is a rest**, with a length like a note. A capital `Z` rests for a whole bar.
+- **Chords live in double quotes**, like `"D#m"`, and sit in front of the note they start on. These
+  are what **find and replace** edits.
+- **`|` is a bar line**, and **`%` starts a comment** — which is how the sections are marked:
+  `% intro`, `% verse`, `% chorus`.
+
+So that fragment says: D sharp minor, four four, 120 beats per minute, and through the intro the
+vocal rests while carrying the chord, while the instrument plays a tied D and A, then G and A.
+
+Two practical consequences. **Editing chords is safe** even if the notes look opaque — they are only
+the parts in quotes, and everything else can be left alone. And **if you edit the plan, the render
+uses what you edited**, so repairing one is usually faster than rerolling until a good one appears.
 
 ### Harmony
 
