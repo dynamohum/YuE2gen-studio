@@ -2326,8 +2326,8 @@ function icon(name) {
     'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + ICONS[name] + '</svg>';
 }
 
-function tile(kind, iconName, label, attrs) {
-  return '<button class="act ' + kind + '" ' + (attrs || '') + ' title="' + label + '">' +
+function tile(kind, iconName, label, attrs, title) {
+  return '<button class="act ' + kind + '" ' + (attrs || '') + ' title="' + (title || label) + '">' +
     icon(iconName) + '<span>' + label + '</span></button>';
 }
 
@@ -2571,6 +2571,12 @@ function paintTakes() {
       live = '<div class="take-status ready">plan ready</div>';
     } else if (status !== 'done') {
       live = '<div class="take-meta">' + esc(status === 'queued' ? 'waiting for the engine' : status) + '</div>';
+    } else if (take.kind === 'instrumental' && take.vocal_check >= 0.1) {
+      // The LoRA keeps the voice out on most seeds and not all. The finished
+      // audio is checked, so a spoiled take says so rather than puzzling you.
+      live = '<div class="take-status sung" title="Rendered again with a new seed it usually comes out clean. ' +
+        'Choosing the sections rather than letting YuE2 decide helps too.">singing in ' +
+        Math.round(take.vocal_check * 100) + '% of this instrumental</div>';
     }
     var id = ' data-id="' + take.id + '"';
     var actions = '';
@@ -2611,7 +2617,8 @@ function paintTakes() {
       actions += tile('stems', 'stems', 'Stems', 'data-act="stems"' + id);
       actions += tile('again', 'again', 'Again', 'data-act="again"' + id);
     }
-    actions += tile('star' + (take.favourite ? ' on' : ''), 'star', take.favourite ? 'Starred' : 'Star', 'data-act="star"' + id);
+    actions += tile('star' + (take.favourite ? ' on' : ''), 'star', 'Star', 'data-act="star"' + id,
+                    take.favourite ? 'Starred. Click to remove the star.' : 'Star this take');
     actions += tile('del', 'trash', 'Delete', 'data-act="del"' + id);
     var classes = 'take';
     if (State.playing === take.id) { classes += ' playing'; }
@@ -3686,9 +3693,11 @@ function wire() {
       return;
     }
 
-    // Playback shortcuts, but never while typing.
+    // Playback shortcuts, but never while typing, and never through a window
+    // that is open in front: space belongs to whatever the eye is on.
     var tag = (focus && focus.tagName) || '';
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') { return; }
+    if (document.querySelector('.modal:not(.hidden)')) { return; }
     if (event.code === 'Space') { event.preventDefault(); $('btn-play').click(); }
     else if (event.key === 'ArrowLeft') { nudge(-5); }
     else if (event.key === 'ArrowRight') { nudge(5); }

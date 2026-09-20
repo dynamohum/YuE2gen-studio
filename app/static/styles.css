@@ -459,7 +459,7 @@ details.block[open] > summary { margin-bottom: 10px; }
 .take-style { color: var(--muted); font-size: 12.5px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 /* ---------------------------------------------------------------- action tiles
    Colour carries meaning. Raised by default, and they press down when clicked. */
-.take-actions { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; margin-top: 2px; }
+.take-actions { display: flex; gap: 5px; flex-wrap: nowrap; align-items: center; margin-top: 2px; }
 
 .act {
   --tint: #a1a1aa;
@@ -683,3 +683,4 @@ details.block[open] > summary { margin-bottom: 10px; }
 .identity-export code, .persona-export code { font-size: 12px; word-break: break-all; }
 .identity-form.hidden, .persona-form.hidden { display: none; }
 #identity-edit, #persona-edit { margin: 4px 0 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); }
+.take-status.sung { color: #fbbf24; background: rgba(251, 191, 36, 0.09); border: 1px solid rgba(251, 191, 36, 0.24); border-radius: 8px; padding: 4px 8px; font-size: 12px; }
