@@ -544,9 +544,10 @@ function paintJob(current, queue, options) {
   var mineRunning = current && head && !head.outside && head.id === current.id;
   var titles = { render: 'Rendering your song', plan: 'Writing the score plan', transcribe: 'Transcribing the recording',
     lyrics: 'Writing lyrics' };
+  // Only the render has an average, measured from this machine's own history.
+  // The others show the time they have taken and claim nothing about the rest.
   var average = function (kind) {
-    return kind === 'render' ? (options.avg_render_seconds || 0)
-      : ({ plan: 25, transcribe: 45, lyrics: 40, text: 40 }[kind] || 0);
+    return kind === 'render' ? (options.avg_render_seconds || 0) : 0;
   };
   var rest = queue;
   $('job-stop').style.display = current ? '' : 'none';
@@ -1879,7 +1880,7 @@ async function pollWrite() {
     else { writeStatus(draft.error === 'cancelled' ? 'Stopped.' : 'Could not write the lyrics: ' + draft.error, 'bad'); }
     return;
   }
-  writeStatus(draft.status === 'running' ? 'Writing\u2026 about 40 seconds.'
+  writeStatus(draft.status === 'running' ? 'Writing\u2026'
     : 'Waiting for the engine\u2026 You can close this window: the words land in the lyrics box.');
   WRITE.timer = setTimeout(pollWrite, 2000);
 }
