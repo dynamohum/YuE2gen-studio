@@ -10,3 +10,8 @@ RELEASE-NOTES-*.md
 .kuma-insert.sql
 # Reports such as the audit PDFs live beside the repo, not in it.
 /*.pdf
+# Working notes, kept on this machine and out of the published repository:
+# IDEAS.md is research and designs not yet built, HANDOVER.md is the internal
+# tour of the codebase.
+IDEAS.md
+HANDOVER.md
