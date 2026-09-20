@@ -307,6 +307,18 @@ def _vocal_check() -> None:
         execute("ALTER TABLE takes ADD COLUMN vocal_check REAL")
 
 
+def _style_lora() -> None:
+    """A take keeps the style LoRA it was rendered through and both of its
+    strengths, so the card can name it and Again can reproduce it."""
+    columns = _columns("takes")
+    if "style_lora" not in columns:
+        execute("ALTER TABLE takes ADD COLUMN style_lora TEXT")
+    if "style_lora_model" not in columns:
+        execute("ALTER TABLE takes ADD COLUMN style_lora_model REAL NOT NULL DEFAULT 1.0")
+    if "style_lora_clip" not in columns:
+        execute("ALTER TABLE takes ADD COLUMN style_lora_clip REAL NOT NULL DEFAULT 1.0")
+
+
 MIGRATIONS = [
     lambda: (conn().executescript(BASE_SCHEMA), _legacy_takes()),   # -> 1
     _indexes,                                                        # -> 2
@@ -320,6 +332,7 @@ MIGRATIONS = [
     _persona_loras,                                                  # -> 10
     _identities,                                                     # -> 11
     _vocal_check,                                                    # -> 12
+    _style_lora,                                                     # -> 13
 ]
 
 

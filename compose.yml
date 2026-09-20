@@ -67,6 +67,9 @@ services:
       - ./data:/data
       - ./engine-state/output:/engine-output
       - ./app:/app/app
+      # Read only, and only ever read: the app opens a LoRA's header to say
+      # whether it holds a planner half, a decoder half or both.
+      - ./models:/app/models:ro
       - /mnt/h:/mnt/h:ro
       - /mnt/h:/import:ro
     logging:

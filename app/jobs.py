@@ -132,6 +132,25 @@ def build_plan_graph(take: dict) -> dict:
         node.update({**HARMONY_OFF, **HARMONY[step]})
     if take.get("kind") == "instrumental":
         instrumental.with_lora(graph, "1", config.INSTRUMENTAL_LORA, ("2",), feel_strength(take))
+    style_lora = take.get("style_lora")
+    if style_lora:
+        with_plan_lora(graph, "1", style_lora, ("2",), float(take.get("style_lora_clip") or 0.0))
+    return graph
+
+
+def with_plan_lora(graph: dict, loader: str, lora: str, text_nodes: tuple[str, ...],
+                   strength_clip: float = 1.0, node_id: str = "21") -> dict:
+    """Put a style LoRA in front of the planner, where its planner half does its
+    work: the plan is written in its own run, before any audio exists.
+
+    It chains onto whatever already feeds those text nodes rather than replacing
+    it, so an instrumental keeps its own LoRA and gains this one."""
+    upstream = graph[text_nodes[0]]["inputs"].get("clip") or [loader, 1]
+    graph[node_id] = {"class_type": "LoraLoader", "inputs": {
+        "model": [loader, 0], "clip": upstream, "lora_name": lora,
+        "strength_model": 0.0, "strength_clip": strength_clip}}
+    for node in text_nodes:
+        graph[node]["inputs"]["clip"] = [node_id, 1]
     return graph
 
 
@@ -158,6 +177,17 @@ def with_realaudio_lora(graph: dict, loader: str = "10", lora: str | None = None
     side is left alone (strength 0.0), so the ABC planner and language model are untouched."""
     lora_name = lora or config.REAL_AUDIO_LORA
     return with_render_lora(graph, "25", lora_name, loader=loader, strength_model=strength, strength_clip=0.0)
+
+
+def with_style_lora(graph: dict, lora: str, loader: str = "10",
+                    strength_model: float = 1.0, strength_clip: float = 1.0) -> dict:
+    """Put a style LoRA from elsewhere between the checkpoint and KSampler.
+
+    Unlike the app's own two, both strengths are the caller's to set.  A style
+    LoRA usually holds both halves, and the planner half is the one that changes
+    what is written, so switching it off quietly is the wrong default."""
+    return with_render_lora(graph, "27", lora, loader=loader,
+                            strength_model=strength_model, strength_clip=strength_clip)
 
 
 def with_identity_lora(graph: dict, lora: str, loader: str = "10", strength: float = 1.0) -> dict:
@@ -190,6 +220,11 @@ def build_render_graph(take: dict) -> dict:
     if voice_lora:
         strength = float(take.get("voice_lora_strength") or 1.0)
         with_identity_lora(graph, voice_lora, loader="10", strength=strength)
+    style_lora = take.get("style_lora")
+    if style_lora:
+        with_style_lora(graph, style_lora, loader="10",
+                        strength_model=float(take.get("style_lora_model") or 0.0),
+                        strength_clip=float(take.get("style_lora_clip") or 0.0))
     if take.get("kind") == "instrumental":
         node["mode"] = "full"
         instrumental.with_lora(graph, "10", config.INSTRUMENTAL_LORA, ("11",), feel_strength(take))

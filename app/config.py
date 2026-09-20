@@ -47,6 +47,9 @@ ALLOWED_HOSTS = [h.strip().lower() for h in os.environ.get("ALLOWED_HOSTS", "loc
 # The models the app uses.  One YuE2 checkpoint, and Gemma for writing lyrics.
 CHECKPOINT = "yue2_3b_bf16.safetensors"
 LYRICS_MODEL = "gemma4_e4b_it_int8_convrot.safetensors"
+# The engine's model folder, when this machine can see it.  The app only reads
+# from it, and only to say what a LoRA holds; the engine is what loads them.
+MODELS_DIR = Path(os.environ.get("MODELS_DIR", "/app/models"))
 INSTRUMENTAL_LORA = "ar_lora_inst_v3abc_comfyui.safetensors"
 REAL_AUDIO_LORA = os.environ.get("REAL_AUDIO_LORA", "nar_lora_joint_v9_comfyui.safetensors")
 TOKENIZER_HEAD = os.environ.get("TOKENIZER_HEAD", "tokenizer_head_joint_v9.safetensors")

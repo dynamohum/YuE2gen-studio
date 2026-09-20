@@ -33,7 +33,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 
-from . import config, identities, instrumental, jobs, lyrics, score, stems
+from . import config, identities, instrumental, jobs, loras, lyrics, score, stems
 from .db import DEFAULT_SPACE, execute, get_setting, migrate, one, rows, set_setting
 
 personas = identities
@@ -255,6 +255,21 @@ class SongIn(BaseModel):
     persona_id: str | None = Field(None, max_length=64)
     voice_lora: str | None = Field(None, max_length=200)
     voice_lora_strength: float = 1.0
+    style_lora: str | None = Field(None, max_length=200)
+    style_lora_model: float = Field(1.0, ge=0.0, le=2.0)
+    style_lora_clip: float = Field(1.0, ge=0.0, le=2.0)
+
+
+def _style_lora_of(body) -> dict:
+    """The style LoRA a create request asked for.  Both strengths are kept even
+    when the name is empty, so an interrupted choice does not leave a take
+    claiming a strength it never used."""
+    name = (getattr(body, "style_lora", None) or "").strip() or None
+    return {
+        "style_lora": name,
+        "style_lora_model": float(getattr(body, "style_lora_model", 1.0) or 0.0) if name else 1.0,
+        "style_lora_clip": float(getattr(body, "style_lora_clip", 1.0) or 0.0) if name else 1.0,
+    }
 
 
 class ReplanIn(BaseModel):
@@ -279,6 +294,9 @@ class TakeIn(BaseModel):
     persona_id: str | None = Field(None, max_length=64)
     voice_lora: str | None = Field(None, max_length=200)
     voice_lora_strength: float = 1.0
+    style_lora: str | None = Field(None, max_length=200)
+    style_lora_model: float = Field(1.0, ge=0.0, le=2.0)
+    style_lora_clip: float = Field(1.0, ge=0.0, le=2.0)
 
 
 class InstrumentalIn(BaseModel):
@@ -298,6 +316,9 @@ class InstrumentalIn(BaseModel):
     persona_id: str | None = Field(None, max_length=64)
     voice_lora: str | None = Field(None, max_length=200)
     voice_lora_strength: float = 1.0
+    style_lora: str | None = Field(None, max_length=200)
+    style_lora_model: float = Field(1.0, ge=0.0, le=2.0)
+    style_lora_clip: float = Field(1.0, ge=0.0, le=2.0)
 
 
 class IdentityIn(BaseModel):
@@ -512,7 +533,7 @@ def state() -> dict:
             "lyrics_available": ENGINE.options.get("lyrics", False),
             "instrumental_available": ENGINE.options.get("instrumental", False),
             "realaudio": ENGINE.options.get("realaudio", False),
-            "loras": ENGINE.options.get("loras", []),
+            "loras": loras.catalogue(ENGINE.options.get("loras", [])),
             "harmony_steps": HARMONY_STEPS,
             # Unknown until the engine has been read, so only a confirmed absence disables it.
             "harmony_available": ENGINE.options.get("harmony", False) or not ENGINE.options_loaded,
@@ -787,12 +808,15 @@ async def create_take(body: TakeIn) -> dict:
         "persona_id": body.identity_id or body.persona_id,
         "voice_lora": body.voice_lora,
         "voice_lora_strength": body.voice_lora_strength,
+        **_style_lora_of(body),
     }
     execute(
         """INSERT INTO takes(id, source_id, title, style, lyrics, abc, mode, seed, checkpoint, max_duration, status, created_at,
-                             space_id, interpretation, realaudio, identity_id, persona_id, voice_lora, voice_lora_strength)
+                             space_id, interpretation, realaudio, identity_id, persona_id, voice_lora, voice_lora_strength,
+                             style_lora, style_lora_model, style_lora_clip)
            VALUES(:id, :source_id, :title, :style, :lyrics, :abc, :mode, :seed, :checkpoint, :max_duration, 'queued', :created_at,
-                  :space_id, :interpretation, :realaudio, :identity_id, :persona_id, :voice_lora, :voice_lora_strength)""",
+                  :space_id, :interpretation, :realaudio, :identity_id, :persona_id, :voice_lora, :voice_lora_strength,
+                  :style_lora, :style_lora_model, :style_lora_clip)""",
         record,
     )
     if record["mode"] == "full" and not record["abc"]:
@@ -856,14 +880,17 @@ async def _plan_new_take(kind: str, title: str, words: str, body: SongIn | Instr
         "persona_id": getattr(body, "identity_id", None) or getattr(body, "persona_id", None),
         "voice_lora": getattr(body, "voice_lora", None),
         "voice_lora_strength": getattr(body, "voice_lora_strength", 1.0),
+        **_style_lora_of(body),
     }
     execute(
         """INSERT INTO takes(id, kind, source_id, title, style, lyrics, abc, mode, seed, checkpoint,
                              max_duration, status, created_at, auto_render, variety, harmony, space_id, interpretation, feel, realaudio,
-                             identity_id, persona_id, voice_lora, voice_lora_strength)
+                             identity_id, persona_id, voice_lora, voice_lora_strength,
+                             style_lora, style_lora_model, style_lora_clip)
            VALUES(:id, :kind, NULL, :title, :style, :lyrics, '', :mode, :seed, :checkpoint,
                   :max_duration, 'queued', :created_at, :auto_render, :variety, :harmony, :space_id, :interpretation, :feel, :realaudio,
-                  :identity_id, :persona_id, :voice_lora, :voice_lora_strength)""",
+                  :identity_id, :persona_id, :voice_lora, :voice_lora_strength,
+                  :style_lora, :style_lora_model, :style_lora_clip)""",
         record,
     )
     await QUEUE.put({"kind": "plan", "id": take_id})
@@ -1045,14 +1072,19 @@ async def variations(take_id: str, body: VariationsIn) -> dict:
             "harmony": take["harmony"], "space_id": take["space_id"], "interpretation": name, "feel": take["feel"],
             "realaudio": realaudio, "identity_id": identity_val, "persona_id": identity_val,
             "voice_lora": voice_lora, "voice_lora_strength": voice_lora_strength,
+            "style_lora": take.get("style_lora"),
+            "style_lora_model": take.get("style_lora_model", 1.0),
+            "style_lora_clip": take.get("style_lora_clip", 1.0),
         }
         execute(
             """INSERT INTO takes(id, kind, source_id, title, style, lyrics, abc, mode, seed, checkpoint, max_duration,
                                  status, created_at, variety, harmony, space_id, interpretation, feel, realaudio,
-                                 identity_id, persona_id, voice_lora, voice_lora_strength)
+                                 identity_id, persona_id, voice_lora, voice_lora_strength,
+                                 style_lora, style_lora_model, style_lora_clip)
                VALUES(:id, :kind, :source_id, :title, :style, :lyrics, :abc, :mode, :seed, :checkpoint, :max_duration,
                       'queued', :created_at, :variety, :harmony, :space_id, :interpretation, :feel, :realaudio,
-                      :identity_id, :persona_id, :voice_lora, :voice_lora_strength)""",
+                      :identity_id, :persona_id, :voice_lora, :voice_lora_strength,
+                      :style_lora, :style_lora_model, :style_lora_clip)""",
             record,
         )
         await QUEUE.put({"kind": "render", "id": record["id"]})

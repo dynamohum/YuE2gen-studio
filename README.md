@@ -249,6 +249,32 @@ with a title if the title was empty. You can close the window while it writes.
 It is a first draft. The lines scan and rhyme, but a model reaches for familiar images, and nothing
 checks that a line is not already someone else's. Read it and make it yours before you plan.
 
+### Style LoRAs
+
+A LoRA is a small file that leans the model towards a sound. The app applies two of its own — the
+instrumental LoRA and Realaudio — and **Style LoRA**, under the render settings, applies one more of
+your choosing. Put a `.safetensors` file in `models/loras/`, restart the engine, and it appears in
+the list.
+
+A YuE2 LoRA holds one half of the model or both, and the two halves do different jobs:
+
+- **Planner** decides what is written: form, harmony, phrasing. It applies when the score plan is
+  written, which is a separate run from the render.
+- **Sound** decides how it is played: timbre and production.
+
+The app reads each file to see which halves it holds, says so in the list, and greys out a strength
+the file cannot use. Both start at 1.00. Authors often publish recipes — the MLTNT reggae LoRAs, for
+instance, suggest a planner strength of 0.5 for anything fast or unusual — so the two are set
+separately rather than as one figure.
+
+The take records the LoRA and both strengths, the card names it, and **Again** and Variations
+reproduce it.
+
+Not every YuE2 LoRA loads here: some are published as PEFT adapter folders, or with tensor names
+this engine does not recognise. Those show as *not a YuE2 LoRA* rather than failing silently in a
+render. And a LoRA trained on someone's songs carries their licence, which for most YuE2 LoRAs is
+the same non-commercial one the weights use.
+
 ### Interpretation and Variations
 
 The score fixes the notes and the chords. The interpretation, under *Advanced*, sets how the render

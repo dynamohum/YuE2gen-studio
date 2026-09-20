@@ -140,11 +140,75 @@ function paintOptions() {
       $('realaudio').checked = true;
     }
   }
+  paintStyleLoras();
   var styleNode = $('style');
   var busy = document.activeElement === styleNode;
   if (!styleNode.value && !styleNode.dataset.touched && !busy && State.options.default_style) {
     styleNode.value = State.options.default_style;
   }
+}
+
+/* The style LoRA picker: whatever the engine can load, minus the two the app
+   applies itself.  A file tells us which halves it holds, so a strength that
+   would do nothing is not offered. */
+var LORA_KINDS = { both: 'score and sound', planner: 'score only', decoder: 'sound only',
+  other: 'not a YuE2 LoRA', unknown: '' };
+
+function loraCatalogue() {
+  return (State.options.loras || []).filter(function (item) {
+    return item && !item.reserved && item.kind !== 'other';
+  });
+}
+
+function loraKind(name) {
+  var found = loraCatalogue().filter(function (item) { return item.name === name; })[0];
+  return found ? found.kind : 'unknown';
+}
+
+function paintStyleLoras() {
+  var select = $('style-lora');
+  if (!select) { return; }
+  var list = loraCatalogue();
+  $('style-lora-field').classList.toggle('hidden', !list.length);
+  if (!list.length) { return; }
+  var chosen = select.value;
+  select.innerHTML = '<option value="">None</option>' + list.map(function (item) {
+    var note = LORA_KINDS[item.kind] ? ' \u2014 ' + LORA_KINDS[item.kind] : '';
+    return '<option value="' + esc(item.name) + '">' + esc(loraLabel(item.name)) + esc(note) + '</option>';
+  }).join('');
+  if (!chosen && select.dataset.wanted) { chosen = select.dataset.wanted; }
+  if (chosen) { select.value = chosen; }
+  paintStyleLoraStrengths();
+}
+
+/* The file name is what the engine wants, but not what anyone wants to read. */
+function loraLabel(name) {
+  return name.replace(/\.safetensors$/i, '').replace(/[_-]+/g, ' ');
+}
+
+function paintStyleLoraStrengths() {
+  var name = $('style-lora').value;
+  var kind = name ? loraKind(name) : '';
+  $('style-lora-strengths').classList.toggle('hidden', !name);
+  if (!name) { return; }
+  // A strength for a half the file does not hold is a control that lies.
+  var hasPlanner = kind === 'both' || kind === 'planner' || kind === 'unknown';
+  var hasSound = kind === 'both' || kind === 'decoder' || kind === 'unknown';
+  $('style-lora-clip').disabled = !hasPlanner;
+  $('style-lora-model').disabled = !hasSound;
+  $('style-lora-clip-read').textContent = hasPlanner ? Number($('style-lora-clip').value).toFixed(2) : 'not in this file';
+  $('style-lora-model-read').textContent = hasSound ? Number($('style-lora-model').value).toFixed(2) : 'not in this file';
+}
+
+/* Adds the chosen LoRA to a request body, or nothing at all when none is
+   chosen.  A strength whose half is missing from the file is sent as zero. */
+function withStyleLora(data) {
+  var select = $('style-lora');
+  if (!select || !select.value) { return data; }
+  data.style_lora = select.value;
+  data.style_lora_model = $('style-lora-model').disabled ? 0 : parseFloat($('style-lora-model').value);
+  data.style_lora_clip = $('style-lora-clip').disabled ? 0 : parseFloat($('style-lora-clip').value);
+  return data;
 }
 
 /* The form survives a reload. Nothing here is precious, but losing a verse is annoying. */
@@ -158,6 +222,9 @@ function saveForm() {
     data.auto_render = $('auto-render').checked;
     data.seed_fixed = $('seed-fixed').checked;
     data.realaudio = $('realaudio').checked;
+    data.style_lora = $('style-lora') ? $('style-lora').value : '';
+    data.style_lora_model = $('style-lora-model') ? $('style-lora-model').value : '1';
+    data.style_lora_clip = $('style-lora-clip') ? $('style-lora-clip').value : '1';
     var idSel = $('vocal-identity') || $('vocal-persona');
     var loraSel = $('vocal-identity-lora') || $('vocal-persona-lora');
     data.vocal_identity = idSel ? idSel.value : '';
@@ -185,6 +252,12 @@ function loadForm() {
   if (typeof data.seed_fixed === 'boolean') { $('seed-fixed').checked = data.seed_fixed; }
   if (typeof data.realaudio === 'boolean') { $('realaudio').checked = data.realaudio; }
   else { $('realaudio').checked = true; }
+  if ($('style-lora')) {
+    if (data.style_lora_model) { $('style-lora-model').value = data.style_lora_model; }
+    if (data.style_lora_clip) { $('style-lora-clip').value = data.style_lora_clip; }
+    // The list arrives with the options, so the name is held until it can be set.
+    $('style-lora').dataset.wanted = data.style_lora || '';
+  }
   if (typeof data.vocal_identity === 'string') { State.savedVocalIdentity = data.vocal_identity; }
   else if (typeof data.vocal_persona === 'string') { State.savedVocalIdentity = data.vocal_persona; }
   if (typeof data.vocal_identity_lora === 'string') { State.savedVocalIdentityLora = data.vocal_identity_lora; }
@@ -1315,7 +1388,7 @@ async function doPlan() {
     var vLora = (idVal && loraSel && !loraSel.classList.contains('hidden')) ? loraSel.value : null;
     var take = await api('/api/songs', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+      body: JSON.stringify(withStyleLora({
         title: $('title').value.trim() || guessTitle($('lyrics').value),
         style: $('style').value,
         lyrics: $('lyrics').value,
@@ -1330,7 +1403,7 @@ async function doPlan() {
         identity_id: idVal || null,
         persona_id: idVal || null,
         voice_lora: vLora || null
-      })
+      }))
     });
     State.planTakeId = take.id;
     statusLine('Writing the score plan…');
@@ -1677,7 +1750,7 @@ async function doInstrumental() {
   try {
     var take = await api('/api/instrumentals', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+      body: JSON.stringify(withStyleLora({
         title: $('title').value.trim(),
         style: $('style').value,
         structure: structureText(),
@@ -1690,7 +1763,7 @@ async function doInstrumental() {
         harmony: harmonyStep(),
         space_id: State.spaceId,
         realaudio: $('realaudio').checked
-      })
+      }))
     });
     State.planTakeId = take.id;
     statusLine('Writing the score plan\u2026');
@@ -2568,6 +2641,12 @@ function paintTakes() {
       meta.push('Interpretation: ' + INTERPRETATIONS[take.interpretation].name.toLowerCase());
     }
     if (written && take.variety && take.variety !== 'normal') { meta.push('Plan: ' + take.variety); }
+    if (take.style_lora) {
+      var strengths = [take.style_lora_clip, take.style_lora_model];
+      var full = strengths.every(function (n) { return Number(n) === 1; });
+      meta.push('Style: ' + loraLabel(take.style_lora) +
+        (full ? '' : ' (' + strengths.map(function (n) { return Number(n).toFixed(2); }).join('/') + ')'));
+    }
     if (take.realaudio) { meta.push('realaudio'); }
     if (take.identity_id || take.persona_id || take.voice_lora) {
       meta.push(identityName(take.identity_id || take.persona_id) || 'identity');
@@ -3164,6 +3243,7 @@ async function doRender() {
     persona_id: pId || null,
     voice_lora: vLora || null
   };
+  withStyleLora(body);
   status.textContent = 'Queued\u2026';
   status.className = 'status';
   try {
@@ -3677,6 +3757,16 @@ function wire() {
   $('auto-render').addEventListener('change', saveForm);
   $('seed-fixed').addEventListener('change', saveForm);
   $('realaudio').addEventListener('change', saveForm);
+  $('style-lora').addEventListener('change', function () {
+    paintStyleLoraStrengths();
+    saveForm();
+  });
+  ['style-lora-model', 'style-lora-clip'].forEach(function (id) {
+    $(id).addEventListener('input', function () {
+      $(id + '-read').textContent = Number($(id).value).toFixed(2);
+      saveForm();
+    });
+  });
   $('lyrics').addEventListener('input', function () {
     State.formEdited = true;
     refreshTitleHint();
