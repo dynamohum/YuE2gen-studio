@@ -2568,7 +2568,11 @@ function paintTakes() {
     } else if (status === 'failed') {
       live = '<div class="take-status failed">' + esc((take.error || 'failed').slice(0, 120)) + '</div>';
     } else if (status === 'planned') {
-      live = '<div class="take-status ready">plan ready</div>';
+      // An instrumental whose plan holds a vocal line is flagged before it is
+      // rendered, so the warning arrives while it still saves you something.
+      live = take.error
+        ? '<button class="take-status sung" data-act="render" data-id="' + take.id + '">' + esc(take.error) + '</button>'
+        : '<div class="take-status ready">plan ready</div>';
     } else if (status !== 'done') {
       live = '<div class="take-meta">' + esc(status === 'queued' ? 'waiting for the engine' : status) + '</div>';
     } else if (take.kind === 'instrumental' && take.vocal_check >= 0.1) {
@@ -3246,6 +3250,52 @@ function chordChart(abc) {
   return lines.join('\n');
 }
 
+/* ---- an instrumental that plans a vocal line ---------------------------- */
+/* The instrumental LoRA writes the vocal part as rests. When it writes a melody
+   there instead, the render often sings — not always, which is why this asks
+   rather than refuses. */
+function openSungWarning(take) {
+  State.sungTakeId = take.id;
+  // The same sentence is a status line on the card and the opening line here,
+  // so it starts a sentence properly in the window.
+  var why = take.error || 'This plan has a melody in the vocal part.';
+  $('sung-text').textContent = why.charAt(0).toUpperCase() + why.slice(1);
+  $('sung-variety').value = take.variety || 'normal';
+  $('sung-modal').classList.remove('hidden');
+}
+
+function closeSungWarning() {
+  State.sungTakeId = null;
+  $('sung-modal').classList.add('hidden');
+}
+
+async function renderAnyway() {
+  var id = State.sungTakeId;
+  closeSungWarning();
+  if (!id) { return; }
+  selectTake(takeById(id));
+  await api('/api/takes/' + id + '/render', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ realaudio: $('realaudio').checked })
+  });
+  loadTakes();
+}
+
+async function replanInstead() {
+  var id = State.sungTakeId;
+  var variety = $('sung-variety').value;
+  closeSungWarning();
+  if (!id) { return; }
+  selectTake(takeById(id));
+  await api('/api/takes/' + id + '/replan', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ variety: variety })
+  });
+  awaitNewPlan(id);
+  statusLine('Writing a new plan, with a new seed\u2026');
+  loadTakes();
+}
+
 /* ------------------------------------------------------------------ wiring */
 function wire() {
   paintPresets();
@@ -3288,6 +3338,12 @@ function wire() {
   $('create-cover').addEventListener('click', doRender);
   $('create-song').addEventListener('click', doPlan);
   $('render-take').addEventListener('click', doRenderTake);
+  $('sung-cancel').addEventListener('click', closeSungWarning);
+  $('sung-render').addEventListener('click', renderAnyway);
+  $('sung-replan').addEventListener('click', replanInstead);
+  $('sung-modal').addEventListener('click', function (event) {
+    if (event.target === $('sung-modal')) { closeSungWarning(); }
+  });
   $('reroll').addEventListener('click', doReroll);
   document.querySelector('.modes').addEventListener('click', function (event) {
     var button = event.target.closest('[data-mode]');
@@ -3511,6 +3567,13 @@ function wire() {
       if (!button.closest('#source-stems-list')) { loadTakes(); }
     }
     if (act === 'render') {
+      var planned = takeById(id);
+      // An instrumental whose plan holds a vocal line: say so before the render
+      // is paid for, and let the choice be made with the facts in hand.
+      if (planned && planned.kind === 'instrumental' && planned.status === 'planned' && planned.error) {
+        openSungWarning(planned);
+        return;
+      }
       selectTake(takeById(id));
       await api('/api/takes/' + id + '/render', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -3669,6 +3732,7 @@ function wire() {
   });
   document.addEventListener('keydown', function (event) {
     if (event.key === 'Escape' && $('brand-menu') && !$('brand-menu').classList.contains('hidden')) { closeBrandMenu(); return; }
+    if (event.key === 'Escape' && !$('sung-modal').classList.contains('hidden')) { closeSungWarning(); return; }
     if (event.key === 'Escape' && !$('move-modal').classList.contains('hidden')) { closeMoveModal(); return; }
     var idModal = $('identities-modal') || $('personas-modal');
     if (event.key === 'Escape' && idModal && !idModal.classList.contains('hidden')) { closeIdentities(); return; }

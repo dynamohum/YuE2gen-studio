@@ -412,6 +412,15 @@ async def _finish(kind: str, ref_id: str, record: dict, job: dict, started: floa
             (abc, elapsed, ref_id),
         )
         bump_average("plan", elapsed)
+        # An instrumental whose plan has a melody in the Vocal voice will sing.
+        # That is knowable now, before the render is paid for, so the take waits
+        # to be looked at rather than being rendered automatically.
+        if changed and record.get("kind") == "instrumental" and instrumental.sings(abc):
+            execute("UPDATE takes SET error = ? WHERE id = ?",
+                    ("this plan has a melody in the vocal part, so the render would sing. "
+                     "Write a new plan, or choose the sections yourself instead of letting YuE2 decide.", ref_id))
+            log.info("instrumental %s planned a vocal line; not auto-rendering", ref_id)
+            return
         if changed and record.get("auto_render"):
             execute("UPDATE takes SET status = 'queued' WHERE id = ?", (ref_id,))
             await QUEUE.put({"kind": "render", "id": ref_id})

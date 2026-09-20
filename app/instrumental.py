@@ -86,6 +86,30 @@ def with_lora(graph: dict, loader: str, lora: str, text_nodes: tuple[str, ...], 
     return graph
 
 
+def sings(abc: str | None) -> int:
+    """How many notes the plan puts in the Vocal voice.
+
+    The instrumental LoRA writes that voice as rests carrying the chords and puts
+    the melody in Ins. When it slips and writes an actual melody there, the
+    render sings — every time, in everything measured: two plans with notes in
+    that voice sang through two thirds of themselves, and fifteen with rests
+    alone came out clean. The plan exists before the render, so this is known
+    before any of it is generated.
+    """
+    voice, notes = None, 0
+    for raw in (abc or "").split("\n"):
+        line = raw.strip()
+        if line.startswith("V:"):
+            voice = line[2:].strip().split()[0] if line[2:].strip() else None
+            continue
+        if not line or line[0] == "%" or re.match(r"^[A-Za-z]:", line):
+            continue
+        if voice != "Vocal":
+            continue
+        notes += len(re.findall(r"[A-Ga-g]", re.sub(r'"[^"]*"', "", line)))
+    return notes
+
+
 def excerpt(src: Path, dest: Path, spans: int = 3, each: float = 10.0) -> Path:
     """A short montage of the piece, for a check that need not read all of it.
 
