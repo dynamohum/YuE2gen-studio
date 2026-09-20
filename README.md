@@ -374,6 +374,7 @@ app/                   the application
   static/              the page. No build step
 tests/                 pytest: the API, the job lanes against a fake engine, migrations
 scripts/fetch-models.sh
+scripts/check-upstream.sh   how far the engine's ComfyUI pin has drifted
 models/                bind mounted into the engine (git ignored)
 data/                  your library: sources, takes, stems, SQLite (git ignored)
 engine-state/          ComfyUI's input, output and user folders (git ignored)
@@ -382,6 +383,22 @@ tools/git-hooks/       the pre-push hook that keeps top-level PDFs off GitHub
 requirements-dev.txt   the app's packages plus pytest
 eslint.config.mjs      lint rules for app.js
 ```
+
+## The engine pin
+
+The engine is built from one pinned ComfyUI commit (`ARG COMFYUI_REF` in
+`engine/Dockerfile`), because a build that changes underneath you is worse than one
+that is slightly old. To see what has changed upstream since, and whether any of it
+touches the YuE2 or audio code this app renders through:
+
+```sh
+sh scripts/check-upstream.sh
+```
+
+It prints the pin, upstream's latest commit and release, how many commits behind the
+pin is, and the ritual for moving it: build the candidate beside the live engine,
+render a cover, a song, an instrumental and a lyric draft against it, then move the
+pin in a commit that says what was checked.
 
 ## Tests
 
