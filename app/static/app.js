@@ -865,6 +865,7 @@ function paintSource() {
   var source = currentSource();
   var status = $('source-status');
   var badge = $('score-badge');
+  paintHearButton();
   if (!source) {
     status.textContent = '';
     status.className = 'status';
@@ -1244,6 +1245,102 @@ function closeSettings() {
   document.body.style.overflow = '';
 }
 
+/* ------------------------------------------------ lyrics from a recording */
+/* Separating a vocal and listening to it takes minutes, so it is asked for, runs
+   in the CPU lane beside stems, and shows how far along it is. A recording keeps
+   what was heard, so asking twice costs nothing. */
+var HEAR = { id: null, timer: 0 };
+
+function paintHearButton() {
+  var button = $('lyrics-hear');
+  if (!button) { return; }
+  var source = currentSource();
+  button.disabled = !source;
+  button.textContent = source && source.has_lyrics ? 'Lyrics heard' : 'Hear the lyrics';
+  button.title = source
+    ? 'Separate the vocal from this recording and write down what it sings'
+    : 'Choose a recording first';
+}
+
+function paintHearJob(state) {
+  var box = $('lyrics-hear-job');
+  var running = state && (state.state === 'queued' || state.state === 'running');
+  box.classList.toggle('hidden', !running);
+  box.classList.remove('bad');
+  if (!running) { return; }
+  $('lyrics-hear-bar').style.width = Math.round((state.progress || 0) * 100) + '%';
+  $('lyrics-hear-stage').textContent = state.stage || 'Waiting';
+}
+
+/* A job that fails says so where the bar was, not only in the status line at the
+   far end of the panel: a bar that stops at nought reads as a hang. */
+function showHearError(message) {
+  clearInterval(HEAR.timer);
+  HEAR.timer = 0;
+  HEAR.id = null;
+  var box = $('lyrics-hear-job');
+  box.classList.remove('hidden');
+  box.classList.add('bad');
+  $('lyrics-hear-bar').style.width = '100%';
+  $('lyrics-hear-stage').textContent = message;
+  paintHearButton();
+}
+
+function useHeardLyrics(text) {
+  var box = $('lyrics');
+  if (box.value.trim() && box.value.trim() !== text.trim()) {
+    if (!confirm('Replace the lyrics in the box with the words heard in the recording?')) { return; }
+  }
+  box.value = text;
+  State.formEdited = true;
+  saveForm();
+  refreshTitleHint();
+}
+
+async function pollHear(id) {
+  var state;
+  try {
+    state = await api('/api/sources/' + id + '/lyrics');
+  } catch (err) {
+    showHearError('Lost touch with the job: ' + err.message);
+    return;
+  }
+  paintHearJob(state);
+  if (state.state === 'done') {
+    stopHearPoll();
+    if (state.lyrics) { useHeardLyrics(state.lyrics); }
+    statusLine('Wrote down what the recording sings. Read it before you plan.', 'good');
+    loadSources();
+  } else if (state.state === 'failed') {
+    showHearError(state.error === 'cancelled' ? 'Stopped.' : 'Could not hear the words: ' + (state.error || 'unknown'));
+  }
+}
+
+function stopHearPoll() {
+  clearInterval(HEAR.timer);
+  HEAR.timer = 0;
+  HEAR.id = null;
+  paintHearJob(null);
+  paintHearButton();
+}
+
+async function hearLyrics() {
+  var source = currentSource();
+  if (!source) { return; }
+  // Already written down: nothing to run.
+  var state = await api('/api/sources/' + source.id + '/lyrics');
+  if (state.state === 'done' && state.lyrics) {
+    useHeardLyrics(state.lyrics);
+    statusLine('These words were heard in the recording earlier.', 'good');
+    return;
+  }
+  await api('/api/sources/' + source.id + '/lyrics', { method: 'POST' });
+  HEAR.id = source.id;
+  paintHearJob({ state: 'queued', progress: 0, stage: 'Waiting' });
+  clearInterval(HEAR.timer);
+  HEAR.timer = setInterval(function () { pollHear(source.id); }, 1500);
+}
+
 /* ------------------------------------------------------------------- stems */
 /* Builds the model and format lists, then the stem checkboxes for the chosen model.
    Preferred values come from Settings when the sheet opens, and are left alone when
@@ -1404,6 +1501,7 @@ function setMode(mode) {
   var show = function (id, on) { $(id).style.display = on ? '' : 'none'; };
   show('cover-only', cover);
   show('lyrics-write', mode === 'song');
+  show('lyrics-hear', cover);
   show('auto-wrap', !cover);
   // Both steer the score writer, which a cover never uses: its score is the transcription.
   show('harmony-field', !cover);
@@ -3801,6 +3899,16 @@ function wire() {
   wireStructure();
   $('interpretation').addEventListener('change', paintInterpretation);
   $('lyrics-write').addEventListener('click', openWrite);
+  $('lyrics-hear').addEventListener('click', function () {
+    hearLyrics().catch(function (err) { statusLine('Could not start: ' + err.message, 'bad'); });
+  });
+  $('lyrics-hear-stop').addEventListener('click', function () {
+    var source = currentSource();
+    if (!source) { return; }
+    api('/api/sources/' + source.id + '/lyrics', { method: 'DELETE' })
+      .then(stopHearPoll)
+      .catch(function () { stopHearPoll(); });
+  });
   $('write-close').addEventListener('click', closeWrite);
   $('write-go').addEventListener('click', doWrite);
   $('write-stop').addEventListener('click', stopWrite);

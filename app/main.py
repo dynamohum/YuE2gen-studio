@@ -193,6 +193,9 @@ async def requeue_waiting() -> None:
             await QUEUE.put({"kind": "render" if (row["abc"] or "").strip() else "plan", "id": row["id"]})
     for row in rows("SELECT id FROM stem_sets WHERE status = 'queued' ORDER BY created_at"):
         await STEM_QUEUE.put({"id": row["id"]})
+    for row in rows("SELECT id FROM sources WHERE lyrics_state IN ('queued', 'running') ORDER BY created_at"):
+        execute("UPDATE sources SET lyrics_state = 'queued' WHERE id = ?", (row["id"],))
+        await STEM_QUEUE.put({"kind": "lyrics", "id": row["id"]})
     if waiting:
         log.info("%d waiting jobs queued again after the restart", len(waiting))
 
@@ -562,6 +565,7 @@ def state() -> dict:
 def list_sources() -> list[dict]:
     return rows(
         """SELECT id, title, filename, created_at, transcribe_state, transcribe_error,
+                  lyrics_state, (lyrics IS NOT NULL AND lyrics != '') AS has_lyrics,
                   (abc IS NOT NULL AND abc != '') AS has_score,
                   (SELECT COUNT(*) FROM takes t WHERE t.source_id = sources.id) AS take_count
            FROM sources ORDER BY created_at DESC"""
@@ -1526,6 +1530,54 @@ async def source_stems(source_id: str, body: StemsIn) -> dict:
     result = queue_stems("source", source_id, body)
     await STEM_QUEUE.put({"id": result["id"]})
     return result
+
+
+@app.post("/api/sources/{source_id}/lyrics")
+async def source_lyrics(source_id: str) -> dict:
+    """Hear the words in a recording.  Separating the vocal and listening to it
+    takes minutes, so it is asked for rather than done with every transcription,
+    and it runs in the CPU lane beside stems, leaving the GPU free."""
+    source = one("SELECT * FROM sources WHERE id = ?", (source_id,))
+    if not source:
+        raise HTTPException(404, "no such recording")
+    if not Path(source["stored_path"]).exists():
+        raise HTTPException(400, "the file for this recording is missing")
+    if source["lyrics_state"] in ("queued", "running"):
+        return {"state": source["lyrics_state"], "progress": source["lyrics_progress"]}
+    execute("UPDATE sources SET lyrics_state = 'queued', lyrics_error = NULL, lyrics_progress = 0,"
+            " lyrics_stage = 'Waiting' WHERE id = ?", (source_id,))
+    await STEM_QUEUE.put({"kind": "lyrics", "id": source_id})
+    return {"state": "queued", "progress": 0.0}
+
+
+@app.get("/api/sources/{source_id}/lyrics")
+def source_lyrics_state(source_id: str) -> dict:
+    """What the job is doing, and the words once it has them."""
+    source = one("SELECT * FROM sources WHERE id = ?", (source_id,))
+    if not source:
+        raise HTTPException(404, "no such recording")
+    return {
+        "state": source["lyrics_state"],
+        "progress": source["lyrics_progress"],
+        "stage": source["lyrics_stage"],
+        "error": source["lyrics_error"],
+        "lyrics": source["lyrics"],
+    }
+
+
+@app.delete("/api/sources/{source_id}/lyrics")
+def stop_source_lyrics(source_id: str) -> dict:
+    """Stop a running job.  A queued one never starts; a running one is the task
+    the CPU lane is holding."""
+    source = one("SELECT * FROM sources WHERE id = ?", (source_id,))
+    if not source:
+        raise HTTPException(404, "no such recording")
+    if source["lyrics_state"] == "running" and CURRENT_STEMS.get("id") == source_id:
+        CURRENT_STEMS["task"].cancel()
+    elif source["lyrics_state"] == "queued":
+        execute("UPDATE sources SET lyrics_state = 'failed', lyrics_error = 'cancelled',"
+                " lyrics_stage = NULL WHERE id = ?", (source_id,))
+    return {"state": "cancelled"}
 
 
 def stem_files(item: dict) -> list[dict]:

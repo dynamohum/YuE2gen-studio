@@ -192,6 +192,22 @@ itself; the cap stops one that will not.
 A cover follows the original's melody and chords while the style decides everything else, which is
 what makes it a cover rather than a copy.
 
+### Hearing the lyrics
+
+**Hear the lyrics**, beside the lyrics box, writes down what the recording sings: it separates the
+vocal, listens to it, and lays the lines under the sections of the score. It is asked for rather
+than done with every transcription, because it takes a couple of minutes where transcribing a score
+takes seconds. It runs on the CPU, so a render is never held up by it, and the bar says which of the
+two stages it is on.
+
+The words are kept with the recording, so asking again is instant, and if you have already
+extracted stems from it the separation is skipped.
+
+Expect a good draft rather than a transcript. Measured against a song whose real words were known,
+**9% of words were wrong** — and the errors were almost all *omissions*: quiet lines missed, a
+dropped article, a repeated line collapsed onto one. Nothing was invented. So read it and put back
+what it did not hear.
+
 ---
 
 ## Instrumentals

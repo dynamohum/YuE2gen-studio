@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 
 from . import config, identities, instrumental, lyrics, score, stems
-from .db import bump_average, execute, get_setting, one
+from .db import bump_average, execute, get_setting, one, rows
 from .engine import Engine, load_template
 from .library import audio_duration, ensure_peaks, inside, remove_tree, take_audio_path, write_take_note
 
@@ -887,11 +887,91 @@ async def run_vocal_check(take_id: str) -> None:
         execute("UPDATE takes SET vocal_check = ? WHERE id = ?", (share, take_id))
 
 
+def fail_cover_lyrics(source_id: str, message: str) -> None:
+    execute("UPDATE sources SET lyrics_state = 'failed', lyrics_error = ?, lyrics_stage = NULL WHERE id = ?",
+            (message, source_id))
+
+
+def _existing_vocal(source_id: str) -> Path | None:
+    """A vocal stem already pulled from this recording, if there is one.  The
+    slow half of this job is separation, and it may already have been paid for."""
+    for row in rows("SELECT folder, fmt FROM stem_sets WHERE source_id = ? AND status = 'done'"
+                    " ORDER BY created_at DESC", (source_id,)):
+        if not row["folder"]:
+            continue
+        for name in (f"vocals.{row['fmt']}", "vocals.wav", "vocals.flac", "vocals.mp3"):
+            path = Path(row["folder"]) / name
+            if path.is_file():
+                return path
+    return None
+
+
+async def run_cover_lyrics(source_id: str) -> None:
+    """Hear the words in a recording: separate its vocal, transcribe it, and lay
+    the lines under the sections of the score already transcribed from it."""
+    source = one("SELECT * FROM sources WHERE id = ?", (source_id,))
+    if not source or source["lyrics_state"] != "queued":
+        return
+    path = Path(source["stored_path"])
+    if not path.exists():
+        fail_cover_lyrics(source_id, "the recording is missing")
+        return
+
+    last = {"at": 0.0}
+
+    def progress(frac: float, stage: str) -> None:
+        now = time.time()
+        if now - last["at"] < 1.0 and frac < 1.0:
+            return
+        last["at"] = now
+        execute("UPDATE sources SET lyrics_progress = ?, lyrics_stage = ? WHERE id = ?",
+                (round(frac, 3), stage, source_id))
+
+    execute("UPDATE sources SET lyrics_state = 'running', lyrics_error = NULL,"
+            " lyrics_stage = 'Starting', lyrics_progress = 0 WHERE id = ?", (source_id,))
+
+    vocal = await asyncio.to_thread(_existing_vocal, source_id)
+    work = None
+    if vocal:
+        progress(0.6, "Using the vocal already separated")
+    else:
+        work = config.WORK_DIR / f"lyrics-{source_id}"
+        # Separation is most of the wait, so it owns most of the bar.
+        await stems.separate(path, work, "htdemucs", ["vocals"], "wav",
+                             lambda frac, stage: progress(0.02 + 0.58 * frac, "Separating the vocal"),
+                             work_root=config.WORK_DIR)
+        vocal = next(iter(work.glob("vocals.*")), None)
+        if not vocal:
+            fail_cover_lyrics(source_id, "the vocal could not be separated")
+            return
+
+    try:
+        seconds = await asyncio.to_thread(instrumental.duration_of, vocal)
+        progress(0.62, "Listening for words")
+        lines = await asyncio.to_thread(
+            identities.transcribe, vocal,
+            lambda frac: progress(0.62 + 0.33 * frac, "Listening for words"), seconds)
+        if not lines:
+            fail_cover_lyrics(source_id, "no words were heard in this recording")
+            return
+        progress(0.97, "Laying the words out")
+        sections = identities.score_sections(source["abc"] or "")
+        text = await asyncio.to_thread(identities.tag_lyrics, lines, sections, seconds)
+        execute("UPDATE sources SET lyrics = ?, lyrics_state = 'done', lyrics_stage = NULL,"
+                " lyrics_progress = 1 WHERE id = ?", (text, source_id))
+    finally:
+        if work:
+            shutil.rmtree(work, ignore_errors=True)
+
+
 async def stems_worker() -> None:
     while True:
         job = await STEM_QUEUE.get()
-        row = one("SELECT title FROM stem_sets WHERE id = ?", (job["id"],))
-        task = asyncio.create_task(run_stems_job(job["id"]))
+        lyrics_job = job.get("kind") == "lyrics"
+        table, fail = ("sources", fail_cover_lyrics) if lyrics_job else ("stem_sets", fail_stem)
+        row = one(f"SELECT title FROM {table} WHERE id = ?", (job["id"],))
+        task = asyncio.create_task(
+            run_cover_lyrics(job["id"]) if lyrics_job else run_stems_job(job["id"]))
         CURRENT_STEMS.clear()
         CURRENT_STEMS.update({"id": job["id"], "started": time.time(), "task": task,
                               "title": row["title"] if row else ""})
@@ -905,10 +985,10 @@ async def stems_worker() -> None:
                     await task
                 raise
             if task.cancelled():
-                fail_stem(job["id"], "cancelled")
+                fail(job["id"], "cancelled")
             elif task.exception():
-                log.error("stems job crashed", exc_info=task.exception())
-                fail_stem(job["id"], str(task.exception())[:400])
+                log.error("a CPU job crashed", exc_info=task.exception())
+                fail(job["id"], str(task.exception())[:400])
         finally:
             CURRENT_STEMS.clear()
             STEM_QUEUE.task_done()

@@ -10,6 +10,7 @@ export default [
       globals: {
         window: 'readonly', document: 'readonly', navigator: 'readonly', localStorage: 'readonly',
         fetch: 'readonly', setTimeout: 'readonly', setInterval: 'readonly', clearTimeout: 'readonly',
+        clearInterval: 'readonly',
         requestAnimationFrame: 'readonly', cancelAnimationFrame: 'readonly', confirm: 'readonly', prompt: 'readonly',
         Event: 'readonly', FormData: 'readonly', Path2D: 'readonly', MediaMetadata: 'readonly',
         ABCJS: 'readonly', console: 'readonly'

@@ -693,3 +693,10 @@ details.block[open] > summary { margin-bottom: 10px; }
 .sung-field select { font-size: 13px; padding: 6px 10px; }
 button.take-status.sung { cursor: pointer; text-align: left; width: 100%; font: inherit; font-size: 12px; }
 button.take-status.sung:hover { background: rgba(251, 191, 36, 0.16); }
+
+/* The words heard in a recording: a small job with its own progress, beside the
+   lyrics it fills in. */
+.hear-job { margin: 6px 0 8px; }
+.hear-job-line { display: flex; justify-content: space-between; margin-top: 6px; font-size: 12.5px; }
+.hear-job.bad .bar > div { background: var(--bad); }
+.hear-job.bad .hear-job-line span { color: var(--bad); }

@@ -328,6 +328,17 @@ def _voice_lora_clip() -> None:
         execute("ALTER TABLE takes ADD COLUMN voice_lora_clip REAL NOT NULL DEFAULT 0.0")
 
 
+def _cover_lyrics() -> None:
+    """A recording keeps the lyrics heard in it, the way it already keeps the
+    score transcribed from it: written once, then reused."""
+    columns = _columns("sources")
+    for name, spec in (("lyrics", "TEXT"), ("lyrics_state", "TEXT NOT NULL DEFAULT 'none'"),
+                       ("lyrics_progress", "REAL NOT NULL DEFAULT 0"), ("lyrics_stage", "TEXT"),
+                       ("lyrics_error", "TEXT")):
+        if name not in columns:
+            execute(f"ALTER TABLE sources ADD COLUMN {name} {spec}")
+
+
 MIGRATIONS = [
     lambda: (conn().executescript(BASE_SCHEMA), _legacy_takes()),   # -> 1
     _indexes,                                                        # -> 2
@@ -343,6 +354,7 @@ MIGRATIONS = [
     _vocal_check,                                                    # -> 12
     _style_lora,                                                     # -> 13
     _voice_lora_clip,                                                # -> 14
+    _cover_lyrics,                                                   # -> 15
 ]
 
 

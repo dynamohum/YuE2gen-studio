@@ -188,7 +188,7 @@ WHISPER_MODEL = "large-v3-turbo"
 _whisper = None
 
 
-def transcribe(vocals: Path) -> list[dict]:
+def transcribe(vocals: Path, on_progress=None, duration: float = 0.0) -> list[dict]:
     """The sung lines of a separated vocal, with their times, from Whisper on the CPU.
     Measured on one song against its real lyrics: 16% of words wrong, where Gemma
     listening to the same vocal got 43% wrong."""
@@ -202,6 +202,10 @@ def transcribe(vocals: Path) -> list[dict]:
                                       condition_on_previous_text=False)
     lines = []
     for seg in segments:
+        # Segments arrive as they are decoded, and each carries its time, so the
+        # caller can be told how far through the song this is.
+        if on_progress and duration > 0:
+            on_progress(max(0.0, min(1.0, seg.end / duration)))
         # Whisper runs sung lines together; split at sentence ends, sharing out the time.
         parts = [p.strip() for p in re.split(r"(?<=[.?!])\s+", seg.text.strip()) if p.strip()]
         total = sum(len(p) for p in parts) or 1
