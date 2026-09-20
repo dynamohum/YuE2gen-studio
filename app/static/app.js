@@ -165,6 +165,30 @@ function loraKind(name) {
   return found ? found.kind : 'unknown';
 }
 
+/* A collection grows into dozens, and authors already name a set for what it
+   is: mltnt_roots, chnsn_cabaret, slider-metal.  The word in front is the
+   family, so the list groups itself without anything being hard-coded here.
+   A family of one is no help to anyone, so those gather under Other. */
+function loraFamily(name) {
+  var head = name.replace(/\.safetensors$/i, '').split(/[-_]/)[0];
+  return head.length > 1 ? head.toLowerCase() : 'other';
+}
+
+function loraGroups(list) {
+  var counts = {};
+  list.forEach(function (item) {
+    var family = loraFamily(item.name);
+    counts[family] = (counts[family] || 0) + 1;
+  });
+  var groups = {};
+  list.forEach(function (item) {
+    var family = loraFamily(item.name);
+    if (counts[family] < 2) { family = 'other'; }
+    (groups[family] = groups[family] || []).push(item);
+  });
+  return groups;
+}
+
 function paintStyleLoras() {
   var select = $('style-lora');
   if (!select) { return; }
@@ -172,9 +196,22 @@ function paintStyleLoras() {
   $('style-lora-field').classList.toggle('hidden', !list.length);
   if (!list.length) { return; }
   var chosen = select.value;
-  select.innerHTML = '<option value="">None</option>' + list.map(function (item) {
+  var groups = loraGroups(list);
+  var names = Object.keys(groups).sort(function (a, b) {
+    if (a === 'other') { return 1; }
+    if (b === 'other') { return -1; }
+    return a.localeCompare(b);
+  });
+  var option = function (item) {
     var note = LORA_KINDS[item.kind] ? ' \u2014 ' + LORA_KINDS[item.kind] : '';
-    return '<option value="' + esc(item.name) + '">' + esc(loraLabel(item.name)) + esc(note) + '</option>';
+    return '<option value="' + esc(item.name) + '">' + esc(loraShortLabel(item.name)) + esc(note) + '</option>';
+  };
+  select.innerHTML = '<option value="">None</option>' + names.map(function (family) {
+    var inner = groups[family].map(option).join('');
+    // One group and nothing to compare it with: the heading is noise.
+    if (names.length < 2) { return inner; }
+    return '<optgroup label="' + esc(family.charAt(0).toUpperCase() + family.slice(1)) + '">' +
+      inner + '</optgroup>';
   }).join('');
   if (!chosen && select.dataset.wanted) { chosen = select.dataset.wanted; }
   if (chosen) { select.value = chosen; }
@@ -184,6 +221,14 @@ function paintStyleLoras() {
 /* The file name is what the engine wants, but not what anyone wants to read. */
 function loraLabel(name) {
   return name.replace(/\.safetensors$/i, '').replace(/[_-]+/g, ' ');
+}
+
+/* Inside a family the shared word is already the heading above it. */
+function loraShortLabel(name) {
+  var label = loraLabel(name);
+  var family = loraFamily(name);
+  var head = label.split(' ')[0];
+  return (head.toLowerCase() === family && label.indexOf(' ') > 0) ? label.slice(head.length + 1) : label;
 }
 
 function paintStyleLoraStrengths() {

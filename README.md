@@ -270,6 +270,11 @@ separately rather than as one figure.
 The take records the LoRA and both strengths, the card names it, and **Again** and Variations
 reproduce it.
 
+A collection grows quickly, so the list groups itself by the word in front of a file name: the
+`mltnt_` set becomes one group, `slider-` another. That is the only thing a name has to do, so
+renaming a file is how you move it between groups or give it a better label. A family of one goes
+under *Other*.
+
 Not every YuE2 LoRA loads here: some are published as PEFT adapter folders, or with tensor names
 this engine does not recognise. Those show as *not a YuE2 LoRA* rather than failing silently in a
 render. And a LoRA trained on someone's songs carries their licence, which for most YuE2 LoRAs is
