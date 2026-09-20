@@ -2767,8 +2767,10 @@ function updateTimes() {
 
 function paintTransport() {
   var audio = $('audio');
-  var hasTake = Boolean(currentTakeId());
-  var playing = hasTake && !audio.paused && !audio.ended;
+  // What is playing may be a stem rather than a take, and a stem deliberately
+  // owns no take. The button follows the sound, so it shows Pause whenever
+  // something is sounding.
+  var playing = Boolean(audio.currentSrc || audio.src) && !audio.paused && !audio.ended;
   $('btn-play').innerHTML = playing
     ? '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9 5h2.6v14H9zM13.4 5H16v14h-2.6z"/></svg>'
     : '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.4v13.2L19 12z"/></svg>';
@@ -2997,8 +2999,17 @@ function seekFromPointer(event) {
 function wireTransport() {
   var audio = $('audio');
   $('btn-play').addEventListener('click', function () {
+    // Pause whatever is sounding, take or stem. Starting something else while a
+    // stem plays was the old behaviour and always surprising.
+    if (!audio.paused && !audio.ended) {
+      audio.pause();
+      if (State.playing) { State.playing = null; paintTakes(); }
+      paintTransport();
+      return;
+    }
     var id = currentTakeId();
     if (id) { togglePlay(id); return; }
+    if (audio.src && !audio.ended) { audio.play().catch(function () {}); return; }
     var list = playableTakes();
     if (list.length) { playTake(list[0].id); }
   });
