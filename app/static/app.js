@@ -321,6 +321,24 @@ function applyLoraTrigger(trigger) {
   }
 }
 
+/* Put a take's LoRA back in the picker.  Its style already carries the trigger
+   word, so the word is remembered rather than inserted: nothing about the text
+   changes, but choosing a different LoRA can still take the old one out. */
+function showStyleLora(take) {
+  var select = $('style-lora');
+  if (!select) { return; }
+  select.value = take.style_lora || '';
+  select.dataset.wanted = take.style_lora || '';
+  if (take.style_lora) {
+    $('style-lora-model').value = take.style_lora_model === undefined ? 1 : take.style_lora_model;
+    $('style-lora-clip').value = take.style_lora_clip === undefined ? 1 : take.style_lora_clip;
+  }
+  var item = loraChosen();
+  State.loraTrigger = (item && item.trigger) || null;
+  paintStyleLoraStrengths();
+  saveForm();
+}
+
 function loraChosen() {
   var select = $('style-lora');
   if (!select || !select.value) { return null; }
@@ -2614,6 +2632,7 @@ function selectTake(take) {
   if (take.identity_id !== undefined || take.persona_id !== undefined) {
     paintVocalIdentitySelect((take.identity_id !== undefined ? take.identity_id : take.persona_id) || '', take.voice_lora || '');
   }
+  if (take.style_lora !== undefined) { showStyleLora(take); }
   $('interpretation').value = INTERPRETATIONS[take.interpretation] ? take.interpretation : 'standard';
   paintInterpretation();
   // A cover's score belongs to its source, and a plan still being written belongs
