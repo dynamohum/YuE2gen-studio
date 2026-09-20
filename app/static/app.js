@@ -1007,7 +1007,11 @@ var personaName = identityName;
 
 function getIdentityLoRAs(identity) {
   if (!identity) { return []; }
-  var allLoras = (State.options && State.options.loras) || [];
+  // The engine's list became a catalogue of entries when the style picker was
+  // added; this one only ever wanted the names.
+  var allLoras = ((State.options && State.options.loras) || []).map(function (item) {
+    return typeof item === 'string' ? item : item.name;
+  });
   var trigger = (identity.trigger_word || '').toLowerCase();
   var name = (identity.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
   var matches = allLoras.filter(function (l) {

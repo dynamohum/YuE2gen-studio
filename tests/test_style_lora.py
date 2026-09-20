@@ -118,3 +118,28 @@ def test_a_takes_choice_reaches_both_graphs():
     assert render["27"]["inputs"]["strength_clip"] == 0.4
     plan = build_plan_graph(take)
     assert plan["21"]["inputs"]["strength_clip"] == 0.4
+
+
+def test_one_file_chosen_as_both_a_voice_and_a_style_is_chained_once():
+    """An Identity's LoRA and a style LoRA can be the same file. Applying it
+    twice would double it, quietly, and only for people who own Identities."""
+    take = dict(make_take(kind="song", abc="X:1\n", status="planned"))
+    take.update(voice_lora="paulshields_best.safetensors", voice_lora_strength=1.0,
+                style_lora="paulshields_best.safetensors", style_lora_model=0.6,
+                style_lora_clip=0.9)
+    graph = build_render_graph(take)
+    assert "26" not in graph, "the identity chain should give way to the style one"
+    assert graph["27"]["inputs"]["lora_name"] == "paulshields_best.safetensors"
+    assert graph["27"]["inputs"]["strength_model"] == 0.6
+    assert graph["27"]["inputs"]["strength_clip"] == 0.9
+
+
+def test_a_different_voice_and_style_lora_both_apply():
+    take = dict(make_take(kind="song", abc="X:1\n", status="planned"))
+    take.update(voice_lora="paulshields_best.safetensors", voice_lora_strength=1.0,
+                style_lora="mltnt_roots.safetensors", style_lora_model=1.0, style_lora_clip=0.5)
+    graph = build_render_graph(take)
+    assert graph["26"]["inputs"]["lora_name"] == "paulshields_best.safetensors"
+    assert graph["27"]["inputs"]["lora_name"] == "mltnt_roots.safetensors"
+    # Chained, not competing: the sampler takes the last one in the chain.
+    assert graph["14"]["inputs"]["model"] == ["27", 0]

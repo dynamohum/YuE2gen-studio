@@ -217,10 +217,14 @@ def build_render_graph(take: dict) -> dict:
     if take.get("realaudio"):
         with_realaudio_lora(graph, "10", config.REAL_AUDIO_LORA)
     voice_lora = take.get("voice_lora")
-    if voice_lora:
+    style_lora = take.get("style_lora")
+    # The same file can be reached two ways: as an Identity's voice, which is
+    # applied model-side only, and as a style LoRA, which is applied on both.
+    # Chaining it twice would double it, so the style picker wins: it is the
+    # more explicit of the two, and it carries both strengths.
+    if voice_lora and voice_lora != style_lora:
         strength = float(take.get("voice_lora_strength") or 1.0)
         with_identity_lora(graph, voice_lora, loader="10", strength=strength)
-    style_lora = take.get("style_lora")
     if style_lora:
         with_style_lora(graph, style_lora, loader="10",
                         strength_model=float(take.get("style_lora_model") or 0.0),
