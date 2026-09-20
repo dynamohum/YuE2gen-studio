@@ -174,17 +174,25 @@ function loraFamily(name) {
   return head.length > 1 ? head.toLowerCase() : 'other';
 }
 
+/* A named family is the set its author published, so two prefixes that share a
+   name share a group: qwwl and drksf are one repository and belong together.
+   Only the unnamed fall back to the word in the file name, and a lone one of
+   those has nothing to head a group with. */
+function loraGroupKey(item) {
+  return item.family || loraFamily(item.name);
+}
+
 function loraGroups(list) {
   var counts = {};
   list.forEach(function (item) {
-    var family = loraFamily(item.name);
-    counts[family] = (counts[family] || 0) + 1;
+    var key = loraGroupKey(item);
+    counts[key] = (counts[key] || 0) + 1;
   });
   var groups = {};
   list.forEach(function (item) {
-    var family = loraFamily(item.name);
-    if (counts[family] < 2) { family = 'other'; }
-    (groups[family] = groups[family] || []).push(item);
+    var key = loraGroupKey(item);
+    if (!item.family && counts[key] < 2) { key = 'other'; }
+    (groups[key] = groups[key] || []).push(item);
   });
   return groups;
 }
@@ -212,10 +220,11 @@ function paintStyleLoras() {
     var inner = groups[family].map(option).join('');
     // One group and nothing to compare it with: the heading is noise.
     if (names.length < 2) { return inner; }
-    // Other is a bag of odds and ends, so it must not borrow a name from
-    // whichever of them happens to be first.
+    // A named family is already its heading; an unnamed one is a bare file-name
+    // prefix, and Other is a bag of odds and ends that must not borrow a name
+    // from whichever of them happens to be first.
     var heading = family === 'other' ? 'Other'
-      : ((groups[family][0] || {}).family || family.charAt(0).toUpperCase() + family.slice(1));
+      : (groups[family][0].family ? family : family.charAt(0).toUpperCase() + family.slice(1));
     return '<optgroup label="' + esc(heading) + '">' + inner + '</optgroup>';
   }).join('');
   if (!chosen && select.dataset.wanted) { chosen = select.dataset.wanted; }

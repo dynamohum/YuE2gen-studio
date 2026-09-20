@@ -280,8 +280,9 @@ picker shows both. A line reading `Trigger: chnsn` is pulled out and shown as a 
 that word at the front of the Style, because a LoRA trained on captions that begin with its trigger
 does very little without it.
 
-`families.txt` in the same folder gives the groups readable headings, one `prefix = label` per line,
-so `chnsn` reads as *Chanson francaise*.
+`families.txt` in the same folder gives the groups their headings, one `prefix = label` per line, so
+`chnsn` reads as *CHNSN — Chanson Française*. Two prefixes may share a label, and then they share a
+group: `qwwl` and `drksf` are one published set and belong together.
 
 Not every YuE2 LoRA loads here: some are published as PEFT adapter folders, or with tensor names
 this engine does not recognise. Those show as *not a YuE2 LoRA* rather than failing silently in a
