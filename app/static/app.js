@@ -1252,7 +1252,7 @@ function closeSettings() {
 var HEAR = { id: null, timer: 0 };
 
 function paintHearButton() {
-  var button = $('lyrics-hear');
+  var button = $('source-lyrics');
   if (!button) { return; }
   var source = currentSource();
   button.disabled = !source;
@@ -1502,9 +1502,8 @@ function setMode(mode) {
   var show = function (id, on) { $(id).style.display = on ? '' : 'none'; };
   show('cover-only', cover);
   show('lyrics-write', mode === 'song');
-  // This one starts hidden by class, and a class cannot be undone by clearing an
-  // inline style, so it is the class that has to move.
-  $('lyrics-hear').classList.toggle('hidden', !cover);
+  // It acts on a recording, so it lives with the recording's own buttons, which
+  // the whole cover-only block already shows and hides.
   show('auto-wrap', !cover);
   // Both steer the score writer, which a cover never uses: its score is the transcription.
   show('harmony-field', !cover);
@@ -3902,7 +3901,7 @@ function wire() {
   wireStructure();
   $('interpretation').addEventListener('change', paintInterpretation);
   $('lyrics-write').addEventListener('click', openWrite);
-  $('lyrics-hear').addEventListener('click', function () {
+  $('source-lyrics').addEventListener('click', function () {
     hearLyrics().catch(function (err) { statusLine('Could not start: ' + err.message, 'bad'); });
   });
   $('lyrics-hear-stop').addEventListener('click', function () {
