@@ -16,6 +16,31 @@ Release notes live in two places and neither is a file in this repository: this 
 history, and each GitHub release holds its published notes. `RELEASE-NOTES-*.md` is ignored so it
 cannot creep back in.
 
+## 0.0.5 - 2026-09-20
+
+- **Instrumentals that sang are caught.** The model occasionally puts a voice into an instrumental. A
+  finished one is now checked for singing before it is called done, and a take that came out sung says
+  so on its card and offers the two things that help: the same score with a new seed, or a new plan.
+- **Feel is gone.** It loosened the instrumental LoRA for more movement between sections, and measured
+  at real song lengths any loosening let the vocal back in. Instrumentals always render at full
+  strength; movement is still available through Plan variety, Harmony and Interpretation. Takes made
+  with it keep their setting and render like any other.
+- **A plan that would sing warns first.** An instrumental whose score plan puts a melody in the vocal
+  part is not rendered automatically; the card says why, and offers a new plan or the render anyway.
+- **Settings: Vocal check on instrumentals.** Quick keeps the separator in memory, Thrifty loads it
+  for each check and holds nothing, Off does not check.
+- **Take cards read as the recipe that made them**: Harmony, Interpretation and Plan variety are named
+  and come first, each shown only when it was not the default.
+- Cards keep their tiles on one row in the compact layout, whether starred or not.
+- Space and the arrow keys no longer reach the player through a window that is open in front.
+- A long lyric brief in the render queue is cut at a word and ends in an ellipsis, so it is clear the
+  display was shortened and not the prompt.
+- The job card and the lyrics window no longer quote fixed times.
+- Unix line endings are enforced through `.gitattributes`, and the README has a section on running the
+  app on Windows with Docker Desktop.
+- API: `POST /api/takes/{id}/render` takes `reseed`. The database gains `takes.vocal_check` on the
+  first start (migration 12).
+
 ## 0.0.4 - 2026-09-20
 
 - **Vocal Identities**: Create and manage custom vocal identities to maintain a consistent singing voice across takes. Point to a folder of reference recordings (own voice or with explicit consent) to isolate vocal stems, detect key and tempo with SheetSage, and generate section-tagged lyric drafts with Whisper. Export structured datasets ready for voice model training.
