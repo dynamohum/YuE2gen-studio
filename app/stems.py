@@ -76,7 +76,9 @@ class Progress:
         if self.writing:
             return None   # one bar per stem; nothing worth reporting
         done = (self.pass_index + pct / 100.0) / self.passes
-        label = f"Separating {pct}%" if self.passes == 1 else f"Separating, model {self.pass_index + 1} of {self.passes}, {pct}%"
+        # The percentage belongs to the caller, which already has one from the
+        # figure returned here.  A label that carries its own is shown twice.
+        label = "Separating" if self.passes == 1 else f"Separating (model {self.pass_index + 1} of {self.passes})"
         return round(0.05 + 0.90 * max(0.0, min(1.0, done)), 4), label
 
 
