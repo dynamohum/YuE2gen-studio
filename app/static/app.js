@@ -2560,15 +2560,19 @@ function paintTakes() {
     var meta = [];
     meta.push(take.kind === 'song' ? 'from a prompt' : (take.kind === 'instrumental' ? 'instrumental' : 'cover'));
     if (take.duration) { meta.push(secs(take.duration)); }
-    if ((take.kind === 'song' || take.kind === 'instrumental') && take.harmony) { meta.push(HARMONY_WORDS[take.harmony].toLowerCase() + ' harmony'); }
+    // The settings that shaped it come first, named, so a card can be read back
+    // as the recipe that made it. Each appears only when it was not the default.
+    var written = take.kind === 'song' || take.kind === 'instrumental';
+    if (written && take.harmony) { meta.push('Harmony: ' + HARMONY_WORDS[take.harmony].toLowerCase()); }
+    if (take.interpretation && take.interpretation !== 'standard' && INTERPRETATIONS[take.interpretation]) {
+      meta.push('Interpretation: ' + INTERPRETATIONS[take.interpretation].name.toLowerCase());
+    }
+    if (written && take.variety && take.variety !== 'normal') { meta.push('Plan: ' + take.variety); }
     if (take.realaudio) { meta.push('realaudio'); }
     if (take.identity_id || take.persona_id || take.voice_lora) {
       meta.push(identityName(take.identity_id || take.persona_id) || 'identity');
     }
     meta.push('seed ' + take.seed);
-    if (take.interpretation && take.interpretation !== 'standard' && INTERPRETATIONS[take.interpretation]) {
-      meta.push(INTERPRETATIONS[take.interpretation].name.toLowerCase());
-    }
     meta.push(age(take.created_at));
     var live = '';
     if (status === 'running' && take.live) {
