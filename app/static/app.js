@@ -1256,10 +1256,11 @@ function paintHearButton() {
   if (!button) { return; }
   var source = currentSource();
   button.disabled = !source;
-  button.textContent = source && source.has_lyrics ? 'Lyrics heard' : 'Hear the lyrics';
-  button.title = source
-    ? 'Separate the vocal from this recording and write down what it sings'
-    : 'Choose a recording first';
+  // The label stays an instruction. "Lyrics heard" read as a status, and a
+  // status is not something anyone thinks to press.
+  button.title = !source ? 'Choose a recording first'
+    : source.has_lyrics ? 'These words were heard in this recording earlier: put them in the box'
+    : 'Separate the vocal from this recording and write down what it sings';
 }
 
 function paintHearJob(state) {
@@ -1501,7 +1502,9 @@ function setMode(mode) {
   var show = function (id, on) { $(id).style.display = on ? '' : 'none'; };
   show('cover-only', cover);
   show('lyrics-write', mode === 'song');
-  show('lyrics-hear', cover);
+  // This one starts hidden by class, and a class cannot be undone by clearing an
+  // inline style, so it is the class that has to move.
+  $('lyrics-hear').classList.toggle('hidden', !cover);
   show('auto-wrap', !cover);
   // Both steer the score writer, which a cover never uses: its score is the transcription.
   show('harmony-field', !cover);
