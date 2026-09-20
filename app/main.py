@@ -401,6 +401,16 @@ def health() -> dict:
     return {"ok": True, "engine": ENGINE.online, "version": config.VERSION}
 
 
+def _shorten(text: str, limit: int) -> str:
+    """Cut at the last whole word that fits, and say it was cut.  A line that
+    stops mid-word reads like something went wrong with the prompt."""
+    text = " ".join((text or "").split())
+    if len(text) <= limit:
+        return text
+    cut = text[:limit].rsplit(" ", 1)[0] or text[:limit]
+    return cut + "\u2026"
+
+
 def _job_title(kind: str, ref_id: str) -> str | None:
     if kind in jobs.IDENTITY_FIELDS:
         row = one("SELECT title FROM identity_songs WHERE id = ?", (ref_id,))
@@ -409,7 +419,7 @@ def _job_title(kind: str, ref_id: str) -> str | None:
         return f"Identity {label}: {row['title']}" if row else None
     if kind == "lyrics":
         record = LYRICS.get(ref_id)
-        return ("Lyrics: " + record["brief"][:60]) if record else None
+        return ("Lyrics: " + _shorten(record["brief"], 60)) if record else None
     if kind == "transcribe":
         row = one("SELECT title FROM sources WHERE id = ?", (ref_id,))
     else:

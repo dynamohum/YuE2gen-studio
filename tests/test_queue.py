@@ -67,3 +67,16 @@ def test_state_lists_outside_jobs_the_current_job_and_waiting_takes(client, monk
     ]
     assert queue[2]["note"] == "sent before the app restarted"
     assert queue[0]["seconds"] > 0 and queue[3]["seconds"] is None
+
+
+def test_a_long_brief_is_cut_at_a_word_and_says_so():
+    """A line that stops mid-word reads like the prompt was truncated; it was not."""
+    from app.main import _shorten
+
+    brief = ("a man cursed to live for a 1000 years wanders his ancient castle "
+             "waiting for the love of his life to return")
+    short = _shorten(brief, 60)
+    assert short == "a man cursed to live for a 1000 years wanders his ancient…"
+    assert len(short) <= 61 and not short[:-1].endswith(" ")
+    assert _shorten("a sad song about rain", 60) == "a sad song about rain"
+    assert _shorten("  spaced   out  words ", 60) == "spaced out words"
