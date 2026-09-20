@@ -77,6 +77,21 @@ SETTINGS_SPEC: list[dict] = [
         "help": "The model new runs start with.",
     },
     {
+        "key": "instrumental.vocal_check",
+        "label": "Vocal check on instrumentals",
+        "type": "select",
+        "default": "fast",
+        "options": [
+            {"value": "fast", "label": "Quick: keep the separator in memory"},
+            {"value": "thrifty", "label": "Thrifty: a separate program each time"},
+            {"value": "off", "label": "Off: do not check"},
+        ],
+        "help": "An instrumental is checked for singing as it finishes, because the model sometimes puts a "
+                "voice in one. Quick answers in a moment and holds about half a gigabyte for as long as the "
+                "app runs. Thrifty holds nothing and takes long enough that a take can look finished before "
+                "the answer arrives. Off tells you nothing.",
+    },
+    {
         "key": "stems.folder",
         "label": "Stem save folder",
         "type": "text",

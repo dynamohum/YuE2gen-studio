@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 
 from . import config, identities, instrumental, lyrics, score, stems
-from .db import bump_average, execute, one
+from .db import bump_average, execute, get_setting, one
 from .engine import Engine, load_template
 from .library import audio_duration, ensure_peaks, inside, remove_tree, take_audio_path, write_take_note
 
@@ -337,7 +337,7 @@ async def run_job(kind: str, ref_id: str) -> None:
             return   # deleted or cancelled while it waited
         graph = build_plan_graph(record) if kind == "plan" else build_render_graph(record)
         execute("UPDATE takes SET status = 'running', error = NULL, stage = NULL WHERE id = ?", (ref_id,))
-        if kind == "render" and record.get("kind") == "instrumental":
+        if kind == "render" and record.get("kind") == "instrumental" and check_mode() == "fast":
             # The finished audio will be checked for singing. Loading Demucs takes
             # longer than the check itself, so it is loaded while the render runs
             # and is ready the moment the audio is. Only for instrumentals, so an
@@ -791,9 +791,19 @@ def singing_share(audio: Path) -> float | None:
     opening, believe it was clean, and move on. This answers while they are still
     listening.
     """
+    mode = check_mode()
+    if mode == "off":
+        return None
     work = Path(tempfile.mkdtemp(prefix="vocal-check-", dir=config.WORK_DIR))
     try:
         clip = instrumental.excerpt(audio, work / "excerpt.wav")
+        if mode == "thrifty":
+            # A separate program, which gives its memory back when it ends, at the
+            # cost of loading the model from scratch every time.
+            asyncio.run(stems.separate(clip, work / "split", "htdemucs", ["vocals"], "wav",
+                                       work_root=config.WORK_DIR))
+            vocals = next((work / "split").glob("*vocals*.wav"), None)
+            return instrumental.sung_share(vocals) if vocals else None
         samples, rate = stems.vocal_of(clip)
         return instrumental.share_of(samples, rate)
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
@@ -801,6 +811,16 @@ def singing_share(audio: Path) -> float | None:
         return None
     finally:
         remove_tree(work)
+
+
+def check_mode() -> str:
+    """How thoroughly to pay for the check: fast, thrifty, or not at all.
+
+    Holding the separator cannot be undone once it is loaded — releasing the
+    model leaves the memory with the allocator rather than the system — so the
+    thrifty choice runs it as a separate program instead."""
+    mode = (get_setting("instrumental.vocal_check", "fast") or "fast").lower()
+    return mode if mode in ("fast", "thrifty", "off") else "fast"
 
 
 async def run_vocal_check(take_id: str) -> None:

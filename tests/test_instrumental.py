@@ -174,3 +174,24 @@ def test_a_plan_with_a_melody_in_the_vocal_part_is_spotted():
 def test_chord_symbols_are_not_mistaken_for_a_melody():
     chords_only = 'X:1\nM:4/4\nL:1/16\nV: Vocal\nK:C\n% intro\nV: Vocal\n"Gm"z16|"Bbmaj7"z16|"F/A"z16|\n'
     assert instrumental.sings(chords_only) == 0
+
+
+def test_the_check_can_be_quick_thrifty_or_off():
+    """Holding the separator cannot be undone once loaded, so the thrifty choice
+    runs a separate program rather than pretending to free memory."""
+    from app.db import set_setting
+    assert jobs.check_mode() == "fast"            # the default
+    for mode in ("thrifty", "off", "fast"):
+        set_setting("instrumental.vocal_check", mode)
+        assert jobs.check_mode() == mode
+    set_setting("instrumental.vocal_check", "nonsense")
+    assert jobs.check_mode() == "fast"            # anything unknown is the default
+    set_setting("instrumental.vocal_check", "fast")
+
+
+def test_off_means_no_answer_and_no_work(tmp_path, monkeypatch):
+    from app.db import set_setting
+    set_setting("instrumental.vocal_check", "off")
+    monkeypatch.setattr(jobs.instrumental, "excerpt", lambda *a, **k: pytest.fail("should not have looked"))
+    assert jobs.singing_share(tmp_path / "nothing.flac") is None
+    set_setting("instrumental.vocal_check", "fast")
