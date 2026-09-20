@@ -214,7 +214,11 @@ function paintStyleLoras() {
     var note = LORA_KINDS[item.kind] ? ' \u2014 ' + LORA_KINDS[item.kind] : '';
     // The author's own name for it beats a file name every time.
     var label = item.title || loraShortLabel(item.name);
-    return '<option value="' + esc(item.name) + '">' + esc(label) + esc(note) + '</option>';
+    // On the option itself, so the list can be read before anything is chosen.
+    var tip = [item.trigger ? 'Trigger: ' + item.trigger : '', plainNote(item.note), item.name]
+      .filter(Boolean).join('\n\n');
+    return '<option value="' + esc(item.name) + '" title="' + esc(tip) + '">' +
+      esc(label) + esc(note) + '</option>';
   };
   select.innerHTML = '<option value="">None</option>' + names.map(function (family) {
     var inner = groups[family].map(option).join('');
@@ -230,6 +234,19 @@ function paintStyleLoras() {
   if (!chosen && select.dataset.wanted) { chosen = select.dataset.wanted; }
   if (chosen) { select.value = chosen; }
   paintStyleLoraStrengths();
+}
+
+/* A note is written for a web page, so it arrives with emphasis and code
+   marks in it.  Nothing here renders those, and a stray asterisk reads as a
+   mistake, so they come out. */
+function plainNote(text) {
+  return String(text || '')
+    .replace(/\*\*/g, '').replace(/`/g, '')
+    // A blank line is a paragraph and is kept; a single wrap is not and is not.
+    .replace(/[ \t]*\n[ \t]*\n\s*/g, '\u0001')
+    .replace(/\s*\n\s*/g, ' ')
+    .replace(/\u0001/g, '\n')
+    .trim();
 }
 
 /* The file name is what the engine wants, but not what anyone wants to read. */
@@ -264,7 +281,7 @@ function paintStyleLoraNote() {
       : 'Needs <b>' + esc(item.trigger) + '</b> in the style. ' +
         '<button type="button" class="link" data-act="lora-trigger">Add it</button>');
   }
-  if (item.note) { parts.push(esc(item.note).replace(/\n+/g, '<br>')); }
+  if (item.note) { parts.push(esc(plainNote(item.note)).replace(/\n/g, '<br>')); }
   hint.innerHTML = parts.join('<br>') || 'Planner shapes the score, Sound shapes the audio.';
 }
 
