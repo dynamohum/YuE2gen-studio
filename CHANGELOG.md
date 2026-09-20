@@ -16,6 +16,36 @@ Release notes live in two places and neither is a file in this repository: this 
 history, and each GitHub release holds its published notes. `RELEASE-NOTES-*.md` is ignored so it
 cannot creep back in.
 
+## 0.0.6 - 2026-09-20
+
+- **Style LoRAs.** Any `.safetensors` in `models/loras/` can be chosen for a take, with its own two
+  strengths: **Planner**, which shapes the score plan, and **Sound**, which shapes the audio. The app
+  reads each file to see which halves it holds, says so in the list, and greys out a strength the
+  file cannot use.
+- **The planner half is applied where the plan is written**, not only in the render, because a score
+  plan is written in a run of its own. The same prompt and seed through one LoRA at planner 0 and 1
+  gave 82 BPM and 85 lines of score against 72 BPM and 199.
+- **A LoRA can carry its own description.** A `.txt` beside it names it on the first line and
+  describes it below, shown in the picker and on hover, and `families.txt` gives the groups their
+  headings. A line reading `Trigger: chnsn` is treated as more than text: choosing that LoRA puts the
+  word at the front of the Style, changing to another swaps it, and a render puts it back if it was
+  deleted, because a LoRA trained on captions that begin with its trigger does very little without it.
+- **Identities gain a Planner strength.** An Identity's LoRA usually holds a planner half as well as
+  a voice, and the app had always applied the voice alone. That half is now a control, off by
+  default, so nothing rendered before this sounds different. Identity files are no longer offered in
+  the style list: they belong to the Identity control, and one file is never applied twice.
+- Takes record the LoRA and both strengths, cards name them, and clicking a take brings them back, so
+  **Again** and Variations reproduce what was heard.
+- The stem row shows its progress once, rather than twice.
+- The player follows the sound, so a stem can be paused with the button or the space bar instead of
+  starting the last take.
+- The Windows notes name the step that was missing — WSL integration — and the model list names the
+  Realaudio decoder LoRA and tokenizer head, which the fetch script has pulled since 0.0.4.
+- API: the create endpoints take `style_lora`, `style_lora_model`, `style_lora_clip` and
+  `voice_lora_clip`. The database gains those columns on the first start (migrations 13 and 14).
+- `compose.yml` mounts `./models` into the app, read only, so it can read what a LoRA holds. Without
+  it the picker still works from the engine's list.
+
 ## 0.0.5 - 2026-09-20
 
 - **Instrumentals that sang are caught.** The model occasionally puts a voice into an instrumental. A
