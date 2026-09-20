@@ -17,17 +17,19 @@ import subprocess
 from pathlib import Path
 
 SECTIONS = ("intro", "verse", "pre-chorus", "chorus", "bridge", "outro")
-# How firmly the LoRA holds the model to its training.  Steady is the author's own
-# setting; Varied loosens it, for more movement between sections.
+# The LoRA is always held at full strength.
 #
-# Varied was 0.8 until a take came back singing.  Measured across strengths and
-# seeds: at 0.8 the vocal returns on some seeds and not others — on the seed that
-# failed it sang through two thirds of the piece, while three other seeds were
-# silent.  Every strength from 0.85 up was clean on all of them, including the
-# one that broke 0.8.  So 0.9 is loose enough to be worth having and clear of the
-# only failure anyone has reproduced.  It is not a guarantee, which is why a
-# finished instrumental is checked for singing afterwards.
-FEELS = {"steady": 1.0, "varied": 0.9}
+# There was a Feel control that loosened it to 0.8, then 0.9, for more movement
+# between sections. Measured at real song lengths, any loosening lets the vocal
+# back in: at two minutes, 0.90 sang through 94%, 94% and 66% of three renders,
+# and 0.95 through 15% of one, while full strength was clean on every seed and
+# every length tried. An earlier sweep that looked clean had used one-minute
+# renders, which are too short to fail this way.
+#
+# So the control is gone rather than retuned: its only safe setting was the
+# default. Movement is still available through Plan variety, Harmony,
+# Interpretation and choosing the sections, none of which risk a vocal.
+FEELS = {"steady": 1.0}
 
 # A finished instrumental is judged by how much of it carries a vocal: the share
 # of seconds whose separated vocal is above the noise the separation leaves

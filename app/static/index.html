@@ -150,15 +150,6 @@
       <div class="structure-sent"><span class="muted">Sent to YuE2:</span> <code id="structure-preview"></code></div>
     </div>
 
-    <div class="field" id="feel-field" style="display:none">
-      <label>Feel</label>
-      <div class="seg" id="feel">
-        <button data-feel="steady" class="active">Steady</button>
-        <button data-feel="varied">Varied</button>
-      </div>
-      <div id="feel-hint" class="hint"></div>
-    </div>
-
     <div class="field" id="lyrics-field">
       <div class="label-row">
         <label for="lyrics">Lyrics</label>
@@ -275,12 +266,11 @@
 <div id="sung-modal" class="modal hidden" role="dialog" aria-modal="true" aria-label="This plan may sing">
   <div class="modal-box narrow">
     <div class="modal-head">
-      <strong>This plan may sing</strong>
+      <strong id="sung-title">This plan may sing</strong>
       <button id="sung-cancel" class="ghost">Cancel</button>
     </div>
     <p class="hint" id="sung-text"></p>
-    <p class="hint">Not every such plan sings, so rendering it may be fine. Writing a new plan takes a fraction of
-      the time a render does, and always uses a fresh seed.</p>
+    <p class="hint" id="sung-advice"></p>
     <div class="row" style="margin-top:10px">
       <label class="sung-field">Plan variety
         <select id="sung-variety">

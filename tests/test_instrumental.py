@@ -80,13 +80,13 @@ def test_variations_of_an_instrumental_stay_instrumental(client):
     drain()
 
 
-def test_feel_sets_the_lora_strength_in_both_graphs():
-    steady = jobs.build_plan_graph(TAKE)["20"]["inputs"]["strength_clip"]
-    varied_plan = jobs.build_plan_graph({**TAKE, "feel": "varied"})["20"]["inputs"]["strength_clip"]
-    varied_render = jobs.build_render_graph({**TAKE, "feel": "varied"})["20"]["inputs"]["strength_clip"]
-    loose = instrumental.FEELS["varied"]
-    assert (steady, varied_plan, varied_render) == (1.0, loose, loose)
-    assert loose < 1.0   # it does loosen something, whatever the value is
+def test_the_lora_is_held_at_full_strength_whatever_the_take_says():
+    """The Feel control is gone: any loosening let the vocal back in at real song
+    lengths.  Takes saved as "varied" render like every other one."""
+    assert instrumental.FEELS == {"steady": 1.0}
+    for feel in (None, "steady", "varied", "nonsense"):
+        assert jobs.build_plan_graph({**TAKE, "feel": feel})["20"]["inputs"]["strength_clip"] == 1.0
+        assert jobs.build_render_graph({**TAKE, "feel": feel})["20"]["inputs"]["strength_clip"] == 1.0
 
 
 def test_the_api_keeps_the_feel_and_variations_copy_it(client, monkeypatch):
@@ -105,12 +105,14 @@ def test_the_api_keeps_the_feel_and_variations_copy_it(client, monkeypatch):
     drain()
 
 
-def test_varied_is_clear_of_the_strength_that_let_the_vocal_back_in():
-    """0.8 sang on some seeds; every strength from 0.85 up was clean, including on
-    the seed that failed.  Varied sits at 0.9: loose, and clear of it."""
-    assert instrumental.FEELS["steady"] == 1.0
-    assert instrumental.FEELS["varied"] == 0.9
-    assert instrumental.FEELS["varied"] > 0.8
+def test_an_old_take_saved_as_varied_is_still_accepted(client, monkeypatch):
+    """A page loaded before the control was removed may still send it."""
+    monkeypatch.setitem(jobs.ENGINE.options, "instrumental", True)
+    monkeypatch.setattr(jobs.ENGINE, "options_loaded", True)
+    monkeypatch.setitem(jobs.ENGINE.options, "checkpoints", [config.CHECKPOINT])
+    assert client.post("/api/instrumentals", json={"feel": "varied"}).status_code == 200
+    assert client.post("/api/instrumentals", json={"feel": "wobbly"}).status_code == 400
+    drain()
 
 
 def test_a_silent_vocal_stem_is_not_called_singing(tmp_path):

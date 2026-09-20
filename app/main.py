@@ -326,6 +326,10 @@ PersonaSongEdit = IdentitySongEdit
 class RenderIn(BaseModel):
     # Optional: an omitted interpretation keeps the take's own.
     interpretation: str | None = None
+    # A fresh seed for the same score: what to reach for when a take came out
+    # wrong in a way the settings do not explain, such as an instrumental that
+    # sang. The plan is kept; only the rendering of it changes.
+    reseed: bool = False
     realaudio: bool | None = None
     identity_id: str | None = Field(None, max_length=64)
     persona_id: str | None = Field(None, max_length=64)
@@ -795,7 +799,9 @@ async def create_instrumental(body: InstrumentalIn) -> dict:
         structure = instrumental.normalise(body.structure)
     except ValueError as exc:
         raise HTTPException(400, f"That structure will not work: {exc}") from exc
-    if body.feel not in instrumental.FEELS:
+    # "varied" was a setting once, and an old page may still send it. It is
+    # taken as steady rather than refused, because that is what it renders as.
+    if body.feel not in instrumental.FEELS and body.feel != "varied":
         raise HTTPException(400, f"unknown feel: {body.feel}")
     title = (body.title or "").strip() or "Untitled instrumental"
     return await _plan_new_take("instrumental", title, structure, body)
@@ -938,10 +944,11 @@ async def render_take(take_id: str, body: RenderIn | None = None) -> dict:
         identity_val = take.get("identity_id") or take.get("persona_id")
     voice_lora = take.get("voice_lora") if body is None or body.voice_lora is None else (body.voice_lora or None)
     voice_lora_strength = take.get("voice_lora_strength", 1.0) if body is None or body.voice_lora_strength is None else body.voice_lora_strength
-    execute("UPDATE takes SET status = 'queued', error = NULL, stage = NULL, checkpoint = ?, interpretation = ?, realaudio = ?, identity_id = ?, persona_id = ?, voice_lora = ?, voice_lora_strength = ? WHERE id = ?",
-            (config.CHECKPOINT, interpretation, realaudio, identity_val, identity_val, voice_lora, voice_lora_strength, take_id))
+    seed = int.from_bytes(os.urandom(4), "big") if (body is not None and body.reseed) else take["seed"]
+    execute("UPDATE takes SET status = 'queued', error = NULL, stage = NULL, checkpoint = ?, interpretation = ?, realaudio = ?, identity_id = ?, persona_id = ?, voice_lora = ?, voice_lora_strength = ?, seed = ?, vocal_check = NULL WHERE id = ?",
+            (config.CHECKPOINT, interpretation, realaudio, identity_val, identity_val, voice_lora, voice_lora_strength, seed, take_id))
     await QUEUE.put({"kind": "render", "id": take_id})
-    return {"queued": True}
+    return {"queued": True, "seed": seed}
 
 
 @app.post("/api/takes/{take_id}/clear")

@@ -1140,7 +1140,6 @@ function setMode(mode) {
   show('lyrics-field', !inst);
   show('vocal-field', !inst);
   show('structure-field', inst);
-  show('feel-field', inst);
   show('mode-field', !inst);
   $('headline').textContent = cover ? 'Cover a song' : (inst ? 'Write an instrumental' : 'Write a song');
   $('sub').textContent = cover
@@ -1428,6 +1427,26 @@ async function loadTakes() {
   State.takesRaw = text;
   State.takes = JSON.parse(text);
   paintTakes();
+  noticeSinging();
+}
+
+/* An instrumental that came out singing is worth interrupting for once: the
+   render has just been paid for, and the answer is a click away. Only for one
+   that finished a moment ago, only once per take, and never over another open
+   window. Anything older is left to say so on its card. */
+function noticeSinging() {
+  if (!State.sungSeen) { State.sungSeen = {}; }
+  var now = Date.now() / 1000;
+  for (var i = 0; i < State.takes.length; i++) {
+    var take = State.takes[i];
+    if (take.kind !== 'instrumental' || take.status !== 'done') { continue; }
+    if (!(take.vocal_check >= 0.1) || State.sungSeen[take.id]) { continue; }
+    State.sungSeen[take.id] = true;
+    if (now - (take.finished_at || 0) > 300) { continue; }        // not fresh
+    if (document.querySelector('.modal:not(.hidden)')) { continue; }
+    openSungWarning(take);
+    return;
+  }
 }
 
 /* ----------------------------------------------------------------- spaces
@@ -1585,18 +1604,15 @@ function paintPresets() {
    section tags, or tags with times.  The LoRA only knows these six sections. */
 var SECTIONS = ['intro', 'verse', 'pre-chorus', 'chorus', 'bridge', 'outro'];
 /* How firmly the instrumental LoRA holds the model: Steady at full strength, Varied a little looser. */
-var FEELS = {
-  steady: 'Sticks to its loop: repetitive and laid-back.',
-  varied: 'More movement and variation between sections.'
-};
+/* There was a Feel control here, loosening the instrumental LoRA for more
+   movement between sections. Measured at real song lengths, any loosening let
+   the vocal back in, so it is gone: instrumentals always render at full
+   strength. Takes made while it existed keep their saved feel, which now
+   renders the same as Steady. */
+var FEELS = { steady: 'Sticks to its loop: repetitive and laid-back.' };
 var FEEL = { value: 'steady' };
 
-function paintFeel() {
-  Array.prototype.forEach.call(document.querySelectorAll('#feel button'), function (button) {
-    button.classList.toggle('active', button.dataset.feel === FEEL.value);
-  });
-  $('feel-hint').textContent = FEELS[FEEL.value];
-}
+function paintFeel() {}
 var SECTION_SECONDS = { intro: 15, verse: 30, 'pre-chorus': 15, chorus: 25, bridge: 20, outro: 15 };
 var STRUCTURE = {
   kind: 'free',
@@ -1723,13 +1739,6 @@ function paintStructure() {
 }
 
 function wireStructure() {
-  $('feel').addEventListener('click', function (event) {
-    var button = event.target.closest('[data-feel]');
-    if (!button) { return; }
-    FEEL.value = button.dataset.feel;
-    paintFeel();
-    saveForm();
-  });
   $('structure-kind').addEventListener('click', function (event) {
     var button = event.target.closest('[data-kind]');
     if (!button) { return; }
@@ -2551,7 +2560,6 @@ function paintTakes() {
     var meta = [];
     meta.push(take.kind === 'song' ? 'from a prompt' : (take.kind === 'instrumental' ? 'instrumental' : 'cover'));
     if (take.duration) { meta.push(secs(take.duration)); }
-    if (take.kind === 'instrumental' && take.feel === 'varied') { meta.push('varied'); }
     if ((take.kind === 'song' || take.kind === 'instrumental') && take.harmony) { meta.push(HARMONY_WORDS[take.harmony].toLowerCase() + ' harmony'); }
     if (take.realaudio) { meta.push('realaudio'); }
     if (take.identity_id || take.persona_id || take.voice_lora) {
@@ -2578,9 +2586,8 @@ function paintTakes() {
     } else if (take.kind === 'instrumental' && take.vocal_check >= 0.1) {
       // The LoRA keeps the voice out on most seeds and not all. The finished
       // audio is checked, so a spoiled take says so rather than puzzling you.
-      live = '<div class="take-status sung" title="Rendered again with a new seed it usually comes out clean. ' +
-        'Choosing the sections rather than letting YuE2 decide helps too.">singing in ' +
-        Math.round(take.vocal_check * 100) + '% of this instrumental</div>';
+      live = '<button class="take-status sung" data-act="sung" data-id="' + take.id + '">singing in ' +
+        Math.round(take.vocal_check * 100) + '% of this instrumental</button>';
     }
     var id = ' data-id="' + take.id + '"';
     var actions = '';
@@ -3255,11 +3262,23 @@ function chordChart(abc) {
    there instead, the render often sings — not always, which is why this asks
    rather than refuses. */
 function openSungWarning(take) {
+  var rendered = take.status === 'done';
   State.sungTakeId = take.id;
-  // The same sentence is a status line on the card and the opening line here,
-  // so it starts a sentence properly in the window.
-  var why = take.error || 'This plan has a melody in the vocal part.';
-  $('sung-text').textContent = why.charAt(0).toUpperCase() + why.slice(1);
+  State.sungRendered = rendered;
+  $('sung-title').textContent = rendered ? 'This instrumental has singing in it' : 'This plan may sing';
+  if (rendered) {
+    $('sung-text').textContent = 'Singing was found in ' + Math.round((take.vocal_check || 0) * 100) +
+      '% of this instrumental. It happens on some seeds and not others, and the score plan gave no sign of it.';
+  } else {
+    // The same sentence is a status line on the card and the opening line here,
+    // so it starts a sentence properly in the window.
+    var why = take.error || 'This plan has a melody in the vocal part.';
+    $('sung-text').textContent = why.charAt(0).toUpperCase() + why.slice(1);
+  }
+  $('sung-advice').textContent = rendered
+    ? 'Rendering the same plan again with a fresh seed is the quickest thing to try. A new plan changes the music too.'
+    : 'Not every such plan sings, so rendering it may be fine. Writing a new plan takes a fraction of the time a render does, and always uses a fresh seed.';
+  $('sung-render').textContent = rendered ? 'Render again, new seed' : 'Render anyway';
   $('sung-variety').value = take.variety || 'normal';
   $('sung-modal').classList.remove('hidden');
 }
@@ -3271,13 +3290,15 @@ function closeSungWarning() {
 
 async function renderAnyway() {
   var id = State.sungTakeId;
+  var reseed = State.sungRendered;     // a finished take is worth another seed
   closeSungWarning();
   if (!id) { return; }
   selectTake(takeById(id));
   await api('/api/takes/' + id + '/render', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ realaudio: $('realaudio').checked })
+    body: JSON.stringify({ realaudio: $('realaudio').checked, reseed: reseed })
   });
+  if (reseed) { statusLine('Rendering the same score again with a new seed\u2026'); }
   loadTakes();
 }
 
@@ -3565,6 +3586,11 @@ function wire() {
     if (act === 'stem-del') {
       await api('/api/stem-sets/' + button.dataset.set, { method: 'DELETE' });
       if (!button.closest('#source-stems-list')) { loadTakes(); }
+    }
+    if (act === 'sung') {
+      var spoiled = takeById(id);
+      if (spoiled) { openSungWarning(spoiled); }
+      return;
     }
     if (act === 'render') {
       var planned = takeById(id);
