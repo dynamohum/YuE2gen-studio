@@ -25,6 +25,14 @@ Writing a song from a prompt:
 
 [![Write a song](docs/screenshots/write-a-song.png)](https://raw.githubusercontent.com/dynamohum/YuE2gen-studio/master/docs/screenshots/full/write-a-song.png)
 
+Writing an instrumental, with the structure built section by section:
+
+[![Instrumental](docs/screenshots/instrumental.png)](https://raw.githubusercontent.com/dynamohum/YuE2gen-studio/master/docs/screenshots/full/instrumental.png)
+
+An identity: one singer's songs, analysed and ready to train a voice on:
+
+[![Identities](docs/screenshots/identities.png)](https://raw.githubusercontent.com/dynamohum/YuE2gen-studio/master/docs/screenshots/full/identities.png)
+
 ## What it does
 
 - **Cover a recording.** Upload a song, transcribe it once, edit the melody and chords, render.
