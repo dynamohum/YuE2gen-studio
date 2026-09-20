@@ -1,4 +1,5 @@
 """Instrumentals: the structure, the LoRA in both graphs, and the score check."""
+import subprocess
 import pytest
 
 from app import config, instrumental, jobs, score
@@ -83,7 +84,9 @@ def test_feel_sets_the_lora_strength_in_both_graphs():
     steady = jobs.build_plan_graph(TAKE)["20"]["inputs"]["strength_clip"]
     varied_plan = jobs.build_plan_graph({**TAKE, "feel": "varied"})["20"]["inputs"]["strength_clip"]
     varied_render = jobs.build_render_graph({**TAKE, "feel": "varied"})["20"]["inputs"]["strength_clip"]
-    assert (steady, varied_plan, varied_render) == (1.0, 0.8, 0.8)
+    loose = instrumental.FEELS["varied"]
+    assert (steady, varied_plan, varied_render) == (1.0, loose, loose)
+    assert loose < 1.0   # it does loosen something, whatever the value is
 
 
 def test_the_api_keeps_the_feel_and_variations_copy_it(client, monkeypatch):
@@ -100,3 +103,42 @@ def test_the_api_keeps_the_feel_and_variations_copy_it(client, monkeypatch):
     copy = client.post(f"/api/takes/{take['id']}/variations", json={"interpretations": ["tight"]}).json()["created"][0]
     assert one("SELECT feel FROM takes WHERE id = ?", (copy["id"],))["feel"] == "varied"
     drain()
+
+
+def test_varied_is_clear_of_the_strength_that_let_the_vocal_back_in():
+    """0.8 sang on some seeds; every strength from 0.85 up was clean, including on
+    the seed that failed.  Varied sits at 0.9: loose, and clear of it."""
+    assert instrumental.FEELS["steady"] == 1.0
+    assert instrumental.FEELS["varied"] == 0.9
+    assert instrumental.FEELS["varied"] > 0.8
+
+
+def test_a_silent_vocal_stem_is_not_called_singing(tmp_path):
+    silence = tmp_path / "quiet.wav"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "anullsrc=r=16000:cl=mono",
+                    "-t", "8", str(silence)], check=True)
+    assert instrumental.sung_share(silence) == 0.0
+
+
+def test_a_loud_vocal_stem_is_called_singing(tmp_path):
+    tone = tmp_path / "loud.wav"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=330:r=16000",
+                    "-t", "8", str(tone)], check=True)
+    assert instrumental.sung_share(tone) > instrumental.SUNG
+
+
+def test_a_short_piece_is_checked_whole(tmp_path):
+    short = tmp_path / "short.wav"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=220:r=16000",
+                    "-t", "5", str(short)], check=True)
+    out = instrumental.excerpt(short, tmp_path / "out.wav")
+    assert out.exists()
+    assert abs(instrumental.duration_of(out) - 5) < 0.5
+
+
+def test_a_long_piece_is_sampled_not_read_whole(tmp_path):
+    long = tmp_path / "long.wav"
+    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=220:r=16000",
+                    "-t", "120", str(long)], check=True)
+    out = instrumental.excerpt(long, tmp_path / "out.wav")
+    assert 25 < instrumental.duration_of(out) < 35

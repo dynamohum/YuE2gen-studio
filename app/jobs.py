@@ -7,6 +7,8 @@ import contextlib
 import json
 import logging
 import shutil
+import subprocess
+import tempfile
 import time
 from pathlib import Path
 
@@ -442,6 +444,8 @@ async def _finish(kind: str, ref_id: str, record: dict, job: dict, started: floa
         await asyncio.to_thread(write_take_note, fresh, dest)
     await asyncio.to_thread(ensure_peaks, dest)
     bump_average("render", elapsed)
+    if fresh and fresh["kind"] == "instrumental":
+        STEM_QUEUE.put_nowait({"kind": "vocal-check", "take": ref_id})
 
 
 def _drop_engine_output(item: dict) -> None:
@@ -761,9 +765,45 @@ async def run_stems_job(set_id: str) -> None:
     log.info("stems %s done in %.1fs", set_id, elapsed)
 
 
+async def run_vocal_check(take_id: str) -> None:
+    """Listen to a finished instrumental for singing.
+
+    The instrumental LoRA usually keeps the voice out, but not always: on some
+    seeds it comes back, and the take sounds wrong in a way the settings do not
+    explain. Rather than warn in advance about a control that usually works, the
+    audio itself is checked once it exists. Only a short montage is separated, so
+    this costs a fraction of a stems job, and it shares the stems worker so the
+    two never compete for the processor."""
+    take = one("SELECT id, audio_path, kind FROM takes WHERE id = ?", (take_id,))
+    if not take or take["kind"] != "instrumental" or not take["audio_path"]:
+        return
+    audio = Path(take["audio_path"])
+    if not audio.exists():
+        return
+    work = Path(tempfile.mkdtemp(prefix="vocal-check-", dir=config.WORK_DIR))
+    try:
+        clip = await asyncio.to_thread(instrumental.excerpt, audio, work / "excerpt.wav")
+        await stems.separate(clip, work / "split", "htdemucs", ["vocals"], "wav", work_root=config.WORK_DIR)
+        vocals = next((work / "split").glob("*vocals*.wav"), None)
+        share = await asyncio.to_thread(instrumental.sung_share, vocals) if vocals else 0.0
+        execute("UPDATE takes SET vocal_check = ? WHERE id = ?", (share, take_id))
+        if share >= instrumental.SUNG:
+            log.info("instrumental %s has singing in %.0f%% of it", take_id, share * 100)
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        log.warning("vocal check failed for %s: %s", take_id, exc)
+    finally:
+        remove_tree(work)
+
+
 async def stems_worker() -> None:
     while True:
         job = await STEM_QUEUE.get()
+        if job.get("kind") == "vocal-check":
+            try:
+                await run_vocal_check(job["take"])
+            finally:
+                STEM_QUEUE.task_done()
+            continue
         row = one("SELECT title FROM stem_sets WHERE id = ?", (job["id"],))
         task = asyncio.create_task(run_stems_job(job["id"]))
         CURRENT_STEMS.clear()

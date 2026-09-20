@@ -300,6 +300,13 @@ def _indexes() -> None:
 
 # Each entry brings the database from its position in the list to the next version.
 # Append only.  A migration must be safe on a database that is already partly there.
+def _vocal_check() -> None:
+    """An instrumental keeps what a check of its finished audio found: the share
+    of it that carries singing, or NULL while nothing has looked."""
+    if "vocal_check" not in _columns("takes"):
+        execute("ALTER TABLE takes ADD COLUMN vocal_check REAL")
+
+
 MIGRATIONS = [
     lambda: (conn().executescript(BASE_SCHEMA), _legacy_takes()),   # -> 1
     _indexes,                                                        # -> 2
@@ -312,6 +319,7 @@ MIGRATIONS = [
     _persona_song_description,                                       # -> 9
     _persona_loras,                                                  # -> 10
     _identities,                                                     # -> 11
+    _vocal_check,                                                    # -> 12
 ]
 
 

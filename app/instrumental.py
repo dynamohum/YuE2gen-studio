@@ -12,11 +12,29 @@ the plan and for the render alike."""
 from __future__ import annotations
 
 import re
+import shutil
+import subprocess
+from pathlib import Path
 
 SECTIONS = ("intro", "verse", "pre-chorus", "chorus", "bridge", "outro")
 # How firmly the LoRA holds the model to its training.  Steady is the author's own
 # setting; Varied loosens it, for more movement between sections.
-FEELS = {"steady": 1.0, "varied": 0.8}
+#
+# Varied was 0.8 until a take came back singing.  Measured across strengths and
+# seeds: at 0.8 the vocal returns on some seeds and not others — on the seed that
+# failed it sang through two thirds of the piece, while three other seeds were
+# silent.  Every strength from 0.85 up was clean on all of them, including the
+# one that broke 0.8.  So 0.9 is loose enough to be worth having and clear of the
+# only failure anyone has reproduced.  It is not a guarantee, which is why a
+# finished instrumental is checked for singing afterwards.
+FEELS = {"steady": 1.0, "varied": 0.9}
+
+# A finished instrumental is judged by how much of it carries a vocal: the share
+# of seconds whose separated vocal is above the noise the separation leaves
+# behind.  A clean instrumental measures a fraction of a per cent; the take that
+# prompted this measured 65%.
+VOCAL_FLOOR = 0.01     # RMS below which a second counts as silent
+SUNG = 0.10            # share of sung seconds worth telling someone about
 BARE = "[instrumental]"
 _TAG = re.compile(r"^\[\s*([a-z-]+)(?:\s+(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2}))?\s*\]$")
 
@@ -66,3 +84,56 @@ def with_lora(graph: dict, loader: str, lora: str, text_nodes: tuple[str, ...], 
     for node in text_nodes:
         graph[node]["inputs"]["clip"] = ["20", 1]
     return graph
+
+
+def excerpt(src: Path, dest: Path, spans: int = 3, each: float = 10.0) -> Path:
+    """A short montage of the piece, for a check that need not read all of it.
+
+    Singing that has crept into an instrumental runs through it rather than
+    appearing for a bar, so three spans spread across the track find it while
+    separating a fraction of the audio."""
+    total = duration_of(src)
+    if total <= spans * each:
+        shutil.copy(src, dest)
+        return dest
+    starts = [total * fraction - each / 2 for fraction in (0.25, 0.5, 0.75)][:spans]
+    parts = " ".join(
+        f"[0:a]atrim=start={max(0.0, start):.2f}:duration={each},asetpts=N/SR/TB[a{i}];"
+        for i, start in enumerate(starts))
+    joins = "".join(f"[a{i}]" for i in range(len(starts)))
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-y", "-i", str(src), "-filter_complex",
+         f"{parts}{joins}concat=n={len(starts)}:v=0:a=1[out]", "-map", "[out]", str(dest)],
+        check=True, capture_output=True, timeout=120)
+    return dest
+
+
+def duration_of(src: Path) -> float:
+    out = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(src)],
+        check=True, capture_output=True, timeout=60).stdout
+    try:
+        return float(out.decode().strip())
+    except ValueError:
+        return 0.0
+
+
+def sung_share(vocals: Path) -> float:
+    """How much of a separated vocal is actually someone singing, as a share of
+    its seconds.  Returns 0.0 when it cannot be read: a check that fails should
+    not accuse a take."""
+    try:
+        raw = subprocess.run(
+            ["ffmpeg", "-v", "error", "-i", str(vocals), "-ac", "1", "-ar", "16000", "-f", "f32le", "-"],
+            check=True, capture_output=True, timeout=300).stdout
+    except (subprocess.SubprocessError, OSError):
+        return 0.0
+    import numpy as np
+
+    samples = np.frombuffer(raw, dtype=np.float32)
+    seconds = len(samples) // 16000
+    if seconds < 2:
+        return 0.0
+    frames = samples[:seconds * 16000].reshape(seconds, 16000).astype(np.float64)
+    loud = np.sqrt((frames ** 2).mean(axis=1))
+    return round(float((loud > VOCAL_FLOOR).sum()) / seconds, 4)
