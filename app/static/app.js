@@ -266,8 +266,7 @@ function loraShortLabel(name) {
    wrote is shown under the picker, and the trigger word is shown as something
    to click, because it has to reach the style box to do anything. */
 function paintStyleLoraNote() {
-  var name = $('style-lora').value;
-  var item = loraCatalogue().filter(function (entry) { return entry.name === name; })[0];
+  var item = loraChosen();
   var hint = $('style-lora-hint');
   if (!item) {
     hint.innerHTML = 'Planner shapes the score, Sound shapes the audio.';
@@ -275,11 +274,9 @@ function paintStyleLoraNote() {
   }
   var parts = [];
   if (item.trigger) {
-    var already = $('style').value.toLowerCase().indexOf(item.trigger.toLowerCase()) >= 0;
-    parts.push(already
-      ? 'Style has its trigger word, <b>' + esc(item.trigger) + '</b>.'
-      : 'Needs <b>' + esc(item.trigger) + '</b> in the style. ' +
-        '<button type="button" class="link" data-act="lora-trigger">Add it</button>');
+    parts.push(styleHas($('style').value, item.trigger)
+      ? 'Trigger word <b>' + esc(item.trigger) + '</b> is in the style.'
+      : '<b>' + esc(item.trigger) + '</b> goes in the style when you render.');
   }
   if (item.note) { parts.push(esc(plainNote(item.note)).replace(/\n/g, '<br>')); }
   hint.innerHTML = parts.join('<br>') || 'Planner shapes the score, Sound shapes the audio.';
@@ -302,9 +299,43 @@ function paintStyleLoraStrengths() {
 
 /* Adds the chosen LoRA to a request body, or nothing at all when none is
    chosen.  A strength whose half is missing from the file is sent as zero. */
+/* A LoRA trained on captions that begin with its trigger does very little
+   without it, and the app knows which word it needs, so the app puts it there.
+   Choosing a different LoRA takes the old word out again; one already typed is
+   left where it is. */
+function applyLoraTrigger(trigger) {
+  var style = $('style');
+  var text = style.value;
+  var previous = State.loraTrigger;
+  if (previous && previous !== trigger && styleHas(text, previous)) {
+    text = tidyStyle(text.replace(new RegExp('\\s*,?\\s*' + previous + '\\b', 'i'), ''));
+  }
+  if (trigger && !styleHas(text, trigger)) {
+    text = tidyStyle(trigger + (text ? ', ' + text : ''));
+  }
+  State.loraTrigger = trigger || null;
+  if (text !== style.value) {
+    style.value = text;
+    style.dataset.touched = '1';
+    saveForm();
+  }
+}
+
+function loraChosen() {
+  var select = $('style-lora');
+  if (!select || !select.value) { return null; }
+  return loraCatalogue().filter(function (entry) { return entry.name === select.value; })[0] || null;
+}
+
 function withStyleLora(data) {
   var select = $('style-lora');
   if (!select || !select.value) { return data; }
+  var item = loraChosen();
+  if (item && item.trigger) {
+    // A style typed or restored without it would render as if no LoRA were on.
+    applyLoraTrigger(item.trigger);
+    if (typeof data.style === 'string') { data.style = $('style').value; }
+  }
   data.style_lora = select.value;
   data.style_lora_model = $('style-lora-model').disabled ? 0 : parseFloat($('style-lora-model').value);
   data.style_lora_clip = $('style-lora-clip').disabled ? 0 : parseFloat($('style-lora-clip').value);
@@ -3857,21 +3888,9 @@ function wire() {
   $('auto-render').addEventListener('change', saveForm);
   $('seed-fixed').addEventListener('change', saveForm);
   $('realaudio').addEventListener('change', saveForm);
-  $('style-lora-hint').addEventListener('click', function (event) {
-    var button = event.target.closest('[data-act="lora-trigger"]');
-    if (!button) { return; }
-    var item = loraCatalogue().filter(function (entry) {
-      return entry.name === $('style-lora').value;
-    })[0];
-    if (!item || !item.trigger) { return; }
-    // These LoRAs are trained on captions that start with the trigger.
-    var style = $('style');
-    style.value = item.trigger + ', ' + style.value.replace(/^\s+/, '');
-    style.dataset.touched = '1';
-    paintStyleLoraNote();
-    saveForm();
-  });
   $('style-lora').addEventListener('change', function () {
+    var item = loraChosen();
+    applyLoraTrigger(item && item.trigger);
     paintStyleLoraStrengths();
     saveForm();
   });

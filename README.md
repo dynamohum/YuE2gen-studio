@@ -276,9 +276,12 @@ A collection grows quickly, so the list groups itself by the word in front of a 
 **A file name is not a description**, and the people who publish these write a paragraph that stays
 behind on a web page. So a LoRA can carry its own notes: put `rive_gauche.txt` beside
 `rive_gauche.safetensors`, with the name on the first line and the description under it, and the
-picker shows both. A line reading `Trigger: chnsn` is pulled out and shown as a button that puts
-that word at the front of the Style, because a LoRA trained on captions that begin with its trigger
-does very little without it.
+picker shows both, in the list and on the option itself.
+
+A line reading `Trigger: chnsn` is treated as more than text. A LoRA trained on captions that begin
+with its trigger does very little without it, so choosing one puts that word at the front of the
+Style, changing to another swaps it, and choosing None takes it out. A render puts it back if it was
+deleted, and does so in the box as well, so what a take stores is what was sent.
 
 `families.txt` in the same folder gives the groups their headings, one `prefix = label` per line, so
 `chnsn` reads as *CHNSN — Chanson Française*. Two prefixes may share a label, and then they share a
