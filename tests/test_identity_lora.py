@@ -167,3 +167,42 @@ def test_variations_inherit_identity_and_lora(client):
     assert row["persona_id"] == "p_paul"
     assert row["voice_lora"] == "paulshields_best.safetensors"
     assert row["voice_lora_strength"] == 1.0
+
+
+def test_an_identity_lora_can_write_as_well_as_sing():
+    """The planner half was always loaded and always off. It is a control now,
+    and still off unless asked for."""
+    graph = {
+        "10": {"class_type": "CheckpointLoaderSimple", "inputs": {}},
+        "11": {"class_type": "YuE2GenerateMusic", "inputs": {"clip": ["10", 1]}},
+        "14": {"class_type": "KSampler", "inputs": {"model": ["10", 0]}},
+    }
+    with_identity_lora(graph, lora="paulshields_best.safetensors", strength=1.0, strength_clip=0.7)
+    assert graph["26"]["inputs"]["strength_model"] == 1.0
+    assert graph["26"]["inputs"]["strength_clip"] == 0.7
+
+
+def test_the_planner_half_is_off_by_default():
+    graph = {
+        "10": {"class_type": "CheckpointLoaderSimple", "inputs": {}},
+        "11": {"class_type": "YuE2GenerateMusic", "inputs": {"clip": ["10", 1]}},
+        "14": {"class_type": "KSampler", "inputs": {"model": ["10", 0]}},
+    }
+    with_identity_lora(graph, lora="paulshields_best.safetensors", strength=1.0)
+    assert graph["26"]["inputs"]["strength_clip"] == 0.0
+
+
+def test_an_identitys_planner_half_reaches_the_plan_when_it_is_asked_for():
+    take = dict(make_take(kind="song", abc="X:1\n", status="planned"))
+    take.update(voice_lora="paulshields_best.safetensors", voice_lora_strength=1.0,
+                voice_lora_clip=0.7)
+    plan = jobs.build_plan_graph(take)
+    assert plan["22"]["inputs"]["lora_name"] == "paulshields_best.safetensors"
+    assert plan["22"]["inputs"]["strength_clip"] == 0.7
+
+
+def test_a_plan_is_untouched_when_the_planner_half_is_off():
+    take = dict(make_take(kind="song", abc="X:1\n", status="planned"))
+    take.update(voice_lora="paulshields_best.safetensors", voice_lora_strength=1.0,
+                voice_lora_clip=0.0)
+    assert "22" not in jobs.build_plan_graph(take)

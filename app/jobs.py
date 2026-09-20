@@ -135,6 +135,10 @@ def build_plan_graph(take: dict) -> dict:
     style_lora = take.get("style_lora")
     if style_lora:
         with_plan_lora(graph, "1", style_lora, ("2",), float(take.get("style_lora_clip") or 0.0))
+    voice_lora = take.get("voice_lora")
+    voice_clip = float(take.get("voice_lora_clip") or 0.0)
+    if voice_lora and voice_clip and voice_lora != style_lora:
+        with_plan_lora(graph, "1", voice_lora, ("2",), voice_clip, node_id="22")
     return graph
 
 
@@ -190,9 +194,16 @@ def with_style_lora(graph: dict, lora: str, loader: str = "10",
                             strength_model=strength_model, strength_clip=strength_clip)
 
 
-def with_identity_lora(graph: dict, lora: str, loader: str = "10", strength: float = 1.0) -> dict:
-    """Put the Identity voice LoRA between the checkpoint (or upstream LoRA) and KSampler."""
-    return with_render_lora(graph, "26", lora, loader=loader, strength_model=strength, strength_clip=0.0)
+def with_identity_lora(graph: dict, lora: str, loader: str = "10", strength: float = 1.0,
+                       strength_clip: float = 0.0) -> dict:
+    """Put the Identity voice LoRA between the checkpoint (or upstream LoRA) and KSampler.
+
+    The voice lives in the decoder half, which is what `strength` sets and what
+    this has always applied.  An Identity trained by the FS_Audio pipeline also
+    holds a planner half — how that singer writes, not how they sound — and
+    `strength_clip` is that, off unless asked for."""
+    return with_render_lora(graph, "26", lora, loader=loader, strength_model=strength,
+                            strength_clip=strength_clip)
 
 
 with_persona_lora = with_identity_lora
@@ -224,7 +235,8 @@ def build_render_graph(take: dict) -> dict:
     # more explicit of the two, and it carries both strengths.
     if voice_lora and voice_lora != style_lora:
         strength = float(take.get("voice_lora_strength") or 1.0)
-        with_identity_lora(graph, voice_lora, loader="10", strength=strength)
+        with_identity_lora(graph, voice_lora, loader="10", strength=strength,
+                           strength_clip=float(take.get("voice_lora_clip") or 0.0))
     if style_lora:
         with_style_lora(graph, style_lora, loader="10",
                         strength_model=float(take.get("style_lora_model") or 0.0),

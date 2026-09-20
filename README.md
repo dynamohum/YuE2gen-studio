@@ -251,6 +251,13 @@ checks that a line is not already someone else's. Read it and make it yours befo
 
 ### Style LoRAs
 
+Your own Identities do not appear in this list: they have their own control, under *Vocal*, which
+now carries the same two strengths. An Identity's voice lives in the decoder half, which is what it
+has always applied; **Planner**, beside the checkpoint menu, is the other half — how that singer
+writes rather than how they sound. It starts at 0, so nothing rendered before this sounds different
+now.
+
+
 A LoRA is a small file that leans the model towards a sound. The app applies two of its own — the
 instrumental LoRA and Realaudio — and **Style LoRA**, under the render settings, applies one more of
 your choosing. Put a `.safetensors` file in `models/loras/`, restart the engine, and it appears in

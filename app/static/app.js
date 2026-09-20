@@ -154,9 +154,21 @@ function paintOptions() {
 var LORA_KINDS = { both: 'score and sound', planner: 'score only', decoder: 'sound only',
   other: 'not a YuE2 LoRA', unknown: '' };
 
+/* Every LoRA that belongs to one of the Identities.  Those have a control of
+   their own, where both of their strengths now live, so offering them here as
+   well would be the same file in two places with two sets of settings. */
+function identityLoraNames() {
+  var names = {};
+  (IDENTITIES_LIST || []).forEach(function (identity) {
+    getIdentityLoRAs(identity).forEach(function (name) { names[name] = true; });
+  });
+  return names;
+}
+
 function loraCatalogue() {
+  var mine = identityLoraNames();
   return (State.options.loras || []).filter(function (item) {
-    return item && !item.reserved && item.kind !== 'other';
+    return item && !item.reserved && item.kind !== 'other' && !mine[item.name];
   });
 }
 
@@ -345,6 +357,16 @@ function loraChosen() {
   return loraCatalogue().filter(function (entry) { return entry.name === select.value; })[0] || null;
 }
 
+/* An Identity's LoRA holds a voice and, usually, a planner half as well. The
+   voice is what it has always applied; this is the other half, off by default,
+   so nothing rendered before this sounds different now. */
+function vocalPlanner() {
+  var slider = $('vocal-planner');
+  var wrap = $('vocal-planner-wrap');
+  if (!slider || !wrap || wrap.classList.contains('hidden')) { return 0; }
+  return parseFloat(slider.value) || 0;
+}
+
 function withStyleLora(data) {
   var select = $('style-lora');
   if (!select || !select.value) { return data; }
@@ -376,6 +398,7 @@ function saveForm() {
     data.style_lora_clip = $('style-lora-clip') ? $('style-lora-clip').value : '1';
     var idSel = $('vocal-identity') || $('vocal-persona');
     var loraSel = $('vocal-identity-lora') || $('vocal-persona-lora');
+    data.vocal_planner = $('vocal-planner') ? $('vocal-planner').value : '0';
     data.vocal_identity = idSel ? idSel.value : '';
     data.vocal_identity_lora = (loraSel && !loraSel.classList.contains('hidden')) ? loraSel.value : '';
     data.vocal_persona = data.vocal_identity;
@@ -401,6 +424,9 @@ function loadForm() {
   if (typeof data.seed_fixed === 'boolean') { $('seed-fixed').checked = data.seed_fixed; }
   if (typeof data.realaudio === 'boolean') { $('realaudio').checked = data.realaudio; }
   else { $('realaudio').checked = true; }
+  if (data.vocal_planner !== undefined && $('vocal-planner')) {
+    $('vocal-planner').value = data.vocal_planner;
+  }
   if ($('style-lora')) {
     if (data.style_lora_model) { $('style-lora-model').value = data.style_lora_model; }
     if (data.style_lora_clip) { $('style-lora-clip').value = data.style_lora_clip; }
@@ -1049,6 +1075,17 @@ function paintVocalIdentitySelect(currentId, currentLora) {
 
 var paintVocalPersonaSelect = paintVocalIdentitySelect;
 
+function paintVocalPlanner(value) {
+  var wrap = $('vocal-planner-wrap');
+  var slider = $('vocal-planner');
+  if (!wrap || !slider) { return; }
+  var loraSel = $('vocal-identity-lora') || $('vocal-persona-lora');
+  var showing = Boolean(loraSel && !loraSel.classList.contains('hidden') && loraSel.value);
+  wrap.classList.toggle('hidden', !showing);
+  if (value !== undefined && value !== null) { slider.value = value; }
+  $('vocal-planner-read').textContent = Number(slider.value).toFixed(2);
+}
+
 function updateIdentityLoraSelect(currentLora) {
   var sel = $('vocal-identity') || $('vocal-persona');
   var loraSel = $('vocal-identity-lora') || $('vocal-persona-lora');
@@ -1057,12 +1094,14 @@ function updateIdentityLoraSelect(currentLora) {
   if (!identity) {
     loraSel.classList.add('hidden');
     loraSel.innerHTML = '';
+    paintVocalPlanner();
     return;
   }
   var loras = getIdentityLoRAs(identity);
   if (!loras.length) {
     loraSel.classList.add('hidden');
     loraSel.innerHTML = '';
+    paintVocalPlanner();
     return;
   }
   var chosenLora = currentLora || identity.lora || loras[0];
@@ -1079,6 +1118,9 @@ function updateIdentityLoraSelect(currentLora) {
   loraSel.innerHTML = opts.join('');
   loraSel.value = chosenLora;
   loraSel.classList.remove('hidden');
+  paintVocalPlanner();
+  // The picker must not offer what now belongs to this control.
+  paintStyleLoras();
 }
 
 var updatePersonaLoraSelect = updateIdentityLoraSelect;
@@ -1555,7 +1597,8 @@ async function doPlan() {
         realaudio: $('realaudio').checked,
         identity_id: idVal || null,
         persona_id: idVal || null,
-        voice_lora: vLora || null
+        voice_lora: vLora || null,
+        voice_lora_clip: vocalPlanner()
       }))
     });
     State.planTakeId = take.id;
@@ -1590,7 +1633,8 @@ async function doRenderTake() {
         realaudio: $('realaudio').checked,
         identity_id: idVal || null,
         persona_id: idVal || null,
-        voice_lora: vLora || null
+        voice_lora: vLora || null,
+        voice_lora_clip: vocalPlanner()
       })
     });
     State.planTakeId = null;
@@ -2635,6 +2679,7 @@ function selectTake(take) {
   }
   if (take.identity_id !== undefined || take.persona_id !== undefined) {
     paintVocalIdentitySelect((take.identity_id !== undefined ? take.identity_id : take.persona_id) || '', take.voice_lora || '');
+    if (take.voice_lora_clip !== undefined) { paintVocalPlanner(take.voice_lora_clip); }
   }
   if (take.style_lora !== undefined) { showStyleLora(take); }
   $('interpretation').value = INTERPRETATIONS[take.interpretation] ? take.interpretation : 'standard';
@@ -3395,7 +3440,8 @@ async function doRender() {
     realaudio: $('realaudio').checked,
     identity_id: pId || null,
     persona_id: pId || null,
-    voice_lora: vLora || null
+    voice_lora: vLora || null,
+    voice_lora_clip: vocalPlanner()
   };
   withStyleLora(body);
   status.textContent = 'Queued\u2026';
@@ -3911,6 +3957,10 @@ function wire() {
   $('auto-render').addEventListener('change', saveForm);
   $('seed-fixed').addEventListener('change', saveForm);
   $('realaudio').addEventListener('change', saveForm);
+  $('vocal-planner').addEventListener('input', function () {
+    paintVocalPlanner();
+    saveForm();
+  });
   $('style-lora').addEventListener('change', function () {
     var item = loraChosen();
     applyLoraTrigger(item && item.trigger);

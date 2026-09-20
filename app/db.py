@@ -319,6 +319,15 @@ def _style_lora() -> None:
         execute("ALTER TABLE takes ADD COLUMN style_lora_clip REAL NOT NULL DEFAULT 1.0")
 
 
+def _voice_lora_clip() -> None:
+    """An Identity's LoRA usually holds a planner half as well as a voice, and
+    the app has always applied it model-side only.  This keeps a strength for
+    the other half.  It defaults to 0, which is exactly what every take made
+    before this was rendered with."""
+    if "voice_lora_clip" not in _columns("takes"):
+        execute("ALTER TABLE takes ADD COLUMN voice_lora_clip REAL NOT NULL DEFAULT 0.0")
+
+
 MIGRATIONS = [
     lambda: (conn().executescript(BASE_SCHEMA), _legacy_takes()),   # -> 1
     _indexes,                                                        # -> 2
@@ -333,6 +342,7 @@ MIGRATIONS = [
     _identities,                                                     # -> 11
     _vocal_check,                                                    # -> 12
     _style_lora,                                                     # -> 13
+    _voice_lora_clip,                                                # -> 14
 ]
 
 

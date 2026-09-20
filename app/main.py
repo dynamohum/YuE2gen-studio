@@ -255,6 +255,7 @@ class SongIn(BaseModel):
     persona_id: str | None = Field(None, max_length=64)
     voice_lora: str | None = Field(None, max_length=200)
     voice_lora_strength: float = 1.0
+    voice_lora_clip: float = Field(0.0, ge=0.0, le=2.0)
     style_lora: str | None = Field(None, max_length=200)
     style_lora_model: float = Field(1.0, ge=0.0, le=2.0)
     style_lora_clip: float = Field(1.0, ge=0.0, le=2.0)
@@ -294,6 +295,7 @@ class TakeIn(BaseModel):
     persona_id: str | None = Field(None, max_length=64)
     voice_lora: str | None = Field(None, max_length=200)
     voice_lora_strength: float = 1.0
+    voice_lora_clip: float = Field(0.0, ge=0.0, le=2.0)
     style_lora: str | None = Field(None, max_length=200)
     style_lora_model: float = Field(1.0, ge=0.0, le=2.0)
     style_lora_clip: float = Field(1.0, ge=0.0, le=2.0)
@@ -316,6 +318,7 @@ class InstrumentalIn(BaseModel):
     persona_id: str | None = Field(None, max_length=64)
     voice_lora: str | None = Field(None, max_length=200)
     voice_lora_strength: float = 1.0
+    voice_lora_clip: float = Field(0.0, ge=0.0, le=2.0)
     style_lora: str | None = Field(None, max_length=200)
     style_lora_model: float = Field(1.0, ge=0.0, le=2.0)
     style_lora_clip: float = Field(1.0, ge=0.0, le=2.0)
@@ -808,14 +811,15 @@ async def create_take(body: TakeIn) -> dict:
         "persona_id": body.identity_id or body.persona_id,
         "voice_lora": body.voice_lora,
         "voice_lora_strength": body.voice_lora_strength,
+        "voice_lora_clip": body.voice_lora_clip,
         **_style_lora_of(body),
     }
     execute(
         """INSERT INTO takes(id, source_id, title, style, lyrics, abc, mode, seed, checkpoint, max_duration, status, created_at,
-                             space_id, interpretation, realaudio, identity_id, persona_id, voice_lora, voice_lora_strength,
+                             space_id, interpretation, realaudio, identity_id, persona_id, voice_lora, voice_lora_strength, voice_lora_clip,
                              style_lora, style_lora_model, style_lora_clip)
            VALUES(:id, :source_id, :title, :style, :lyrics, :abc, :mode, :seed, :checkpoint, :max_duration, 'queued', :created_at,
-                  :space_id, :interpretation, :realaudio, :identity_id, :persona_id, :voice_lora, :voice_lora_strength,
+                  :space_id, :interpretation, :realaudio, :identity_id, :persona_id, :voice_lora, :voice_lora_strength, :voice_lora_clip,
                   :style_lora, :style_lora_model, :style_lora_clip)""",
         record,
     )
@@ -880,16 +884,17 @@ async def _plan_new_take(kind: str, title: str, words: str, body: SongIn | Instr
         "persona_id": getattr(body, "identity_id", None) or getattr(body, "persona_id", None),
         "voice_lora": getattr(body, "voice_lora", None),
         "voice_lora_strength": getattr(body, "voice_lora_strength", 1.0),
+        "voice_lora_clip": getattr(body, "voice_lora_clip", 0.0),
         **_style_lora_of(body),
     }
     execute(
         """INSERT INTO takes(id, kind, source_id, title, style, lyrics, abc, mode, seed, checkpoint,
                              max_duration, status, created_at, auto_render, variety, harmony, space_id, interpretation, feel, realaudio,
-                             identity_id, persona_id, voice_lora, voice_lora_strength,
+                             identity_id, persona_id, voice_lora, voice_lora_strength, voice_lora_clip,
                              style_lora, style_lora_model, style_lora_clip)
            VALUES(:id, :kind, NULL, :title, :style, :lyrics, '', :mode, :seed, :checkpoint,
                   :max_duration, 'queued', :created_at, :auto_render, :variety, :harmony, :space_id, :interpretation, :feel, :realaudio,
-                  :identity_id, :persona_id, :voice_lora, :voice_lora_strength,
+                  :identity_id, :persona_id, :voice_lora, :voice_lora_strength, :voice_lora_clip,
                   :style_lora, :style_lora_model, :style_lora_clip)""",
         record,
     )
@@ -1072,6 +1077,7 @@ async def variations(take_id: str, body: VariationsIn) -> dict:
             "harmony": take["harmony"], "space_id": take["space_id"], "interpretation": name, "feel": take["feel"],
             "realaudio": realaudio, "identity_id": identity_val, "persona_id": identity_val,
             "voice_lora": voice_lora, "voice_lora_strength": voice_lora_strength,
+            "voice_lora_clip": take.get("voice_lora_clip", 0.0),
             "style_lora": take.get("style_lora"),
             "style_lora_model": take.get("style_lora_model", 1.0),
             "style_lora_clip": take.get("style_lora_clip", 1.0),
@@ -1079,11 +1085,11 @@ async def variations(take_id: str, body: VariationsIn) -> dict:
         execute(
             """INSERT INTO takes(id, kind, source_id, title, style, lyrics, abc, mode, seed, checkpoint, max_duration,
                                  status, created_at, variety, harmony, space_id, interpretation, feel, realaudio,
-                                 identity_id, persona_id, voice_lora, voice_lora_strength,
+                                 identity_id, persona_id, voice_lora, voice_lora_strength, voice_lora_clip,
                                  style_lora, style_lora_model, style_lora_clip)
                VALUES(:id, :kind, :source_id, :title, :style, :lyrics, :abc, :mode, :seed, :checkpoint, :max_duration,
                       'queued', :created_at, :variety, :harmony, :space_id, :interpretation, :feel, :realaudio,
-                      :identity_id, :persona_id, :voice_lora, :voice_lora_strength,
+                      :identity_id, :persona_id, :voice_lora, :voice_lora_strength, :voice_lora_clip,
                       :style_lora, :style_lora_model, :style_lora_clip)""",
             record,
         )
