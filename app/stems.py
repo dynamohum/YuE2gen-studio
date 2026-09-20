@@ -7,9 +7,11 @@ do not use the GPU: they would be faster there, but they would fight YuE2 for VR
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import re
 import shutil
+import subprocess
 import tempfile
 import time
 from pathlib import Path
@@ -159,3 +161,51 @@ async def separate(
 
 def installed() -> bool:
     return shutil.which("demucs") is not None
+
+
+# ---------------------------------------------------------------- quick look
+# Demucs held in memory, for checks that must answer in seconds rather than the
+# ten or so a fresh process spends loading the model. The stems feature still
+# runs the command line tool: it separates whole songs, writes files, reports
+# progress and can be cancelled, none of which this needs.
+_warm: dict = {}
+
+
+def warm():
+    """Load the separator now, so a later check does not wait for it.  Safe to
+    call more than once and from a thread."""
+    try:
+        _warm_model()
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger("yue2.stems").warning("could not load the separator early: %s", exc)
+
+
+def _warm_model():
+    from demucs.pretrained import get_model
+
+    if "model" not in _warm:
+        model = get_model("htdemucs")
+        model.eval()
+        _warm["model"] = model
+    return _warm["model"]
+
+
+def vocal_of(src: Path) -> tuple["object", int]:
+    """The vocal of a short piece of audio, separated in this process.
+
+    Returns the samples and their rate. Held-in-memory Demucs answers in a few
+    seconds where a new process takes half a minute, which is the difference
+    between telling someone now and telling them after they have moved on."""
+    import numpy as np
+    import torch
+    from demucs.apply import apply_model
+
+    model = _warm_model()
+    rate = model.samplerate
+    raw = subprocess.run(
+        ["ffmpeg", "-v", "error", "-i", str(src), "-ac", "2", "-ar", str(rate), "-f", "f32le", "-"],
+        capture_output=True, check=True, timeout=120).stdout
+    wav = torch.from_numpy(np.frombuffer(raw, dtype=np.float32).reshape(-1, 2).T.copy())
+    with torch.no_grad():
+        out = apply_model(model, wav[None], device="cpu", progress=False)[0]
+    return out[model.sources.index("vocals")].mean(0).numpy(), rate

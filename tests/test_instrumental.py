@@ -139,11 +139,24 @@ def test_a_short_piece_is_checked_whole(tmp_path):
 
 
 def test_a_long_piece_is_sampled_not_read_whole(tmp_path):
+    """Nine seconds from across the piece: enough to hear singing that runs
+    through it, little enough to separate in a couple of seconds."""
     long = tmp_path / "long.wav"
     subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=220:r=16000",
                     "-t", "120", str(long)], check=True)
     out = instrumental.excerpt(long, tmp_path / "out.wav")
-    assert 25 < instrumental.duration_of(out) < 35
+    assert 7 < instrumental.duration_of(out) < 11
+
+
+def test_the_share_reads_silence_and_singing_apart():
+    import numpy as np
+    rate = 16000
+    quiet = np.zeros(rate * 6, dtype=np.float32)
+    loud = (np.sin(np.arange(rate * 6) * 0.05) * 0.5).astype(np.float32)
+    half = np.concatenate([quiet[: rate * 3], loud[: rate * 3]])
+    assert instrumental.share_of(quiet, rate) == 0.0
+    assert instrumental.share_of(loud, rate) == 1.0
+    assert 0.4 < instrumental.share_of(half, rate) < 0.6
 
 
 SINGING_PLAN = PLAN.replace('"Gm"z16|"Eb"z16|"Bb"z16|"F"z16|', '"Gm"B4A4G4F4|"Eb"E8G8|"Bb"B4d4f4d4|"F"c16|')

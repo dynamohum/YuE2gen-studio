@@ -112,7 +112,7 @@ def sings(abc: str | None) -> int:
     return notes
 
 
-def excerpt(src: Path, dest: Path, spans: int = 3, each: float = 10.0) -> Path:
+def excerpt(src: Path, dest: Path, spans: int = 3, each: float = 3.0) -> Path:
     """A short montage of the piece, for a check that need not read all of it.
 
     Singing that has crept into an instrumental runs through it rather than
@@ -144,10 +144,23 @@ def duration_of(src: Path) -> float:
         return 0.0
 
 
+def share_of(samples, rate: int) -> float:
+    """How much of a separated vocal is someone singing, as a share of its
+    seconds.  Silence between phrases counts as not singing, so a clean
+    instrumental measures zero and a spoiled one most of itself."""
+    import numpy as np
+
+    seconds = len(samples) // rate
+    if seconds < 2:
+        return 0.0
+    frames = np.asarray(samples[:seconds * rate], dtype=np.float64).reshape(seconds, rate)
+    loud = np.sqrt((frames ** 2).mean(axis=1))
+    return round(float((loud > VOCAL_FLOOR).sum()) / seconds, 4)
+
+
 def sung_share(vocals: Path) -> float:
-    """How much of a separated vocal is actually someone singing, as a share of
-    its seconds.  Returns 0.0 when it cannot be read: a check that fails should
-    not accuse a take."""
+    """The same, for a separated vocal already written to a file.  Returns 0.0
+    when it cannot be read: a check that fails should not accuse a take."""
     try:
         raw = subprocess.run(
             ["ffmpeg", "-v", "error", "-i", str(vocals), "-ac", "1", "-ar", "16000", "-f", "f32le", "-"],
@@ -156,10 +169,4 @@ def sung_share(vocals: Path) -> float:
         return 0.0
     import numpy as np
 
-    samples = np.frombuffer(raw, dtype=np.float32)
-    seconds = len(samples) // 16000
-    if seconds < 2:
-        return 0.0
-    frames = samples[:seconds * 16000].reshape(seconds, 16000).astype(np.float64)
-    loud = np.sqrt((frames ** 2).mean(axis=1))
-    return round(float((loud > VOCAL_FLOOR).sum()) / seconds, 4)
+    return share_of(np.frombuffer(raw, dtype=np.float32), 16000)

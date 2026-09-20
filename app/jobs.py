@@ -337,6 +337,12 @@ async def run_job(kind: str, ref_id: str) -> None:
             return   # deleted or cancelled while it waited
         graph = build_plan_graph(record) if kind == "plan" else build_render_graph(record)
         execute("UPDATE takes SET status = 'running', error = NULL, stage = NULL WHERE id = ?", (ref_id,))
+        if kind == "render" and record.get("kind") == "instrumental":
+            # The finished audio will be checked for singing. Loading Demucs takes
+            # longer than the check itself, so it is loaded while the render runs
+            # and is ready the moment the audio is. Only for instrumentals, so an
+            # installation that never makes one never holds the model.
+            asyncio.create_task(asyncio.to_thread(stems.warm))
 
     try:
         prompt_id = await ENGINE.submit(graph)
@@ -443,18 +449,19 @@ async def _finish(kind: str, ref_id: str, record: dict, job: dict, started: floa
         remove_tree(dest.parent)
         return
     duration = await asyncio.to_thread(audio_duration, dest)
+    # An instrumental is checked for singing before it is called finished, so no
+    # one is told it is ready and left to discover otherwise.
+    sung = await asyncio.to_thread(singing_share, dest) if record.get("kind") == "instrumental" else None
     elapsed = time.time() - started
     execute(
-        "UPDATE takes SET status = 'done', stage = NULL, audio_path = ?, duration = ?, finished_at = ?, elapsed = ?, error = NULL WHERE id = ?",
-        (str(dest), duration, time.time(), elapsed, ref_id),
+        "UPDATE takes SET status = 'done', stage = NULL, audio_path = ?, duration = ?, finished_at = ?, elapsed = ?, error = NULL, vocal_check = ? WHERE id = ?",
+        (str(dest), duration, time.time(), elapsed, sung, ref_id),
     )
     fresh = one("SELECT * FROM takes WHERE id = ?", (ref_id,))
     if fresh:
         await asyncio.to_thread(write_take_note, fresh, dest)
     await asyncio.to_thread(ensure_peaks, dest)
     bump_average("render", elapsed)
-    if fresh and fresh["kind"] == "instrumental":
-        STEM_QUEUE.put_nowait({"kind": "vocal-check", "take": ref_id})
 
 
 def _drop_engine_output(item: dict) -> None:
@@ -774,45 +781,45 @@ async def run_stems_job(set_id: str) -> None:
     log.info("stems %s done in %.1fs", set_id, elapsed)
 
 
-async def run_vocal_check(take_id: str) -> None:
-    """Listen to a finished instrumental for singing.
+def singing_share(audio: Path) -> float | None:
+    """How much of a finished instrumental is singing, in a few seconds.
 
-    The instrumental LoRA usually keeps the voice out, but not always: on some
-    seeds it comes back, and the take sounds wrong in a way the settings do not
-    explain. Rather than warn in advance about a control that usually works, the
-    audio itself is checked once it exists. Only a short montage is separated, so
-    this costs a fraction of a stems job, and it shares the stems worker so the
-    two never compete for the processor."""
+    The instrumental LoRA usually keeps the voice out and sometimes does not, so
+    the audio is checked rather than assumed. Three short spans are separated
+    with Demucs held in memory: a fresh process spends ten seconds loading the
+    model before it does anything, which was long enough for someone to hear the
+    opening, believe it was clean, and move on. This answers while they are still
+    listening.
+    """
+    work = Path(tempfile.mkdtemp(prefix="vocal-check-", dir=config.WORK_DIR))
+    try:
+        clip = instrumental.excerpt(audio, work / "excerpt.wav")
+        samples, rate = stems.vocal_of(clip)
+        return instrumental.share_of(samples, rate)
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
+        log.warning("vocal check failed for %s: %s", audio, exc)
+        return None
+    finally:
+        remove_tree(work)
+
+
+async def run_vocal_check(take_id: str) -> None:
+    """The same check for a take that already exists, used to fill in one made
+    before the check did."""
     take = one("SELECT id, audio_path, kind FROM takes WHERE id = ?", (take_id,))
     if not take or take["kind"] != "instrumental" or not take["audio_path"]:
         return
     audio = Path(take["audio_path"])
     if not audio.exists():
         return
-    work = Path(tempfile.mkdtemp(prefix="vocal-check-", dir=config.WORK_DIR))
-    try:
-        clip = await asyncio.to_thread(instrumental.excerpt, audio, work / "excerpt.wav")
-        await stems.separate(clip, work / "split", "htdemucs", ["vocals"], "wav", work_root=config.WORK_DIR)
-        vocals = next((work / "split").glob("*vocals*.wav"), None)
-        share = await asyncio.to_thread(instrumental.sung_share, vocals) if vocals else 0.0
+    share = await asyncio.to_thread(singing_share, audio)
+    if share is not None:
         execute("UPDATE takes SET vocal_check = ? WHERE id = ?", (share, take_id))
-        if share >= instrumental.SUNG:
-            log.info("instrumental %s has singing in %.0f%% of it", take_id, share * 100)
-    except (OSError, ValueError, subprocess.SubprocessError) as exc:
-        log.warning("vocal check failed for %s: %s", take_id, exc)
-    finally:
-        remove_tree(work)
 
 
 async def stems_worker() -> None:
     while True:
         job = await STEM_QUEUE.get()
-        if job.get("kind") == "vocal-check":
-            try:
-                await run_vocal_check(job["take"])
-            finally:
-                STEM_QUEUE.task_done()
-            continue
         row = one("SELECT title FROM stem_sets WHERE id = ?", (job["id"],))
         task = asyncio.create_task(run_stems_job(job["id"]))
         CURRENT_STEMS.clear()
