@@ -3267,18 +3267,17 @@ function openSungWarning(take) {
   State.sungRendered = rendered;
   $('sung-title').textContent = rendered ? 'This instrumental has singing in it' : 'This plan may sing';
   if (rendered) {
-    $('sung-text').textContent = 'Singing was found in ' + Math.round((take.vocal_check || 0) * 100) +
-      '% of this instrumental. It happens on some seeds and not others, and the score plan gave no sign of it.';
+    $('sung-text').textContent = 'There is singing in ' + Math.round((take.vocal_check || 0) * 100) + '% of it.';
   } else {
     // The same sentence is a status line on the card and the opening line here,
     // so it starts a sentence properly in the window.
-    var why = take.error || 'This plan has a melody in the vocal part.';
-    $('sung-text').textContent = why.charAt(0).toUpperCase() + why.slice(1);
+    var why = take.error || 'The plan has a melody in the vocal part.';
+    $('sung-text').textContent = why.charAt(0).toUpperCase() + why.slice(1) + '.';
   }
   $('sung-advice').textContent = rendered
-    ? 'Rendering the same plan again with a fresh seed is the quickest thing to try. A new plan changes the music too.'
-    : 'Not every such plan sings, so rendering it may be fine. Writing a new plan takes a fraction of the time a render does, and always uses a fresh seed.';
-  $('sung-render').textContent = rendered ? 'Render again, new seed' : 'Render anyway';
+    ? 'A new seed usually clears it. A new plan changes the music too.'
+    : 'It may be fine. A new plan is quick, and uses a new seed.';
+  $('sung-render').textContent = rendered ? 'New seed' : 'Render anyway';
   $('sung-variety').value = take.variety || 'normal';
   $('sung-modal').classList.remove('hidden');
 }

@@ -423,8 +423,7 @@ async def _finish(kind: str, ref_id: str, record: dict, job: dict, started: floa
         # to be looked at rather than being rendered automatically.
         if changed and record.get("kind") == "instrumental" and instrumental.sings(abc):
             execute("UPDATE takes SET error = ? WHERE id = ?",
-                    ("this plan has a melody in the vocal part, so the render would sing. "
-                     "Write a new plan, or choose the sections yourself instead of letting YuE2 decide.", ref_id))
+                    ("the plan has a melody in the vocal part: this may sing", ref_id))
             log.info("instrumental %s planned a vocal line; not auto-rendering", ref_id)
             return
         if changed and record.get("auto_render"):
