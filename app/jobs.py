@@ -892,20 +892,6 @@ def fail_cover_lyrics(source_id: str, message: str) -> None:
             (message, source_id))
 
 
-def _existing_vocal(source_id: str) -> Path | None:
-    """A vocal stem already pulled from this recording, if there is one.  The
-    slow half of this job is separation, and it may already have been paid for."""
-    for row in rows("SELECT folder, fmt FROM stem_sets WHERE source_id = ? AND status = 'done'"
-                    " ORDER BY created_at DESC", (source_id,)):
-        if not row["folder"]:
-            continue
-        for name in (f"vocals.{row['fmt']}", "vocals.wav", "vocals.flac", "vocals.mp3"):
-            path = Path(row["folder"]) / name
-            if path.is_file():
-                return path
-    return None
-
-
 async def run_cover_lyrics(source_id: str) -> None:
     """Hear the words in a recording: separate its vocal, transcribe it, and lay
     the lines under the sections of the score already transcribed from it."""
@@ -930,20 +916,15 @@ async def run_cover_lyrics(source_id: str) -> None:
     execute("UPDATE sources SET lyrics_state = 'running', lyrics_error = NULL,"
             " lyrics_stage = 'Starting', lyrics_progress = 0 WHERE id = ?", (source_id,))
 
-    vocal = await asyncio.to_thread(_existing_vocal, source_id)
-    work = None
-    if vocal:
-        progress(0.6, "Using the vocal already separated")
-    else:
-        work = config.WORK_DIR / f"lyrics-{source_id}"
-        # Separation is most of the wait, so it owns most of the bar.
-        await stems.separate(path, work, "htdemucs", ["vocals"], "wav",
-                             lambda frac, stage: progress(0.02 + 0.58 * frac, "Separating the vocal"),
-                             work_root=config.WORK_DIR)
-        vocal = next(iter(work.glob("vocals.*")), None)
-        if not vocal:
-            fail_cover_lyrics(source_id, "the vocal could not be separated")
-            return
+    work = config.WORK_DIR / f"lyrics-{source_id}"
+    # Separation is most of the wait, so it owns most of the bar.
+    await stems.separate(path, work, "htdemucs", ["vocals"], "wav",
+                         lambda frac, stage: progress(0.02 + 0.58 * frac, "Separating the vocal"),
+                         work_root=config.WORK_DIR)
+    vocal = next(iter(work.glob("vocals.*")), None)
+    if not vocal:
+        fail_cover_lyrics(source_id, "the vocal could not be separated")
+        return
 
     try:
         seconds = await asyncio.to_thread(instrumental.duration_of, vocal)
@@ -960,8 +941,7 @@ async def run_cover_lyrics(source_id: str) -> None:
         execute("UPDATE sources SET lyrics = ?, lyrics_state = 'done', lyrics_stage = NULL,"
                 " lyrics_progress = 1 WHERE id = ?", (text, source_id))
     finally:
-        if work:
-            shutil.rmtree(work, ignore_errors=True)
+        shutil.rmtree(work, ignore_errors=True)
 
 
 async def stems_worker() -> None:

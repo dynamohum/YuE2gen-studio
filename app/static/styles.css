@@ -320,8 +320,11 @@ button.icon { width: 42px; padding: 8px 0; text-align: center; }
 .drop.over { border-color: var(--accent-a); background: rgba(123, 92, 255, 0.09); }
 .drop-inner { display: flex; flex-direction: column; gap: 3px; }
 .drop-inner span { color: var(--muted); font-size: 12.5px; }
-.source-row { display: flex; gap: 8px; }
-.source-row select { flex: 1; min-width: 0; }
+/* The recording on one line and the things done to it on the next.  Sharing a
+   line squeezed the select to its arrow once there were four buttons, and left
+   no way to see which recording was chosen. */
+.source-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.source-row select { flex: 1 1 100%; min-width: 0; }
 .more { display: block; margin: 14px auto 0; }
 .draft {
   display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 0 0 14px;

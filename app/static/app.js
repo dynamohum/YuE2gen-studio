@@ -883,19 +883,6 @@ function paintSource() {
   }
 }
 
-/* Stems made from the selected recording, shown under it. */
-async function loadSourceStems() {
-  var source = currentSource();
-  var host = $('source-stems-list');
-  if (!host) { return; }
-  if (!source || State.mode !== 'cover') { host.innerHTML = ''; return; }
-  try {
-    var sets = await api('/api/stem-sets?source_id=' + encodeURIComponent(source.id));
-    if (currentSource() !== source) { return; }
-    host.innerHTML = stemsBlock({ stem_sets: sets });
-  } catch (err) { /* leave what is shown */ }
-}
-
 async function deleteSource() {
   var source = currentSource();
   if (!source) { return; }
@@ -916,7 +903,6 @@ async function deleteSource() {
   }
   claimEditorFor(null);
   await loadSources();
-  loadSourceStems();
 }
 
 async function loadScore() {
@@ -1436,7 +1422,7 @@ async function runStems() {
       })
     });
     closeStemsModal();
-    if (target.kind === 'source') { loadSourceStems(); } else { loadTakes(); }
+    loadTakes();
   } catch (err) {
     $('stems-note').textContent = 'Could not start: ' + err.message;
   } finally {
@@ -3752,8 +3738,7 @@ function wire() {
   $('source-select').addEventListener('change', function () {
     claimEditorFor(null);
     paintSource();
-    loadSourceStems();
-  });
+    });
   $('transcribe').addEventListener('click', doTranscribe);
   $('create-cover').addEventListener('click', doRender);
   $('create-song').addEventListener('click', doPlan);
@@ -3864,19 +3849,6 @@ function wire() {
       statusLine('Could not ' + button.textContent.trim().toLowerCase() + ': ' + err.message, 'bad');
       loadTakes();
     });
-  });
-  $('source-stems-list').addEventListener('click', function (event) {
-    var button = event.target.closest('button[data-act]');
-    if (!button) { return; }
-    takeAction(button).then(loadSourceStems).catch(function (err) {
-      $('source-status').textContent = 'Could not delete the stems: ' + err.message;
-      $('source-status').className = 'status bad';
-    });
-  });
-  $('source-stems').addEventListener('click', function () {
-    var source = currentSource();
-    if (!source) { $('source-status').textContent = 'Choose a recording first.'; return; }
-    openStemsModal({ kind: 'source', id: source.id, title: source.title });
   });
   $('source-delete').addEventListener('click', deleteSource);
   $('start-fresh').addEventListener('click', startFresh);
@@ -3994,7 +3966,7 @@ function wire() {
     }
     if (act === 'stem-del') {
       await api('/api/stem-sets/' + button.dataset.set, { method: 'DELETE' });
-      if (!button.closest('#source-stems-list')) { loadTakes(); }
+      loadTakes();
     }
     if (act === 'sung') {
       var spoiled = takeById(id);
@@ -4231,7 +4203,7 @@ setScoreActions();
 refreshTitleHint();
 setMode('cover');
 pollState();
-loadSources().then(loadSourceStems);
+loadSources();
 loadSpaces().catch(function () { /* the takes poll retries */ });
 loadTakes();
 
@@ -4256,7 +4228,6 @@ every(3000, function () {
   if (!working && Date.now() - State.takesAt < 6000) { return; }
   return loadTakes();
 });
-every(6000, loadSourceStems);
 document.addEventListener('visibilitychange', function () {
   if (!document.hidden) { pollState(); loadTakes(); }
 });
