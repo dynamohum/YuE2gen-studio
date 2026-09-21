@@ -18,7 +18,7 @@ function makeEl(id) {
     open: false, files: [], selectionStart: 0, selectionEnd: 0, style: {}, dataset: {},
     classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
     addEventListener(t, fn) { (el._h[t] = el._h[t] || []).push(fn); }, dispatchEvent() { return true; },
-    closest() { return null; }, scrollIntoView() {}, focus() {},
+    closest() { return null; }, scrollIntoView() {}, focus() {}, setAttribute() {}, removeAttribute() {},
     getContext() { return { clearRect() {}, fillRect() {}, fillStyle: '' }; },
     getBoundingClientRect() { return { left: 0, width: 600 }; }, clientWidth: 600, width: 600, height: 44, _h: {} };
   return el;
@@ -29,6 +29,10 @@ const document = { getElementById(id) { if (!els.has(id)) els.set(id, makeEl(id)
   querySelectorAll() { return []; }, addEventListener() {}, body: { style: {} } };
 const store = new Map();
 const ctx = { document, console,
+  // The page uses these when it wires the player and the score views.
+  navigator: { mediaSession: { setActionHandler() {} }, clipboard: { writeText: async () => {} } },
+  ABCJS: { renderAbc() {} },
+  Path2D: class { moveTo() {} lineTo() {} closePath() {} },
   localStorage: { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)) },
   window: { devicePixelRatio: 1, addEventListener() {}, requestAnimationFrame: () => 0, cancelAnimationFrame() {} },
   fetch: (u, o) => fetch(u.startsWith('http') ? u : APP + u, o),
@@ -41,10 +45,19 @@ const $ = (id) => document.getElementById(id);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 ctx.setMode('song');
+// The controls the page reads when it builds the request. A real browser has a
+// default in each; these stubs start empty, and an empty interpretation is
+// refused by the server.
 $('title').value = 'Harness click-through';
 $('style').value = 'late 1960s psychedelic';
 $('lyrics').value = '[Verse]\nOne pill makes you larger\nAnd one pill makes you small\n[Chorus]\nGo ask Alice';
+$('interpretation').value = 'standard';
+$('variety').value = 'normal';
+$('harmony').value = '0';
+$('max-duration').value = '60';
+$('mode').value = 'full';
 await ctx.doPlan();
+console.log('STEP doPlan said  :', JSON.stringify($('render-status').textContent).slice(0, 120));
 const id = ctx.Selection.awaiting;
 for (let i = 0; i < 15; i++) {
   await sleep(4000);
