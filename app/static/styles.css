@@ -112,13 +112,15 @@ main {
     flex: 1 1 auto; min-height: 0; align-items: stretch; width: 100%;
     padding-bottom: 22px;
   }
-  .panel, .library {
+  /* main > so this wins over the .panel rule below, which sets padding: 20px and
+     would otherwise drop the clearance for the player bar from the left pane. */
+  main > .panel, main > .library {
     min-height: 0; overflow-y: auto; overscroll-behavior: contain;
     /* The player bar is fixed over the foot of the page. */
-    padding-bottom: 110px;
+    padding-bottom: 118px;
     scrollbar-gutter: stable;
   }
-  .library { display: flex; flex-direction: column; }
+  main > .library { display: flex; flex-direction: column; }
   /* The space picker and the filters ride at the top of the scrolling takes. */
   .libsticky {
     position: sticky; top: -22px; z-index: 3; margin: -22px -22px 0; padding: 22px 22px 0;
