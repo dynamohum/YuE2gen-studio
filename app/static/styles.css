@@ -122,17 +122,16 @@ main {
   }
   main > .library { display: flex; flex-direction: column; }
   /* The space picker and the filters ride at the top of the scrolling takes. */
+  /* The header is opaque, with its own bottom band fading out, so a card passing
+     under it is softened rather than cut. The band is inside the box: outside it
+     would lie over the first row when the pane is at the top. */
   .libsticky {
-    position: sticky; top: -22px; z-index: 3; margin: -22px -22px 0; padding: 22px 22px 0;
-    background: var(--bg);
-  }
-  /* Cards pass under the header, which is opaque, so the edge is softened rather
-     than cut. */
-  .libsticky::after {
-    content: ''; position: absolute; left: 0; right: 0; bottom: -16px; height: 16px;
-    background: linear-gradient(180deg, var(--bg), transparent); pointer-events: none;
+    position: sticky; top: -22px; z-index: 3; margin: -22px -22px 0; padding: 22px 22px 18px;
+    background: linear-gradient(180deg, var(--bg) 0, var(--bg) calc(100% - 18px), transparent);
   }
   .libhead { margin-bottom: 14px; }
+  /* Room under the header's fading band, so the first row of cards is whole. */
+  #takes { margin-top: 8px; }
   #empty { margin-bottom: 90px; }
 }
 @media (max-width: 1000px) { main { grid-template-columns: 1fr; } }
