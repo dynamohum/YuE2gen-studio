@@ -29,7 +29,7 @@ def test_every_feature_has_a_section():
     text = GUIDE.read_text(encoding="utf-8")
     headings = set(re.findall(r"^#{2,3} (.+)$", text, re.M))
     for wanted in ("Your first song", "Harmony", "Rendering", "Covering a recording",
-                   "Instrumentals", "Voices and Identities", "Style LoRAs", "Stems",
+                   "Instrumentals", "Voices", "Corpora", "Style LoRAs", "Stems",
                    "The library", "Settings", "When something is wrong"):
         assert any(wanted in head for head in headings), f"the guide says nothing about {wanted}"
 

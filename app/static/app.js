@@ -2506,7 +2506,7 @@ async function showIdentityList() {
   body.innerHTML =
     '<p class="identity-intro persona-intro">A corpus is a folder of recordings, prepared as a training set. ' +
     'Point at a folder: the app separates each vocal, finds its key and tempo, and drafts its lyrics for you to ' +
-    'check. Then export it and train a LoRA from it, here or on another machine.</p>' +
+    'check. Then export it and take it to a trainer: the app prepares the set, it does not train.</p>' +
     '<button id="identity-new" class="ghost">New corpus</button>' +
     '<div class="identity-cards persona-cards">' + list.map(function (item) {
       return '<div class="identity-card persona-card" data-identity="' + esc(item.id) + '" data-persona="' + esc(item.id) + '"><strong>' + esc(item.name) + '</strong>' +
