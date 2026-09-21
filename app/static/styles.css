@@ -96,7 +96,7 @@ main {
   display: grid; grid-template-columns: 400px minmax(0, 1fr);
   /* No max-width: a library grid can use a wide window, and a centred column leaves
      slack that shows only on the side without the form. */
-  gap: 22px; padding: 22px; align-items: start;
+  gap: 22px; padding: 22px; align-items: start; max-width: none;
   /* Room for the fixed player bar, so the last row of cards can scroll clear of it.
      On body this did nothing: body is the window's height and the page runs past it. */
   padding-bottom: 120px;
@@ -142,6 +142,8 @@ main {
   #takes { margin-top: 6px; }
   #empty { margin-bottom: 90px; }
 }
+/* Fit: the centred 1500px column the app used before the width control. */
+main.fit { max-width: 1500px; margin: 0 auto; }
 @media (max-width: 1000px) { main { grid-template-columns: 1fr; } }
 
 .panel {

@@ -55,6 +55,7 @@ var State = { sources: [], takes: [], options: {}, filter: 'all', playing: null,
   picked: {},
   formEdited: false, spaces: [], spaceId: 'default', moveTakeId: null };
 var LAYOUT_KEY = 'yue2.layout';
+var WIDTH_KEY = 'yue2.width';
 var SPACE_KEY = 'yue2.space';
 
 function applyLayout(mode) {
@@ -67,6 +68,27 @@ function applyLayout(mode) {
     ? 'Wide cards, full titles and prompts. Click for compact.'
     : 'Compact cards, three across. Click for wide.';
   try { localStorage.setItem(LAYOUT_KEY, State.layout); } catch (err) { /* private mode */ }
+}
+
+/* How wide the dashboard is. Wide fills the window and fits the most cards;
+   fit centres the same 1500px column the app used before. Separate from the card
+   size, so the two combine. */
+function applyWidth(mode) {
+  State.width = mode === 'fit' ? 'fit' : 'wide';
+  var fit = State.width === 'fit';
+  document.querySelector('main').classList.toggle('fit', fit);
+  var button = $('width-toggle');
+  button.textContent = fit ? 'Fit' : 'Wide';
+  button.title = fit
+    ? 'A centred column. Click to fill the window.'
+    : 'Fills the window, most cards at once. Click for a centred column.';
+  try { localStorage.setItem(WIDTH_KEY, State.width); } catch (err) { /* private mode */ }
+}
+
+function loadWidth() {
+  var saved = null;
+  try { saved = localStorage.getItem(WIDTH_KEY); } catch (err) { /* private mode */ }
+  applyWidth(saved || 'wide');
 }
 
 function loadLayout() {
@@ -4062,6 +4084,9 @@ function wire() {
     $('seed-fixed').checked = true;
   });
 
+  $('width-toggle').addEventListener('click', function () {
+    applyWidth(State.width === 'wide' ? 'fit' : 'wide');
+  });
   $('layout-toggle').addEventListener('click', function () {
     applyLayout(State.layout === 'comfy' ? 'compact' : 'comfy');
   });
@@ -4467,6 +4492,7 @@ function wire() {
 
 wire();
 loadLayout();
+loadWidth();
 loadSpaceChoice();
 loadForm();
 paintHarmony();
