@@ -1342,6 +1342,46 @@ def identity_song_audio(identity_id: str, song_id: str, which: str = "original")
 persona_song_audio = identity_song_audio
 
 
+@app.post("/api/identities/{identity_id}/lora")
+async def install_identity_lora(
+    identity_id: str,
+    file: UploadFile = File(...),
+    name: str = Form("", max_length=80),
+    trigger: str = Form("", max_length=40),
+) -> dict:
+    """Take a LoRA trained from this corpus and put it where the engine will find it.
+
+    The app prepares the training set and cannot train, so the file arrives from a
+    trainer: here, in ComfyUI, or anywhere else.  It is placed in models/loras with a
+    note beside it, the corpus records it, and the engine is asked to look again so
+    the picker offers it at once."""
+    identity = _identity(identity_id)
+    try:
+        _digest, tmp, size = await asyncio.to_thread(_store_upload, file.file)
+    except TooLarge:
+        raise HTTPException(413, f"That file is larger than {config.MAX_UPLOAD_MB} MB.")
+    if not size:
+        tmp.unlink(missing_ok=True)
+        raise HTTPException(400, "empty upload")
+    wanted = name.strip() or Path(file.filename or "lora").stem
+    try:
+        result = await asyncio.to_thread(
+            loras.install, tmp, wanted, (trigger.strip() or identity["trigger_word"]), identity["name"]
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except OSError as exc:
+        raise HTTPException(500, f"could not write the LoRA: {exc}")
+    finally:
+        tmp.unlink(missing_ok=True)
+    execute("UPDATE identities SET lora = ? WHERE id = ?", (result["name"], identity_id))
+    try:
+        await ENGINE.refresh_options()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("the engine's list was not re-read: %s", exc)
+    return result
+
+
 @app.post("/api/identities/{identity_id}/export")
 @app.post("/api/personas/{identity_id}/export", include_in_schema=False)
 async def export_identity(identity_id: str) -> dict:

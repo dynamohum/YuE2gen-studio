@@ -73,6 +73,9 @@ services:
       # Read only, and only ever read: the app opens a LoRA's header to say
       # whether it holds a planner half, a decoder half or both.
       - ./models:/app/models:ro
+      # The one place the app writes a model file: installing a LoRA it was given.
+      # Listed after the read-only folder above, because the deeper path wins.
+      - ./models/loras:/app/models/loras
       - /mnt/h:/mnt/h:ro
       - /mnt/h:/import:ro
     logging:

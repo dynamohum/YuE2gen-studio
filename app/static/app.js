@@ -1229,11 +1229,19 @@ function corporaBadge() {
   button.innerHTML = '<span class="corpora-dot" aria-hidden="true"></span>' +
     '<span id="corpora-text">Corpora</span>';
   right.appendChild(button);
+  wireCorporaBadge(button);
+  return button;
+}
+
+/* The listener goes on once, from whichever path produced the element: the markup
+   has it now, the script may have built it, and only one of those runs. */
+function wireCorporaBadge(button) {
+  if (!button || button.dataset.wired) { return; }
+  button.dataset.wired = '1';
   button.addEventListener('click', function () {
     openIdentities();
     if (State.openCorpus) { showIdentity(State.openCorpus); }
   });
-  return button;
 }
 
 function paintCorporaBadge() {
@@ -1267,7 +1275,10 @@ function paintCorporaBadge() {
   // A settled failure is not work in progress, so it gets its own mark rather than
   // a pulse: the count alone would read as a corpus that never finished.
   button.classList.toggle('trouble', failed > 0 && !busy);
-  var text = 'Corpora';
+  // One corpus is named, because its name is the useful word. Several, and the name
+  // belongs to whichever is working; when none is, the word is the honest one.
+  var name = shown && (ids.length === 1 || busy || unfinished) ? shown.name : 'Corpora';
+  var text = esc(name || 'Corpora');
   // A corpus nobody has analysed says nothing worth reading, so the count waits
   // until there is one.
   if (shown && shown.started) {
@@ -2718,9 +2729,16 @@ async function showIdentity(id, preloaded) {
       '<button id="identity-edit-open" class="ghost">Edit</button>' +
       '<button id="identity-analyse" class="ghost">Analyse</button>' +
       '<button id="identity-export" class="ghost">Export training set</button>' +
+      '<button id="identity-install" class="ghost">Install a LoRA</button>' +
       '<button id="identity-delete" class="ghost">Delete corpus</button>' +
+      '<input id="identity-lora-file" type="file" accept=".safetensors" class="hidden">' +
       '<span id="identity-status" class="status"></span>' +
     '</div>' +
+    (data.lora ? '<p class="hint">LoRA installed from this corpus: <b>' + esc(data.lora) + '</b>. ' +
+      'Choose it in the Style LoRA list to write with it.</p>' : '') +
+    '<p class="hint">The app prepares the training set and does not train. Train it wherever you like, ' +
+    'then <b>Install a LoRA</b> with the file that comes back: it goes to <code>models/loras</code> ' +
+    'with the corpus trigger word, and appears in the Style LoRA list.</p>' +
     '<p class="hint">Analyse separates each included song’s vocal, finds its key, tempo and sections with ' +
     'SheetSage, and drafts its lyrics with Whisper, tagged by section. Drafts may not get all the words ' +
     'right, so check them and amend what needs it.</p>' +
@@ -2881,16 +2899,20 @@ async function identityClick(event) {
     } catch (err) { if (status) { status.textContent = err.message; status.className = 'status bad'; } }
     return;
   }
+  if (target.closest('#identity-install') || target.closest('#persona-install')) {
+    $('identity-lora-file').click();
+    return;
+  }
   if (target.closest('#identity-delete') || target.closest('#persona-delete')) {
     // The corpus and the copies the app made go; a trained LoRA is a model file, and
     // nothing here deletes those. So say which ones look like they came from it.
-    var loras = getIdentityLoRAs(IDENTITY.data);
-    var note = loras.length
-      ? '\n\nNot deleted: ' + loras.length + ' LoRA file' + (loras.length === 1 ? '' : 's') +
-        ' in models/loras that look like they came from this corpus —\n' + loras.slice(0, 6).join('\n')
+    var matching = getIdentityLoRAs(IDENTITY.data);
+    var leftover = matching.length
+      ? '\n\nNot deleted: ' + matching.length + ' LoRA file' + (matching.length === 1 ? '' : 's') +
+        ' in models/loras that look like they came from this corpus —\n' + matching.slice(0, 6).join('\n')
       : '';
     if (!confirm('Delete the corpus “' + IDENTITY.data.name + '” and the app’s copies of its songs?\n\n' +
-        'The original folder is not touched.' + note)) { return; }
+        'The original files are not touched.' + leftover)) { return; }
     try {
       await api('/api/identities/' + IDENTITY.id, { method: 'DELETE' });
       showIdentityList();
@@ -2901,6 +2923,28 @@ var personaClick = identityClick;
 
 async function identityChange(event) {
   var target = event.target;
+  if (target.id === 'identity-lora-file') {
+    var picked = target.files && target.files[0];
+    target.value = '';
+    if (!picked) { return; }
+    var status = $('identity-status');
+    status.textContent = 'Installing ' + picked.name + '\u2026';
+    status.className = 'status';
+    try {
+      var form = new FormData();
+      form.append('file', picked);
+      var done = await api('/api/identities/' + IDENTITY.id + '/lora', { method: 'POST', body: form });
+      status.textContent = 'Installed ' + done.name + ' (' + done.kind + '). It is in the Style LoRA list.';
+      status.className = 'status good';
+      await pollState();
+      paintStyleLoras();
+      showIdentity(IDENTITY.id);
+    } catch (err) {
+      status.textContent = err.message;
+      status.className = 'status bad';
+    }
+    return;
+  }
   if (target.dataset.include) {
     await api('/api/identities/' + IDENTITY.id + '/songs/' + target.dataset.include, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ include: target.checked })
@@ -4170,7 +4214,7 @@ function wire() {
   });
   $('source-delete').addEventListener('click', deleteSource);
   $('start-fresh').addEventListener('click', startFresh);
-  corporaBadge();
+  wireCorporaBadge(corporaBadge());
   pollCorpora();
   var openBtn = $('identities-open') || $('personas-open');
   if (openBtn) { openBtn.addEventListener('click', openIdentities); }

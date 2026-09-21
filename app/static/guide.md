@@ -255,8 +255,11 @@ corpus's **trigger word**. That is the layout a trainer reads, including the Com
 **Deleting a corpus** removes the app's copies of its songs, the separated vocals, the lyrics and
 the scores. The folder you pointed it at is never touched.
 
-**Training does not happen here.** Take the export to a trainer and put the resulting
-`safetensors` in `models/loras/`. The engine finds it and it appears in the **Style LoRA** list
+**Training does not happen here.** Take the export to a trainer, then press **Install a LoRA** on
+the corpus screen and choose the file that comes back. The app puts it in `models/loras`, writes a
+note beside it naming it and giving the corpus trigger word, and asks the engine to look at the
+folder again, so it appears in the Style LoRA list at once. The corpus remembers the file, so
+deleting the corpus can say what it left behind. The engine finds it and it appears in the **Style LoRA** list
 with everything else, trigger word and all — see that section for the strengths it carries.
 
 ---

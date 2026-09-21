@@ -17,7 +17,10 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+import shutil
 import struct
+import time
 from pathlib import Path
 
 from . import config
@@ -99,6 +102,50 @@ def note_for(path: Path) -> dict:
         rest.append(line)
     body = "\n".join(rest).strip()
     return {k: v for k, v in (("title", title), ("note", body), ("trigger", trigger)) if v}
+
+
+def install(source: Path, name: str, trigger: str, corpus: str, root: Path | None = None) -> dict:
+    """Put a trained LoRA where the engine looks, with a note beside it.
+
+    The app cannot train, so the file arrives from a trainer elsewhere.  It goes into
+    the LoRA folder with a .txt naming it and giving its trigger word — the same note
+    the downloaded ones carry — and the family file gains a line, so the picker groups
+    it under the corpus it came from instead of leaving it under Other."""
+    root = root or folder()
+    if not root:
+        raise ValueError("the app cannot see the engine's model folder")
+    names = names_in(source)             # raises if it is not a safetensors file
+    if not names:
+        raise ValueError("that file holds no tensors")
+
+    stem = re.sub(r"[^a-z0-9]+", "_", (name or source.stem).lower()).strip("_") or "lora"
+    if not stem.endswith("_lora"):
+        stem += "_lora"                  # the picker reads the word in front as the group
+    target = root / f"{stem}.safetensors"
+    if target.exists():
+        raise ValueError(f"{target.name} is already in the LoRA folder")
+
+    shutil.copyfile(source, target)
+    kind = kind_of(names)
+    held = {"both": "score and sound", "planner": "score only",
+            "decoder": "sound only"}.get(kind, "an unrecognised layout")
+    note = [name or stem]
+    if trigger:
+        note.append(f"Trigger: {trigger.lower()}")
+    note.append("")
+    note.append(f"Trained from the corpus {corpus} on {time.strftime('%Y-%m-%d')}.")
+    note.append(f"Holds {held}.")
+    (root / f"{stem}.txt").write_text("\n".join(note) + "\n", encoding="utf-8")
+
+    prefix = stem.split("_")[0]
+    if prefix not in families(root):
+        path = root / "families.txt"
+        header = "" if path.exists() else "# The picker groups LoRAs by the word in front of the file name.\n"
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(header + f"\n{prefix} = {corpus}\n")
+
+    log.info("installed %s (%s)", target.name, kind)
+    return {"name": target.name, "kind": kind, "trigger": trigger.lower(), "tensors": len(names)}
 
 
 def families(root: Path | None) -> dict[str, str]:
