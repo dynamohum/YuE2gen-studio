@@ -16,6 +16,35 @@ Release notes live in two places and neither is a file in this repository: this 
 history, and each GitHub release holds its published notes. `RELEASE-NOTES-*.md` is ignored so it
 cannot creep back in.
 
+## 0.0.7 - 2026-09-21
+
+- **Lyrics from a recording.** A cover needs the words, and now the app can hear them: a **Lyrics**
+  button beside Transcribe separates the vocal with Demucs, transcribes it with faster-whisper, and
+  lays the lines under the sections the score already names. Measured against a known set of real
+  lyrics: 10.7% of words wrong, and the errors are omissions rather than inventions. It is English
+  only, and the tooltip says so. Runs in the CPU lane, so it never holds up a render.
+- **Audition.** A button on the recording row plays the recording itself through the player at the
+  foot of the page, with its waveform, so what is about to be covered can be heard without leaving
+  the app. Starting a take ends it, and the space bar resumes the recording rather than a take.
+- **One selection object.** `editorTakeId`, `editorSourceId`, `leftTakeId` and `planTakeId` said
+  overlapping things about the left column and drifted apart three times, so a cover was rendered
+  from another recording's score and a new plan was never shown. They are one `Selection` now, with
+  one writer and helpers to read it. `tools/selection-harness.mjs` asserts the selection after each
+  way of changing it: fourteen checks, offline, about a second.
+- **A cover is rendered from its own recording's score, or none.** Choosing a recording whose score
+  is not the one in the box empties the box, and a cover with no score anywhere is refused with the
+  reason, rather than quietly rendering a melody the model invents.
+- **demucs works in parallel.** It applies its segments one at a time unless given `-j`, which was
+  never passed, so separation left most of the machine idle. Measured on a 3:45 recording: 89.2 s
+  before, 62.6 s with four jobs. `STEMS_JOBS` scales with the machine, up to four.
+- **A score that disagrees with its recording is called out.** Recordings now keep their length, and
+  when the score's own bars and tempo describe more or less music than the recording holds, the page
+  says so and names the tempo that would fit. The score editor gains a **Tempo** field, which writes
+  `Q:1/4=` — honoured by the render within a couple of BPM, measured.
+- **Takes can be picked and deleted in one go.** Every card carries a pick box under its icon, the
+  filter row gains a Delete button that names the count, and one confirmation lists the takes before
+  removing them.
+
 ## 0.0.6 - 2026-09-20
 
 - **Style LoRAs.** Any `.safetensors` in `models/loras/` can be chosen for a take, with its own two
