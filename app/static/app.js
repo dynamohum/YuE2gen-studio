@@ -2862,7 +2862,15 @@ async function identityClick(event) {
     return;
   }
   if (target.closest('#identity-delete') || target.closest('#persona-delete')) {
-    if (!confirm('Delete the identity “' + IDENTITY.data.name + '” and the app’s copies of its songs? The original folder is not touched.')) { return; }
+    // The corpus and the copies the app made go; a trained LoRA is a model file, and
+    // nothing here deletes those. So say which ones look like they came from it.
+    var loras = getIdentityLoRAs(IDENTITY.data);
+    var note = loras.length
+      ? '\n\nNot deleted: ' + loras.length + ' LoRA file' + (loras.length === 1 ? '' : 's') +
+        ' in models/loras that look like they came from this corpus —\n' + loras.slice(0, 6).join('\n')
+      : '';
+    if (!confirm('Delete the corpus “' + IDENTITY.data.name + '” and the app’s copies of its songs?\n\n' +
+        'The original folder is not touched.' + note)) { return; }
     try {
       await api('/api/identities/' + IDENTITY.id, { method: 'DELETE' });
       showIdentityList();

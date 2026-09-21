@@ -252,6 +252,9 @@ sections, and drafts its lyrics tagged by section. Review them against the recor
 The export is one audio file per song with a caption beside it, and every caption begins with the
 corpus's **trigger word**. That is the layout a trainer reads, including the ComfyUI YuE2 trainer.
 
+**Deleting a corpus** removes the app's copies of its songs, the separated vocals, the lyrics and
+the scores. The folder you pointed it at is never touched.
+
 **Training does not happen here.** Take the export to a trainer and put the resulting
 `safetensors` in `models/loras/`. The engine finds it and it appears in the **Style LoRA** list
 with everything else, trigger word and all — see that section for the strengths it carries.
