@@ -28,10 +28,10 @@ def test_install_puts_the_file_and_a_note_beside_it(tmp_path):
 
     done = loras.install(source, "Alicia", "alicia", "Alicia", root=root)
 
-    assert done["name"] == "alicia_lora.safetensors"
+    assert done["name"] == "alicia.safetensors"
     assert done["kind"] == "both"
-    assert (root / "alicia_lora.safetensors").exists()
-    note = (root / "alicia_lora.txt").read_text(encoding="utf-8").split("\n")
+    assert (root / "alicia.safetensors").exists()
+    note = (root / "alicia.txt").read_text(encoding="utf-8").split("\n")
     assert note[0] == "Alicia"
     assert "Trigger: alicia" in note
     assert any("corpus Alicia" in line for line in note)
