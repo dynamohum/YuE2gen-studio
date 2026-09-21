@@ -94,7 +94,9 @@ a, .link {
 /* ---------- layout ---------- */
 main {
   display: grid; grid-template-columns: 400px minmax(0, 1fr);
-  gap: 22px; padding: 22px; max-width: 1500px; margin: 0 auto; align-items: start;
+  /* No max-width: a library grid can use a wide window, and a centred column leaves
+     slack that shows only on the side without the form. */
+  gap: 22px; padding: 22px; align-items: start;
   /* Room for the fixed player bar, so the last row of cards can scroll clear of it.
      On body this did nothing: body is the window's height and the page runs past it. */
   padding-bottom: 120px;
@@ -121,7 +123,9 @@ main {
     overflow: hidden auto;
     /* The player bar is fixed over the foot of the page. */
     padding-bottom: 118px;
-    scrollbar-gutter: stable;
+    /* both-edges reserves the same strip on each side, so the cards sit centred
+       whether or not the scrollbar is showing. */
+    scrollbar-gutter: stable both-edges;
   }
   main > .library { display: flex; flex-direction: column; }
   /* The space picker and the filters ride at the top of the scrolling takes. */
