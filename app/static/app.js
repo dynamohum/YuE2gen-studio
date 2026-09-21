@@ -7,7 +7,7 @@
      planTakeId     a take whose plan is being written; it owns nothing until it lands */
 var State = { sources: [], takes: [], options: {}, filter: 'all', playing: null, busy: false, mode: 'cover',
   planTakeId: null, layout: 'compact', editorTakeId: null, editorSourceId: null, leftTakeId: null,
-  takesRaw: '', takesTotal: 0, takeLimit: 300, takesAt: 0, paintedAt: 0, draft: null,
+  takesRaw: '', takesTotal: 0, takeLimit: 300, takesAt: 0, paintedAt: 0, draft: null, audition: null,
   formEdited: false, spaces: [], spaceId: 'default', moveTakeId: null };
 var LAYOUT_KEY = 'yue2.layout';
 var SPACE_KEY = 'yue2.space';
@@ -875,6 +875,7 @@ function paintSource() {
   var status = $('source-status');
   var badge = $('score-badge');
   paintHearButton();
+  paintAudition();
   if (!source) {
     status.textContent = '';
     status.className = 'status';
@@ -1255,7 +1256,47 @@ function paintHearButton() {
   // status is not something anyone thinks to press.
   button.title = !source ? 'Choose a recording first'
     : source.has_lyrics ? 'These words were heard in this recording earlier: put them in the box'
-    : 'Separate the vocal from this recording and write down what it sings';
+    : 'Separate the vocal from this recording and write down what it sings. English recordings only: '
+      + 'Whisper hears nothing else, and would write down nonsense.';
+}
+
+/* Auditioning the recording itself, through the player at the foot of the page.
+   It is not a take, so it owns no score and no card. */
+function playRecording() {
+  var source = currentSource();
+  if (!source) { return; }
+  var audio = $('audio');
+  if (State.audition === source.id && !audio.paused) {
+    audio.pause();
+    State.audition = null;
+    paintAudition();
+    return;
+  }
+  var url = '/api/sources/' + source.id + '/audio';
+  State.loadedId = null;      // a recording is not a take, so Play must not resume one
+  State.playing = null;
+  State.audition = source.id;
+  State.playRequestedAt = Date.now();
+  audio.src = url;
+  audio.play().catch(function () {});
+  $('np-title').textContent = source.title;
+  $('np-meta').textContent = 'the recording being covered';
+  $('np-cover').className = 'np-cover grad-cover';
+  updateMediaSession({ title: source.title, style: 'the recording being covered' });
+  loadWave(url, '/api/sources/' + source.id + '/peaks');
+  paintTakes();
+  paintAudition();
+}
+
+function paintAudition() {
+  var button = $('audition');
+  if (!button) { return; }
+  var source = currentSource();
+  var playing = Boolean(source && State.audition === source.id && !$('audio').paused);
+  button.disabled = !source;
+  button.title = !source ? 'Choose a recording first'
+    : 'Play this recording through the player, to hear what you are covering';
+  button.classList.toggle('on', playing);
 }
 
 function paintHearJob(state) {
@@ -1280,6 +1321,7 @@ function showHearError(message) {
   $('lyrics-hear-bar').style.width = '100%';
   $('lyrics-hear-stage').textContent = message;
   paintHearButton();
+  paintAudition();
 }
 
 function useHeardLyrics(text) {
@@ -1318,6 +1360,7 @@ function stopHearPoll() {
   HEAR.id = null;
   paintHearJob(null);
   paintHearButton();
+  paintAudition();
 }
 
 async function hearLyrics() {
@@ -1443,6 +1486,7 @@ function playStem(setId, file) {
   var audio = $('audio');
   State.loadedId = null;   // a stem is not a take, so Play must not resume a take
   State.playing = null;
+  State.audition = null;
   wave.kind = null;        // and it gets the neutral tone
   audio.src = '/api/stem-sets/' + setId + '/' + encodeURIComponent(file);
   audio.play().catch(function () {});
@@ -3064,6 +3108,7 @@ function playTake(id) {
   var take = State.takes.filter(function (t) { return t.id === id; })[0];
   if (!take) { return; }
   State.playing = id;
+  State.audition = null;
   State.playRequestedAt = Date.now();
   wave.kind = take.kind;   // the waveform takes the colour of what is playing
   var audio = $('audio');
@@ -3447,7 +3492,7 @@ function wireTransport() {
   }
 
   ['play', 'pause', 'ended', 'loadedmetadata', 'durationchange', 'seeking'].forEach(function (name) {
-    audio.addEventListener(name, function () { updateTimes(); paintTransport(); });
+    audio.addEventListener(name, function () { updateTimes(); paintTransport(); paintAudition(); });
   });
   paintTransport();
 }
@@ -3469,11 +3514,18 @@ function wireWave() {
   audio.addEventListener('play', startWaveLoop);
   audio.addEventListener('playing', startWaveLoop);
   audio.addEventListener('pause', stopWaveLoop);
-  audio.addEventListener('ended', function () { stopWaveLoop(); wave.ratio = 1; drawWave(); State.playing = null; paintTakes(); paintTransport(); });
+  audio.addEventListener('ended', function () {
+    stopWaveLoop(); wave.ratio = 1; drawWave();
+    State.playing = null; State.audition = null;
+    paintTakes(); paintTransport(); paintAudition();
+  });
   audio.addEventListener('pause', function () {
     // Ignore the pause that fires while a new track is being loaded.
     if (Date.now() - (State.playRequestedAt || 0) < 800) { return; }
     if (State.playing) { State.playing = null; paintTakes(); paintTransport(); }
+    // A recording being auditioned stays loaded while paused, so the bar and the
+    // space bar resume it rather than starting a take. Only the sound stops.
+    paintAudition();
   });
   audio.addEventListener('seeking', function () { syncWaveRatio(); drawWave(); });
   audio.addEventListener('timeupdate', function () { syncWaveRatio(); drawWave(); });
@@ -3883,6 +3935,7 @@ function wire() {
   wireStructure();
   $('interpretation').addEventListener('change', paintInterpretation);
   $('lyrics-write').addEventListener('click', openWrite);
+  $('audition').addEventListener('click', function () { playRecording(); });
   $('source-lyrics').addEventListener('click', function () {
     hearLyrics().catch(function (err) { statusLine('Could not start: ' + err.message, 'bad'); });
   });
