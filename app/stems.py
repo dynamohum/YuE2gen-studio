@@ -50,8 +50,15 @@ DEFAULT_THREADS = int(os.environ.get("STEMS_THREADS") or max(1, (os.cpu_count() 
 #   -j 8   63.0 s   3.57x realtime  12.6 cores   5.4 GB peak
 #
 # Four is the knee: it is 1.4x faster than none, and eight buys nothing for half as
-# much memory again. The cost is memory, which matters where the app is capped:
-# compose.split.yml gives it 2 GB, so that setup wants a smaller number here.
+# much memory again. The default scales with the machine, so a four core box asks
+# for one worker rather than four: -j makes threads, not processes, so more workers
+# than cores only timeshares, and each one still costs its own memory.
+#
+# Measured with four workers, torch threads made no difference above four:
+#
+#   8 threads   64.2 s      4 threads   63.4 s      2 threads   71.8 s
+#
+# so STEMS_THREADS stays at half the CPUs and the two do not need to be balanced.
 DEFAULT_JOBS = int(os.environ.get("STEMS_JOBS") or min(4, max(1, (os.cpu_count() or 2) // 4)))
 
 PROGRESS_RE = re.compile(rb"(\d{1,3})%\|")
