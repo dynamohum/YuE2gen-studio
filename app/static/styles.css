@@ -383,6 +383,10 @@ details.block[open] > summary { margin-bottom: 10px; }
 }
 .score-side { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
 .score-tabs { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.modal-head .tempo { font-size: 12.5px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.modal-head .tempo input { width: 74px; font: inherit; font-size: 13px; color: var(--text);
+  background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 5px 7px; }
+.modal-head .tempo input:disabled { opacity: 0.5; }
 .score-tabs .chip.active { border-color: rgba(123, 92, 255, 0.75); background: rgba(123, 92, 255, 0.2); color: var(--text); }
 #score-count { margin-left: auto; }
 .score-view { flex: 1 1 auto; min-height: 0; overflow: auto; }

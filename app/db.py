@@ -328,6 +328,14 @@ def _voice_lora_clip() -> None:
         execute("ALTER TABLE takes ADD COLUMN voice_lora_clip REAL NOT NULL DEFAULT 0.0")
 
 
+def _source_duration() -> None:
+    """How long a recording is, so a score transcribed from it can be checked
+    against it: a plan whose tempo is wrong describes more music than the
+    recording holds, and the cover then plays at that tempo."""
+    if "duration" not in _columns("sources"):
+        execute("ALTER TABLE sources ADD COLUMN duration REAL")
+
+
 def _cover_lyrics() -> None:
     """A recording keeps the lyrics heard in it, the way it already keeps the
     score transcribed from it: written once, then reused."""
@@ -355,6 +363,7 @@ MIGRATIONS = [
     _style_lora,                                                     # -> 13
     _voice_lora_clip,                                                # -> 14
     _cover_lyrics,                                                   # -> 15
+    _source_duration,                                                # -> 16
 ]
 
 

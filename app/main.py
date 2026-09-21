@@ -40,7 +40,8 @@ personas = identities
 from .engine import stage_label
 from .jobs import (CURRENT, CURRENT_STEMS, ENGINE, HARMONY_STEPS, INTERPRETATION_NAMES, INTERPRETATIONS, LYRICS,
                    PLAN_VARIETY, QUEUE, STEM_QUEUE)
-from .library import ensure_peaks, inside, relayout, remove_tree, slugify, source_path, take_folder
+from .library import (audio_duration, ensure_peaks, inside, relayout, remove_tree, slugify,
+                      source_path, take_folder)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger("yue2")
@@ -156,6 +157,7 @@ async def lifespan(app: FastAPI):
     execute("UPDATE stem_sets SET status = 'failed', error = 'interrupted by a restart' WHERE status = 'running'")
     await requeue_waiting()
     await asyncio.to_thread(relayout)
+    await asyncio.to_thread(fill_source_durations)
     if config.ENGINE_OUTPUT_DIR:
         # Renders are saved here.  Created by the app, so the app may delete the
         # engine's copy once it has its own, though the engine writes as root.
@@ -563,13 +565,20 @@ def state() -> dict:
 # ----------------------------------------------------------------------- sources
 @app.get("/api/sources")
 def list_sources() -> list[dict]:
-    return rows(
-        """SELECT id, title, filename, created_at, transcribe_state, transcribe_error,
-                  lyrics_state, (lyrics IS NOT NULL AND lyrics != '') AS has_lyrics,
+    got = rows(
+        """SELECT id, title, filename, created_at, transcribe_state, transcribe_error, duration,
+                  abc, lyrics_state, (lyrics IS NOT NULL AND lyrics != '') AS has_lyrics,
                   (abc IS NOT NULL AND abc != '') AS has_score,
                   (SELECT COUNT(*) FROM takes t WHERE t.source_id = sources.id) AS take_count
            FROM sources ORDER BY created_at DESC"""
     )
+    for item in got:
+        # What the score says the music lasts, so the page can weigh it against the
+        # recording without asking for the whole score.
+        found = score.estimate(item.pop("abc") or "")
+        item["score_seconds"] = found["seconds"] if found else None
+        item["score_bpm"] = found["bpm"] if found else None
+    return got
 
 
 @app.get("/api/sources/{source_id}")
@@ -637,10 +646,12 @@ async def upload_source(file: UploadFile = File(...), title: str = Form("", max_
         "engine_file": None,   # sent to the engine when it is transcribed
         "sha256": digest,
         "created_at": time.time(),
+        # Read once here, so a score transcribed from it can be checked against it.
+        "duration": await asyncio.to_thread(audio_duration, dest),
     }
     execute(
-        """INSERT INTO sources(id, title, filename, stored_path, engine_file, sha256, created_at)
-           VALUES(:id, :title, :filename, :stored_path, :engine_file, :sha256, :created_at)""",
+        """INSERT INTO sources(id, title, filename, stored_path, engine_file, sha256, created_at, duration)
+           VALUES(:id, :title, :filename, :stored_path, :engine_file, :sha256, :created_at, :duration)""",
         record,
     )
     return {**record, "transcribe_state": "none", "abc": None, "duplicate": False}
@@ -1425,6 +1436,17 @@ def take_peaks(take_id: str) -> dict:
     if not result:
         raise HTTPException(500, "could not read the waveform")
     return result
+
+
+def fill_source_durations() -> None:
+    """Recordings added before the column existed: read each one's length once."""
+    for source in rows("SELECT id, stored_path FROM sources WHERE duration IS NULL"):
+        path = Path(source["stored_path"])
+        if not path.exists():
+            continue
+        seconds = audio_duration(path)
+        if seconds:
+            execute("UPDATE sources SET duration = ? WHERE id = ?", (seconds, source["id"]))
 
 
 @app.get("/api/sources/{source_id}/peaks")

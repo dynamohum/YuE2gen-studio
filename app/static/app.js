@@ -574,6 +574,38 @@ function scoreReset(text) {
   paintScoreHistory();
 }
 
+/* The tempo lives in the score, as Q:1/4=. This edits that line, which is what the
+   render follows: YuE2 keeps the tempo its plan carries, within a couple of BPM. */
+function scoreTempo() {
+  var match = /^Q:1\/4=(\d+)/m.exec($('score-big').value || '');
+  return match ? parseInt(match[1], 10) : null;
+}
+
+function paintScoreTempo() {
+  var field = $('score-tempo');
+  if (!field || document.activeElement === field) { return; }
+  var bpm = scoreTempo();
+  field.value = bpm === null ? '' : String(bpm);
+  field.disabled = ($('score-big').value || '').length < 20;
+}
+
+function setScoreTempo(bpm) {
+  var box = $('score-big');
+  var text = box.value || '';
+  if (!text.trim() || !bpm) { return; }
+  var line = 'Q:1/4=' + bpm;
+  if (/^Q:1\/4=\d+/m.test(text)) {
+    box.value = text.replace(/^Q:1\/4=\d+.*$/m, line);
+  } else {
+    // A score with no tempo line: put one under the note length, where ABC wants it.
+    var lines = text.split('\n');
+    var at = lines.findIndex(function (l) { return /^L:/.test(l.trim()); });
+    lines.splice(at >= 0 ? at + 1 : 1, 0, line);
+    box.value = lines.join('\n');
+  }
+  syncScoreFromBig();
+}
+
 function paintScoreHistory() {
   if ($('score-undo')) { $('score-undo').disabled = scoreStack.index <= 0; }
   if ($('score-redo')) { $('score-redo').disabled = scoreStack.index >= scoreStack.items.length - 1; }
@@ -749,6 +781,7 @@ function setScoreView(name) {
 
 function openScoreEditor(view) {
   $('score-big').value = $('abc').value;
+  paintScoreTempo();
   if (scoreStack.items[scoreStack.index] !== $('abc').value) { scoreReset($('abc').value); }
   if (view) { State.scoreView = view; }
   paintScoreView();
@@ -936,6 +969,7 @@ function paintSource() {
   var map = { none: 'Not transcribed yet.', queued: 'Queued for transcription.', running: 'Transcribing\u2026', done: 'Transcribed. The score is ready to edit.', failed: 'Transcription failed: ' + (source.transcribe_error || 'unknown error') };
   status.textContent = map[source.transcribe_state] || '';
   status.className = 'status' + (source.transcribe_state === 'failed' ? ' bad' : (source.transcribe_state === 'done' ? ' good' : ''));
+  paintSourceTempo(source);
   // The box must hold this recording's score or nothing. Comparing ids matters:
   // this tested whether editorSourceId was set at all, so choosing a second
   // recording left the first one's score in the box, and a cover of the second was
@@ -951,6 +985,27 @@ function paintSource() {
       syncEditor();
     }
   }
+}
+
+/* A score transcribed from a recording can describe a different length of music,
+   and then its tempo is wrong: the cover follows the score, so it plays too slow
+   or too fast. Both numbers are known here, so say so, with the tempo that fits. */
+function paintSourceTempo(source) {
+  var node = $('source-tempo');
+  if (!node) { return; }
+  var seconds = source && source.duration ? Number(source.duration) : 0;
+  var estimate = source && source.score_seconds
+    ? { seconds: Number(source.score_seconds), bpm: Number(source.score_bpm) || 120 }
+    : null;
+  if (!estimate || !seconds) { node.textContent = ''; node.className = 'status'; return; }
+  var ratio = estimate.seconds / seconds;
+  if (ratio > 0.85 && ratio < 1.15) { node.textContent = ''; node.className = 'status'; return; }
+  var fits = Math.round(estimate.bpm / ratio);
+  node.textContent = 'The score describes ' + Math.round(estimate.seconds) + 's of music for a '
+    + Math.round(seconds) + 's recording (' + ratio.toFixed(2) + 'x), so its tempo is probably wrong. '
+    + 'The score says ' + estimate.bpm + ' BPM and about ' + fits + ' fits the recording. '
+    + 'A cover follows the score, so it plays at that tempo. Expand the score to change it.';
+  node.className = 'status bad';
 }
 
 async function deleteSource() {
@@ -4279,6 +4334,13 @@ function wire() {
     if (chip) { setScoreView(chip.dataset.view); }
   });
   paintScoreDirty();
+  $('score-tempo').addEventListener('change', function () {
+    var box = $('score-big');
+    scoreStack.at = 0;                     // a tempo change is its own undo step
+    setScoreTempo(parseInt($('score-tempo').value, 10));
+    paintScoreTempo();
+    if (box.value) { showPlanLength(box.value); }
+  });
   $('score-undo').addEventListener('click', undoScore);
   $('score-redo').addEventListener('click', redoScore);
   paintScoreHistory();

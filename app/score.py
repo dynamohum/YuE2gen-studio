@@ -15,6 +15,35 @@ CHORD = re.compile(r'"[A-G][#b]?[^"\s]*"')
 MIN_BARS = 4
 
 
+def estimate(abc: str) -> dict | None:
+    """How long the score says the music is: bars, tempo, and the seconds they imply.
+
+    Used to check a transcription against the recording it came from. A score whose
+    tempo is wrong describes more or less music than the recording holds, and a
+    cover follows the score, so it plays at that tempo.
+    """
+    if not abc:
+        return None
+    meter = re.search(r"^M:(\d+)/(\d+)", abc, re.M)
+    beats = int(meter.group(1)) if meter else 4
+    tempo = re.search(r"^Q:1/4=(\d+)", abc, re.M)
+    bpm = int(tempo.group(1)) if tempo else 120
+    totals: dict[str, int] = {}
+    voice = None
+    for raw in abc.split("\n"):
+        line = raw.strip()
+        if line.startswith("V:"):
+            voice = line[2:].strip().split()[0] if line[2:].strip() else None
+            continue
+        if not line or line[0] == "%" or HEADER.match(line) or not voice:
+            continue
+        totals[voice] = totals.get(voice, 0) + line.count("|")
+    bars = max(totals.values()) if totals else 0
+    if not bars or not bpm:
+        return None
+    return {"bars": bars, "bpm": bpm, "seconds": round(bars * beats * 60 / bpm, 1)}
+
+
 def vocal_bars(abc: str, voice_name: str = "Vocal") -> list[str]:
     """The bars of one voice, the Vocal voice unless told otherwise, in order."""
     bars, voice = [], None

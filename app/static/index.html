@@ -80,6 +80,7 @@
         <div class="hear-job-line"><span id="lyrics-hear-stage" class="muted">Waiting</span><button id="lyrics-hear-stop" class="link">stop</button></div>
       </div>
       <div id="source-status" class="status"></div>
+      <div id="source-tempo" class="status"></div>
     </div>
 
     <details id="score-box" class="block">
@@ -321,6 +322,9 @@
   <div class="modal-box score">
     <div class="modal-head">
       <strong id="score-heading">Score</strong>
+      <label class="tempo" for="score-tempo">Tempo
+        <input id="score-tempo" type="number" min="20" max="400" step="1" title="Beats per minute, written into the score as Q:"> BPM
+      </label>
       <button id="score-undo" class="ghost" title="Undo (Ctrl+Z)">Undo</button>
       <button id="score-redo" class="ghost" title="Redo (Ctrl+Shift+Z)">Redo</button>
       <button id="score-close" class="ghost">Done</button>
