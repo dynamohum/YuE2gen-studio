@@ -37,6 +37,8 @@ WORK_DIR = DATA_DIR / "tmp"
 # rendered file is deleted from there once the app has its own copy.  Unset in the
 # split setup, where the folder lives on another machine.
 ENGINE_OUTPUT_DIR = Path(os.environ["ENGINE_OUTPUT_DIR"]) if os.environ.get("ENGINE_OUTPUT_DIR") else None
+# The engine's input folder, so a training set can be put where the engine can read it.
+ENGINE_INPUT_DIR = Path(os.environ["ENGINE_INPUT_DIR"]) if os.environ.get("ENGINE_INPUT_DIR") else None
 
 MAX_UPLOAD_MB = int(os.environ.get("MAX_UPLOAD_MB", "300"))
 
@@ -64,6 +66,16 @@ DEFAULT_STYLE = "English, warm indie rock, expressive lead vocal, drums, bass, g
 # engine's queue does not count.
 TIMEOUTS = {"transcribe": 12 * 60, "plan": 10 * 60, "render": 25 * 60, "lyrics": 15 * 60,
             "identity_score": 12 * 60, "identity_style": 10 * 60,
-            "persona_score": 12 * 60, "persona_style": 10 * 60}
+            "persona_score": 12 * 60, "persona_style": 10 * 60,
+            # Training is measured, not guessed: 5000 steps took 44 minutes on this
+            # machine.  The allowance is generous because losing an hour of work to a
+            # timeout would be worse than waiting.
+            "train": 150 * 60}
+
+# What a LoRA training run uses unless the user says otherwise.  Measured here: 5000
+# steps at rank 16 on eleven songs took 44 minutes and 12.5 GB of VRAM.
+TRAIN_STEPS = int(os.environ.get("TRAIN_STEPS", "5000"))
+TRAIN_RANK = int(os.environ.get("TRAIN_RANK", "16"))
+TRAIN_CLIP_SECONDS = float(os.environ.get("TRAIN_CLIP_SECONDS", "10"))
 # Give up on a job when the engine has been unreachable this long.
 ENGINE_LOST_AFTER = 5 * 60

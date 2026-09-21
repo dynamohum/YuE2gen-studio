@@ -62,6 +62,7 @@ services:
       # The engine's output folder, so a render is removed from it once the app
       # has its copy.  Leave both lines out and renders accumulate there instead.
       ENGINE_OUTPUT_DIR: /engine-output
+      ENGINE_INPUT_DIR: /engine-input
       # Host names the page may be reached by.  Add a LAN name or address here if
       # you publish the port beyond localhost.
       ALLOWED_HOSTS: localhost,127.0.0.1,::1
@@ -76,6 +77,8 @@ services:
       # The one place the app writes a model file: installing a LoRA it was given.
       # Listed after the read-only folder above, because the deeper path wins.
       - ./models/loras:/app/models/loras
+      # The engine's input folder, so a training set can be put where the engine reads.
+      - ./engine-state/input:/engine-input
       - /mnt/h:/mnt/h:ro
       - /mnt/h:/import:ro
     logging:

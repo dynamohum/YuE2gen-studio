@@ -39,6 +39,8 @@ STAGE_LABELS = {
     "CLIPLoader": "Loading the lyric writer",
     "TextGenerate": "Writing lyrics",
     "LoraLoader": "Loading the instrumental adapter",
+    "YuE2TrainingDataset": "Reading the songs",
+    "YuE2LoRATrainer": "Training the LoRA",
 }
 
 # Weights drive the progress bar.
@@ -50,6 +52,11 @@ STAGE_WEIGHT = {
     "YuE2GenerateABC": 16,
     "YuE2GenerateABCHarmony": 16,
     "YuE2GenerateMusic": 22,
+    # Training is measured: reading and encoding eleven songs takes about twenty five
+    # seconds, then five thousand steps take forty four minutes.  The weights say so,
+    # so the bar is almost still while the set is read and then moves with the steps.
+    "YuE2TrainingDataset": 1,
+    "YuE2LoRATrainer": 99,
     "EmptyYuE2LatentAudio": 1,
     "ConditioningZeroOut": 1,
     "KSampler": 48,
@@ -346,7 +353,9 @@ class Engine:
         stages = list(rec.get("stages") or [])
         frac = rec.get("frac") or 0.0
         overall = _progress_for(stages, rec.get("stage"), frac) if stages else 0.0
-        if rec.get("stage") and stages and rec["stage"] == stages[-1]:
+        # Starting the last node means the work is done — unless that node counts its
+        # own way through, as the trainer does for an hour.  Then it is followed.
+        if rec.get("stage") and stages and rec["stage"] == stages[-1] and not rec.get("max"):
             overall = 1.0
         return {
             "stage": rec.get("stage"),

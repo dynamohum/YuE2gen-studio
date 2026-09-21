@@ -328,6 +328,29 @@ def _voice_lora_clip() -> None:
         execute("ALTER TABLE takes ADD COLUMN voice_lora_clip REAL NOT NULL DEFAULT 0.0")
 
 
+def _lora_runs() -> None:
+    """A LoRA being trained from a corpus.  One runs at a time: it holds the GPU for
+    the better part of an hour, so the app refuses to start anything else that needs
+    the card while it does."""
+    execute(
+        """CREATE TABLE IF NOT EXISTS lora_runs (
+               id TEXT PRIMARY KEY,
+               identity_id TEXT NOT NULL,
+               lora_name TEXT NOT NULL,
+               steps INTEGER NOT NULL,
+               rank INTEGER NOT NULL,
+               state TEXT NOT NULL DEFAULT 'queued',
+               stage TEXT,
+               progress REAL NOT NULL DEFAULT 0,
+               started_at REAL,
+               finished_at REAL,
+               elapsed REAL,
+               error TEXT
+           )"""
+    )
+    execute("CREATE INDEX IF NOT EXISTS lora_runs_state ON lora_runs(state)")
+
+
 def _source_duration() -> None:
     """How long a recording is, so a score transcribed from it can be checked
     against it: a plan whose tempo is wrong describes more music than the
@@ -364,6 +387,7 @@ MIGRATIONS = [
     _voice_lora_clip,                                                # -> 14
     _cover_lyrics,                                                   # -> 15
     _source_duration,                                                # -> 16
+    _lora_runs,                                                      # -> 17
 ]
 
 

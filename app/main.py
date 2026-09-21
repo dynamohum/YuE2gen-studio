@@ -529,6 +529,7 @@ def queue_view() -> list[dict]:
 @app.get("/api/state")
 def state() -> dict:
     """Served from what the keeper last saw, so a page poll never waits on the engine."""
+    training = _training_run()
     current = None
     if CURRENT:
         current = {
@@ -552,6 +553,17 @@ def state() -> dict:
             "gpu": ENGINE.gpu() if ENGINE.online else None,
         },
         "current": current,
+        # A LoRA being trained holds the card, so the page disables the rest while it
+        # reports: a training run, how far along, and what it has cost so far.
+        "training": None if not training else {
+            "id": training["id"],
+            "identity_id": training["identity_id"],
+            "lora_name": training["lora_name"],
+            "state": training["state"],
+            "steps": training["steps"],
+            "rank": training["rank"],
+            "elapsed": round(time.time() - training["started_at"], 1) if training["started_at"] else 0,
+        },
         "queue": queue_view(),
         "stems": {
             "available": stems.installed(),
@@ -675,6 +687,7 @@ async def upload_source(file: UploadFile = File(...), title: str = Form("", max_
 
 @app.post("/api/sources/{source_id}/transcribe")
 async def transcribe(source_id: str) -> dict:
+    _gpu_free_for_rendering()
     source = one("SELECT * FROM sources WHERE id = ?", (source_id,))
     if not source:
         raise HTTPException(404, "no such source")
@@ -875,6 +888,7 @@ async def create_take(body: TakeIn) -> dict:
 
 @app.post("/api/songs")
 async def create_song(body: SongIn) -> dict:
+    _gpu_free_for_rendering()
     """Plan a song from style and lyrics alone. The take lands in the planned state."""
     if not body.lyrics.strip():
         raise HTTPException(400, "write some lyrics first. The planner needs words to shape the melody.")
@@ -1027,6 +1041,7 @@ def _idle_take(take_id: str) -> dict:
 
 @app.post("/api/takes/{take_id}/render")
 async def render_take(take_id: str, body: RenderIn | None = None) -> dict:
+    _gpu_free_for_rendering()
     """Render a take that already has a score, optionally in another interpretation."""
     take = _idle_take(take_id)
     if not (take["abc"] or "").strip():
@@ -1095,6 +1110,7 @@ def _base_title(title: str) -> str:
 
 @app.post("/api/takes/{take_id}/variations")
 async def variations(take_id: str, body: VariationsIn) -> dict:
+    _gpu_free_for_rendering()
     """Render the same score and seed once in each chosen interpretation.  Each is a
     new take beside the original, titled with its interpretation."""
     take = one("SELECT * FROM takes WHERE id = ?", (take_id,))
@@ -1387,6 +1403,80 @@ async def install_identity_lora(
 
 @app.post("/api/identities/{identity_id}/export")
 @app.post("/api/personas/{identity_id}/export", include_in_schema=False)
+def _training_run() -> dict | None:
+    """The LoRA being trained, if there is one: it holds the whole GPU."""
+    return one("SELECT * FROM lora_runs WHERE state IN ('queued', 'running') ORDER BY started_at IS NULL, started_at DESC LIMIT 1")
+
+
+def _engine_free_for_training() -> None:
+    """Refuse to start training when the card is already in use."""
+    busy = CURRENT.get("kind")
+    if busy:
+        raise HTTPException(409, f"The engine is busy with a {busy}. Wait for it to finish.")
+    waiting = one("SELECT COUNT(*) AS n FROM takes WHERE status IN ('queued', 'running')")["n"]
+    if waiting:
+        raise HTTPException(409, "Something is already queued for the engine. Wait for it, or stop it.")
+
+
+def _gpu_free_for_rendering() -> None:
+    """Refuse to start a render while a LoRA is training.  The two cannot share the
+    card: training was measured at 12.5 GB of 16, and a render on top would fail."""
+    run = _training_run()
+    if run:
+        raise HTTPException(409, "A LoRA is training, and it has the GPU until it finishes. "
+                                 "Stop it first if you need the engine.")
+
+
+class TrainIn(BaseModel):
+    steps: int | None = Field(None, ge=50, le=50000)
+    rank: int | None = Field(None, ge=4, le=128)
+
+
+@app.post("/api/identities/{identity_id}/train")
+async def train_identity(identity_id: str, body: TrainIn | None = None) -> dict:
+    """Train a LoRA from this corpus's exported training set.
+
+    It takes the better part of an hour and the whole GPU, so the app refuses to start
+    it while the engine is busy, refuses to start anything else on the engine while it
+    runs, and shows it on the main screen with a stop button."""
+    identity = _identity(identity_id)
+    if _training_run():
+        raise HTTPException(409, "A LoRA is already training.")
+    _engine_free_for_training()
+    dataset = config.DATA_DIR / "identities" / identity_id / "dataset"
+    songs = sorted(dataset.glob("*.flac")) if dataset.is_dir() else []
+    if not songs:
+        raise HTTPException(400, "Export the training set first: there is nothing to train on.")
+    if not config.ENGINE_INPUT_DIR:
+        raise HTTPException(503, "The app cannot see the engine's input folder, so it cannot hand it the set.")
+
+    run_id = uuid.uuid4().hex[:12]
+    name = re.sub(r"[^a-z0-9]+", "_", (identity["name"] or "corpus").lower()).strip("_")[:40] or "corpus"
+    run = {
+        "id": run_id,
+        "identity_id": identity_id,
+        "lora_name": f"{name}_lora",
+        "steps": (body.steps if body and body.steps else config.TRAIN_STEPS),
+        "rank": (body.rank if body and body.rank else config.TRAIN_RANK),
+    }
+    execute(
+        """INSERT INTO lora_runs(id, identity_id, lora_name, steps, rank, state)
+           VALUES(:id, :identity_id, :lora_name, :steps, :rank, 'queued')""",
+        run,
+    )
+    await jobs.QUEUE.put({"kind": "train", "id": run_id})
+    return {**run, "state": "queued", "songs": len(songs)}
+
+
+@app.post("/api/lora-runs/{run_id}/cancel")
+async def cancel_lora_run(run_id: str) -> dict:
+    run = one("SELECT * FROM lora_runs WHERE id = ?", (run_id,))
+    if not run:
+        raise HTTPException(404, "no such training run")
+    await jobs.cancel_train(run_id)
+    return {"cancelled": True}
+
+
 async def export_identity(identity_id: str) -> dict:
     """Write the training set: per included song, the audio as FLAC, its lyrics and
     its style caption.  Songs without a copy yet are skipped and listed."""

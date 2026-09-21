@@ -31,6 +31,21 @@ RUN pip install "torch==2.9.*" "torchvision==0.24.*" "torchaudio==2.9.*" \
         --index-url https://download.pytorch.org/whl/cu128 \
     && pip install -r requirements.txt
 
+# LoRA training, so a corpus built in the app can be trained from it.  Standalone:
+# it bundles the YuE2 model code it needs and asks for no other custom node.  Pinned
+# to the commit this was tested against, the same way ComfyUI is.
+#
+# soundfile is required, not optional: this image's torchaudio cannot decode the
+# FLAC a training set is written as, and the pack falls back to soundfile.  Its other
+# dependency, matplotlib, is only for its optional training-curve node, so it is not
+# installed.
+ARG YUE2_TRAINER_REF=4578039513304149fdfd1c00a22783f06812997f
+RUN git clone --quiet https://github.com/Starnodes2024/ComfyUI-YuE2-Trainer.git \
+        /app/custom_nodes/ComfyUI-YuE2-Trainer \
+    && git -C /app/custom_nodes/ComfyUI-YuE2-Trainer checkout --quiet ${YUE2_TRAINER_REF} \
+    && rm -rf /app/custom_nodes/ComfyUI-YuE2-Trainer/.git \
+    && pip install "soundfile>=0.12"
+
 # YuE2 Studio's own node: the Harmony control for score plans.  Copied after the
 # slow installs, so a change to it rebuilds in seconds.
 COPY custom_nodes/yue2_harmony /app/custom_nodes/yue2_harmony

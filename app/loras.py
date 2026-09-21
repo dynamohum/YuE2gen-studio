@@ -125,24 +125,33 @@ def install(source: Path, name: str, trigger: str, corpus: str, root: Path | Non
 
     shutil.copyfile(source, target)
     kind = kind_of(names)
-    note = [name or stem]
+    write_note(target, trigger, corpus, title=name)
+    log.info("installed %s (%s)", target.name, kind)
+    return {"name": target.name, "kind": kind, "trigger": trigger.lower(), "tensors": len(names)}
+
+
+def write_note(path: Path, trigger: str, corpus: str, title: str = "", root: Path | None = None) -> Path:
+    """The text file the picker reads: what the file is called, its trigger word, and
+    where it came from.  Used for a LoRA installed by hand and for one trained here."""
+    root = root or path.parent
+    stem = path.stem
+    note = [title or stem]
     if trigger:
         note.append(f"Trigger: {trigger.lower()}")
     note.append("")
     note.append(f"Trained from the corpus {corpus} on {time.strftime('%Y-%m-%d')}.")
     # Which halves the file holds is what the picker says, with the strength each one
     # needs, so the note does not repeat it.
-    (root / f"{stem}.txt").write_text("\n".join(note) + "\n", encoding="utf-8")
+    note_path = root / f"{stem}.txt"
+    note_path.write_text("\n".join(note) + "\n", encoding="utf-8")
 
     prefix = stem.split("_")[0]
     if prefix not in families(root):
-        path = root / "families.txt"
-        header = "" if path.exists() else "# The picker groups LoRAs by the word in front of the file name.\n"
-        with path.open("a", encoding="utf-8") as handle:
+        path_families = root / "families.txt"
+        header = "" if path_families.exists() else "# The picker groups LoRAs by the word in front of the file name.\n"
+        with path_families.open("a", encoding="utf-8") as handle:
             handle.write(header + f"\n{prefix} = {corpus}\n")
-
-    log.info("installed %s (%s)", target.name, kind)
-    return {"name": target.name, "kind": kind, "trigger": trigger.lower(), "tensors": len(names)}
+    return note_path
 
 
 def families(root: Path | None) -> dict[str, str]:

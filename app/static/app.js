@@ -146,6 +146,8 @@ async function pollState() {
     var pill = $('engine-pill');
     var engine = data.engine;
     State.options = data.options || {};
+    State.training = data.training || null;
+    lockGpuControls();
     if (engine.online && engine.compat && engine.compat.ok) {
       pill.className = 'pill pill-on';
       pill.textContent = 'Engine ready' + (engine.gpu ? ' \u00b7 ' + Math.round(engine.gpu.vram_free / 1073741824) + ' GB free' : '');
@@ -905,7 +907,24 @@ function refreshTitleHint() {
   $('title').placeholder = guess ? 'Leave blank to use: ' + guess : 'Leave blank and the first lyric line is used';
 }
 
-var JOB_KINDS = { render: 'Render', plan: 'Score plan', transcribe: 'Transcription', lyrics: 'Lyrics', text: 'Text generation', other: 'Engine job' };
+var JOB_KINDS = { render: 'Render', plan: 'Score plan', transcribe: 'Transcription', lyrics: 'Lyrics', text: 'Text generation', train: 'LoRA training', other: 'Engine job' };
+
+/* While a LoRA trains it holds the GPU — 12.5 GB of 16, measured — so everything
+   else that would ask for the card is disabled rather than left to fail. The server
+   refuses them too; this is so nobody has to find out that way. */
+function lockGpuControls() {
+  var training = Boolean(State.training);
+  ['create-song', 'create-cover', 'render-take'].forEach(function (id) {
+    var button = $(id);
+    if (button) { button.disabled = training; }
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('.takes [data-act]'), function (button) {
+    var act = button.dataset.act || '';
+    if (['render', 'again', 'variations', 'replan', 'reroll'].indexOf(act) >= 0) {
+      button.disabled = training;
+    }
+  });
+}
 
 function queueWhat(item) {
   var kind = '<span class="q-kind">' + esc(JOB_KINDS[item.kind] || 'Engine job') + '</span>';
@@ -939,10 +958,16 @@ function paintJob(current, queue, options) {
   var head = queue[0] && queue[0].state === 'running' ? queue[0] : null;
   var mineRunning = current && head && !head.outside && head.id === current.id;
   var titles = { render: 'Rendering your song', plan: 'Writing the score plan', transcribe: 'Transcribing the recording',
-    lyrics: 'Writing lyrics' };
+    lyrics: 'Writing lyrics', train: 'Training the LoRA' };
   // Only the render has an average, measured from this machine's own history.
   // The others show the time they have taken and claim nothing about the rest.
   var average = function (kind) {
+    // Training says how far through it is, step by step, so the rest of it can be
+    // worked out rather than guessed.  A render uses this machine's own history.
+    if (kind === 'train') {
+      var p = (current && current.progress) || 0;
+      return p > 0.02 && current.elapsed ? current.elapsed / p : 0;
+    }
     return kind === 'render' ? (options.avg_render_seconds || 0) : 0;
   };
   var rest = queue;
@@ -2755,6 +2780,9 @@ async function showIdentity(id, preloaded) {
       '<button id="identity-edit-open" class="ghost">Edit</button>' +
       '<button id="identity-analyse" class="ghost">Analyse</button>' +
       '<button id="identity-export" class="ghost">Export training set</button>' +
+      '<button id="identity-train" class="ghost"' + (data.exported_at ? '' : ' disabled') +
+        ' title="' + (data.exported_at ? 'Train a LoRA from this corpus' : 'Export the training set first') +
+        '">Train a LoRA</button>' +
       '<button id="identity-install" class="ghost">Install a LoRA</button>' +
       '<button id="identity-delete" class="ghost">Delete corpus</button>' +
       '<input id="identity-lora-file" type="file" accept=".safetensors" class="hidden">' +
@@ -2923,6 +2951,22 @@ async function identityClick(event) {
           (out.skipped.length ? '<br><span class="muted">Skipped, not analysed or no lyrics: ' + esc(out.skipped.join(', ')) + '</span>' : '');
       }
     } catch (err) { if (status) { status.textContent = err.message; status.className = 'status bad'; } }
+    return;
+  }
+  if (target.closest('#identity-train') || target.closest('#persona-train')) {
+    var included = (IDENTITY.data.songs || []).filter(function (song) { return song.include; }).length;
+    if (!confirm('Train a LoRA from ' + included + ' song' + (included === 1 ? '' : 's') + '?\n\n' +
+        'It takes about 45 minutes, and the GPU is not available for anything else while it runs.\n' +
+        'The progress shows on the main screen, where you can stop it.')) { return; }
+    try {
+      var started = await api('/api/identities/' + IDENTITY.id + '/train', { method: 'POST' });
+      closeIdentities();
+      statusLine('Training ' + started.lora_name + ' from ' + started.songs + ' songs. ' +
+                 'The GPU is busy until it finishes.', 'good');
+    } catch (err) {
+      var trainStatus = $('identity-status');
+      if (trainStatus) { trainStatus.textContent = err.message; trainStatus.className = 'status bad'; }
+    }
     return;
   }
   if (target.closest('#identity-install') || target.closest('#persona-install')) {

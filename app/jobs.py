@@ -12,7 +12,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from . import config, identities, instrumental, lyrics, score, stems
+from . import config, identities, instrumental, loras, lyrics, score, stems
 from .db import bump_average, execute, get_setting, one, rows
 from .engine import Engine, load_template
 from .library import audio_duration, ensure_peaks, inside, remove_tree, take_audio_path, write_take_note
@@ -366,6 +366,9 @@ async def run_job(kind: str, ref_id: str) -> None:
     if kind in IDENTITY_FIELDS:
         await run_identity_job(kind, ref_id)
         return
+    if kind == "train":
+        await run_lora_train(ref_id)
+        return
     if kind == "lyrics":
         record = LYRICS.get(ref_id)
         if not record or record["status"] != "queued":
@@ -540,6 +543,13 @@ async def cancel_take(take: dict) -> None:
 
 
 async def cancel_current() -> dict | None:
+    # Training is cancelled by its own id: it is not a take, and its state lives in
+    # its own table.
+    if CURRENT.get("kind") == "train":
+        run_id = CURRENT.get("id")
+        await cancel_train(run_id)
+        return {"kind": "train", "id": run_id}
+
     if not CURRENT:
         return None
     CANCELLED.add(CURRENT["id"])
@@ -755,6 +765,111 @@ async def run_identity_job(kind: str, song_id: str) -> None:
 
 
 run_persona_job = run_identity_job
+
+
+# --------------------------------------------------------------- training a LoRA
+#
+# The trainer is a ComfyUI node pack inside the engine image.  It reads a folder of
+# audio with a caption beside each file and writes a LoRA into the engine's
+# models/loras.  It holds the GPU for the better part of an hour — measured: 5000
+# steps, 44 minutes, 12.5 GB — so nothing else that needs the card may start while it
+# runs, and the routes refuse to start it while something else is using the card.
+
+def train_graph(audio_folder: str, trigger: str, lora_name: str, steps: int, rank: int,
+                clip_seconds: float) -> dict:
+    """The pack's own training graph, in the form the engine's API takes."""
+    return {
+        "9": {"class_type": "YuE2TrainingDataset", "inputs": {
+            "checkpoint": config.CHECKPOINT, "audio_folder": audio_folder,
+            "clip_seconds": clip_seconds, "caption_mode": "txt_file",
+            "default_caption": "", "cache_folder": "/app/input/lora-cache",
+            "force_reencode": False}},
+        "10": {"class_type": "YuE2LoRATrainer", "inputs": {
+            "dataset": ["9", 0], "checkpoint": config.CHECKPOINT, "trigger_word": trigger,
+            "steps": steps, "learning_rate": 1e-4, "rank": rank, "alpha": float(rank),
+            "lora_dropout": 0.0, "target_preset": "nar_attn_mlp", "lora_name": lora_name,
+            "seed": 0, "optimizer": "adamw", "lr_scheduler": "cosine", "warmup_steps": 50,
+            "grad_accum": 1, "caption_dropout": 0.1, "t_sampling": "uniform",
+            "max_grad_norm": 1.0, "log_every": 50, "save_every": 500, "ema_decay": 0.999,
+            "live_curve": False}},
+        # The trainer is not an output node, so the graph needs somewhere to end.
+        "11": {"class_type": "PreviewAny", "inputs": {"source": ["10", 0]}},
+    }
+
+
+def _run_state(run_id: str, **changes) -> None:
+    sets = ", ".join(f"{key} = ?" for key in changes)
+    execute(f"UPDATE lora_runs SET {sets} WHERE id = ?", (*changes.values(), run_id))
+
+
+async def run_lora_train(run_id: str) -> None:
+    run = one("SELECT * FROM lora_runs WHERE id = ?", (run_id,))
+    if not run or run["state"] != "queued":
+        return   # cancelled or deleted while it waited
+    identity = one("SELECT * FROM identities WHERE id = ?", (run["identity_id"],))
+    if not identity:
+        _run_state(run_id, state="failed", error="the corpus is gone", finished_at=time.time())
+        return
+    dataset = config.DATA_DIR / "identities" / run["identity_id"] / "dataset"
+    if not dataset.is_dir() or not any(dataset.glob("*.flac")):
+        _run_state(run_id, state="failed", error="export the training set first", finished_at=time.time())
+        return
+    if not config.ENGINE_INPUT_DIR:
+        _run_state(run_id, state="failed", error="the app cannot see the engine's input folder",
+                   finished_at=time.time())
+        return
+
+    # The node reads a folder, and the engine can only read its own, so the set is
+    # copied in.  The latents it caches there make a second run much quicker.
+    staged = config.ENGINE_INPUT_DIR / f"lora-{run_id}"
+    try:
+        await asyncio.to_thread(remove_tree, staged)
+        await asyncio.to_thread(shutil.copytree, dataset, staged)
+    except OSError as exc:
+        _run_state(run_id, state="failed", error=f"could not stage the training set: {exc}",
+                   finished_at=time.time())
+        return
+
+    started = time.time()
+    _run_state(run_id, state="running", stage="Reading the songs", progress=0.0,
+               started_at=started, error=None)
+    try:
+        graph = train_graph(f"/app/input/lora-{run_id}", identity["trigger_word"],
+                            run["lora_name"], int(run["steps"]), int(run["rank"]),
+                            config.TRAIN_CLIP_SECONDS)
+        await _run_graph("train", run_id, graph)
+        root = loras.folder()
+        produced = (root / f"{run['lora_name']}.safetensors") if root else None
+        if not produced or not produced.exists():
+            raise RuntimeError("the engine finished but wrote no LoRA file")
+        # Name it, group it, and remember it on the corpus, exactly as installing one
+        # by hand does: the user trained it here, so it should arrive ready to use.
+        await asyncio.to_thread(loras.write_note, produced, identity["trigger_word"], identity["name"])
+        execute("UPDATE identities SET lora = ? WHERE id = ?", (produced.name, identity["id"]))
+        with contextlib.suppress(Exception):
+            await ENGINE.refresh_options()
+        _run_state(run_id, state="done", stage=None, progress=1.0, finished_at=time.time(),
+                   elapsed=round(time.time() - started, 1))
+    except Exception as exc:  # noqa: BLE001
+        log.warning("training %s failed: %s", run_id, exc)
+        _run_state(run_id, state="failed", error=str(exc)[:300], finished_at=time.time(),
+                   elapsed=round(time.time() - started, 1))
+    finally:
+        await asyncio.to_thread(remove_tree, staged)
+
+
+async def cancel_train(run_id: str) -> None:
+    run = one("SELECT * FROM lora_runs WHERE id = ?", (run_id,))
+    if not run:
+        return
+    if run["state"] == "queued":
+        _run_state(run_id, state="cancelled", finished_at=time.time(), error="cancelled")
+        return
+    if run["state"] == "running":
+        CANCELLED.add(run_id)
+        if CURRENT.get("id") == run_id and CURRENT.get("prompt_id"):
+            await ENGINE.cancel(CURRENT["prompt_id"])
+        _run_state(run_id, state="cancelled", finished_at=time.time(), error="cancelled")
 
 
 async def cancel_lyrics(record: dict) -> None:
