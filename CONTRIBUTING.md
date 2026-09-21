@@ -33,7 +33,12 @@ it: no references to earlier work, and no account of what was changed from.
 ## Releases and pushing
 
 `VERSION` holds the version and the app shows it in the header, so a running container can be
-identified without guessing. Every deployed change bumps it.
+identified without guessing. It moves for a feature release: a new capability, or a change to how
+the app works. A fix, a layout change or a colour does not move it.
+
+Note that `VERSION` also busts the browser cache, because the page asks for its scripts and
+stylesheets as `app.js?v=<VERSION>`. A deploy that does not move it can leave a browser on the old
+files, so check with a hard refresh after one.
 
 A release is a tag on `master`, an entry in [CHANGELOG.md](CHANGELOG.md) and a push to GitHub. The
 procedure is at the top of that file. `origin` is the author's own git server: commits go there by
