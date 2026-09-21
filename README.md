@@ -38,6 +38,11 @@ An identity: one singer's songs, analysed and ready to train a voice on:
 
 - **Cover a recording.** Upload a song, transcribe it once, edit the melody and chords, render.
   The transcription is cached per recording, so re-rendering skips straight to the music.
+- **Hear what the recording sings.** A cover needs lyrics. **Extract lyrics** separates the vocal,
+  listens to it and lays the lines under the sections of the score. It is asked for rather than
+  done every time, and it runs on the CPU, so a render is never held up by it. Expect a good draft
+  rather than a transcript: measured against a song whose real words were known, 9 per cent were
+  wrong, almost all of them lines it did not hear rather than words it invented.
 - **Song from a prompt.** Write a score plan from style and lyrics, read it, repair it, render it.
   A new plan costs seconds, so a bad melody is cheap to discard.
 - **Choose how adventurous the chords are.** YuE2 tends to write one four-chord loop for a whole
@@ -51,6 +56,12 @@ An identity: one singer's songs, analysed and ready to train a voice on:
   **Variations** renders one take in the others, so you can compare them by ear.
 - **Choose the voice.** Chips set female, male or duet and a voice character. YuE2 has no vocal
   parameter, so the chips write into the style text, and the take keeps the choice.
+- **Identities: one singer, one voice.** Point an Identity at a folder of someone's songs and the
+  app separates each vocal, finds its key, tempo and sections, drafts its lyrics, and writes out a
+  training set. Training happens elsewhere; bring the LoRA back and the Identity sings with it,
+  with its own trigger word and a planner strength that decides how much its writing shows.
+- **Lean on a style LoRA.** Drop other people's trained files into `models/loras/` and pick one
+  from a list, with separate strengths for the score and the sound. See Style LoRAs below.
 - **Read the score three ways.** Expand opens a full size editor, with the chord find and replace
   beside it, and three views below: a chord chart, real staff notation, and the lyrics with each
   section's chords. Chord symbols sit in double quotes. Fix one everywhere with find and
@@ -60,9 +71,38 @@ An identity: one singer's songs, analysed and ready to train a voice on:
 - **Spaces.** Keep takes apart by project: a space per song, per album, or for sketches. Create,
   rename and delete spaces, and move a take from one to another.
 - **A library.** Every take keeps its score, style, lyrics, seed and settings, so it can be
-  reproduced, reworked, starred or deleted.
+  reproduced, reworked, starred or deleted. Tick several cards and one button clears them all,
+  after naming what it is about to remove.
 - **A player for reviewing takes.** A real waveform you can click to seek, previous and next through
   the library, ten second skips, repeat, speed and volume, with keyboard shortcuts.
+
+## Style LoRAs
+
+A LoRA is a small file that leans YuE2 towards a sound: a genre, a tradition, a production style.
+Put one in `models/loras/` and restart the engine, and it appears in the **Style LoRA** list at the
+bottom of the form, in all three modes.
+
+[![Style LoRA](docs/screenshots/style-lora.png)](https://raw.githubusercontent.com/dynamohum/YuE2gen-studio/master/docs/screenshots/full/style-lora.png)
+
+Nothing is trained here. These are files other people have published, mostly on Hugging Face, and
+the app's job is to make them usable without knowing how they are put together:
+
+- **Two strengths, because a LoRA has two halves.** *Planner* shapes the score plan — form,
+  harmony, phrasing — and applies when the plan is written. *Sound* shapes the audio. A file that
+  holds only one half has the other strength greyed out, and a file this engine cannot load is
+  named as such in the list rather than failing quietly inside a render.
+- **The trigger word is handled for you.** Most of these files do very little unless the style text
+  starts with the word they were trained on. Choosing a LoRA puts its trigger at the front of the
+  Style, switching swaps it, and None takes it away.
+- **Each one says what it is.** The list is grouped by publisher, and every entry carries its
+  author's own description and suggested strengths, on the option and in a tooltip. A LoRA of your
+  own gets the same by writing a `.txt` beside it: first line the name, a `Trigger:` line, then the
+  description.
+- **It stacks with an Identity.** The Identity supplies the voice, the style LoRA the writing and
+  the production. Both have planner strengths and they add up, so ease one down when using both.
+
+The [user guide](app/static/guide.md#style-loras) has the detail, including what to do when a song
+will not end.
 
 ## Requirements
 
