@@ -224,18 +224,32 @@ var LORA_KINDS = { both: 'score and sound', planner: 'score only', decoder: 'sou
 /* Every LoRA that belongs to one of the Identities.  Those have a control of
    their own, where both of their strengths now live, so offering them here as
    well would be the same file in two places with two sets of settings. */
-function identityLoraNames() {
-  var names = {};
+/* LoRAs trained here, from a corpus. They are ordinary LoRAs and belong in the one
+   list with the rest: the picker already carries a planner strength and a sound
+   strength, which is everything the corpus screen used to offer separately. */
+function corpusLoras() {
+  var found = {};
   (IDENTITIES_LIST || []).forEach(function (identity) {
-    getIdentityLoRAs(identity).forEach(function (name) { names[name] = true; });
+    getIdentityLoRAs(identity).forEach(function (name) {
+      found[name] = { trigger: identity.trigger_word || '', corpus: identity.name || '' };
+    });
   });
-  return names;
+  return found;
 }
 
 function loraCatalogue() {
-  var mine = identityLoraNames();
+  var mine = corpusLoras();
   return (State.options.loras || []).filter(function (item) {
-    return item && !item.reserved && item.kind !== 'other' && !mine[item.name];
+    return item && !item.reserved && item.kind !== 'other';
+  }).map(function (item) {
+    var own = mine[item.name];
+    if (!own) { return item; }
+    var merged = {};
+    for (var key in item) { merged[key] = item[key]; }
+    merged.trigger = merged.trigger || own.trigger;
+    merged.corpus = own.corpus;
+    merged.title = merged.title || item.name;
+    return merged;
   });
 }
 
@@ -429,16 +443,6 @@ function loraChosen() {
   return loraCatalogue().filter(function (entry) { return entry.name === select.value; })[0] || null;
 }
 
-/* An Identity's LoRA holds a voice and, usually, a planner half as well. The
-   voice is what it has always applied; this is the other half, off by default,
-   so nothing rendered before this sounds different now. */
-function vocalPlanner() {
-  var slider = $('vocal-planner');
-  var wrap = $('vocal-planner-wrap');
-  if (!slider || !wrap || wrap.classList.contains('hidden')) { return 0; }
-  return parseFloat(slider.value) || 0;
-}
-
 function withStyleLora(data) {
   var select = $('style-lora');
   if (!select || !select.value) { return data; }
@@ -469,13 +473,6 @@ function saveForm() {
     data.style_lora = $('style-lora') ? $('style-lora').value : '';
     data.style_lora_model = $('style-lora-model') ? $('style-lora-model').value : '1';
     data.style_lora_clip = $('style-lora-clip') ? $('style-lora-clip').value : '1';
-    var idSel = $('vocal-identity') || $('vocal-persona');
-    var loraSel = $('vocal-identity-lora') || $('vocal-persona-lora');
-    data.vocal_planner = $('vocal-planner') ? $('vocal-planner').value : '0';
-    data.vocal_identity = idSel ? idSel.value : '';
-    data.vocal_identity_lora = (loraSel && !loraSel.classList.contains('hidden')) ? loraSel.value : '';
-    data.vocal_persona = data.vocal_identity;
-    data.vocal_persona_lora = data.vocal_identity_lora;
     data.left_take = selectedTakeId() || '';
     data.box_kind = Selection.boxKind;
     data.box_id = Selection.boxId || '';
@@ -502,19 +499,12 @@ function loadForm() {
   else { $('realaudio').checked = true; }
   // The list arrives from the server, so the name is held until it exists.
   if (typeof data.source === 'string') { State.wantedSource = data.source; }
-  if (data.vocal_planner !== undefined && $('vocal-planner')) {
-    $('vocal-planner').value = data.vocal_planner;
-  }
   if ($('style-lora')) {
     if (data.style_lora_model) { $('style-lora-model').value = data.style_lora_model; }
     if (data.style_lora_clip) { $('style-lora-clip').value = data.style_lora_clip; }
     // The list arrives with the options, so the name is held until it can be set.
     $('style-lora').dataset.wanted = data.style_lora || '';
   }
-  if (typeof data.vocal_identity === 'string') { State.savedVocalIdentity = data.vocal_identity; }
-  else if (typeof data.vocal_persona === 'string') { State.savedVocalIdentity = data.vocal_persona; }
-  if (typeof data.vocal_identity_lora === 'string') { State.savedVocalIdentityLora = data.vocal_identity_lora; }
-  else if (typeof data.vocal_persona_lora === 'string') { State.savedVocalIdentityLora = data.vocal_persona_lora; }
   if (data.style) { $('style').dataset.touched = '1'; }
   restoreSelection({ formTakeId: data.left_take || null, boxKind: data.box_kind || 'none',
                      boxId: data.box_id || null, awaiting: data.awaiting || null });
@@ -1158,9 +1148,7 @@ async function loadVocalIdentities(preferredId, preferredLora) {
     IDENTITIES_LIST = [];
   }
   PERSONAS_LIST = IDENTITIES_LIST;
-  var targetId = preferredId !== undefined ? preferredId : (State.savedVocalIdentity || State.savedVocalPersona || '');
-  var targetLora = preferredLora !== undefined ? preferredLora : (State.savedVocalIdentityLora || State.savedVocalPersonaLora || '');
-  paintVocalIdentitySelect(targetId, targetLora);
+  paintStyleLoras();
 }
 
 var loadVocalPersonas = loadVocalIdentities;
@@ -1203,94 +1191,6 @@ function getIdentityLoRAs(identity) {
 
 var getPersonaLoRAs = getIdentityLoRAs;
 
-function paintVocalIdentitySelect(currentId, currentLora) {
-  var sel = $('vocal-identity') || $('vocal-persona');
-  if (!sel) { return; }
-  var chosenId = currentId !== undefined ? currentId : sel.value;
-  var options = ['<option value="">None (Stock Voice)</option>'];
-  IDENTITIES_LIST.forEach(function (p) {
-    var label = p.name + ' (' + p.trigger_word + ')';
-    options.push('<option value="' + esc(p.id) + '"' + (p.id === chosenId ? ' selected' : '') + '>' + esc(label) + '</option>');
-  });
-  sel.innerHTML = options.join('');
-  if (chosenId) { sel.value = chosenId; }
-  updateIdentityLoraSelect(currentLora);
-}
-
-var paintVocalPersonaSelect = paintVocalIdentitySelect;
-
-function paintVocalPlanner(value) {
-  var wrap = $('vocal-planner-wrap');
-  var slider = $('vocal-planner');
-  if (!wrap || !slider) { return; }
-  var loraSel = $('vocal-identity-lora') || $('vocal-persona-lora');
-  var showing = Boolean(loraSel && !loraSel.classList.contains('hidden') && loraSel.value);
-  wrap.classList.toggle('hidden', !showing);
-  if (value !== undefined && value !== null) { slider.value = value; }
-  $('vocal-planner-read').textContent = Number(slider.value).toFixed(2);
-}
-
-function updateIdentityLoraSelect(currentLora) {
-  var sel = $('vocal-identity') || $('vocal-persona');
-  var loraSel = $('vocal-identity-lora') || $('vocal-persona-lora');
-  if (!sel || !loraSel) { return; }
-  var identity = IDENTITIES_LIST.filter(function (p) { return p.id === sel.value; })[0];
-  if (!identity) {
-    loraSel.classList.add('hidden');
-    loraSel.innerHTML = '';
-    paintVocalPlanner();
-    return;
-  }
-  var loras = getIdentityLoRAs(identity);
-  if (!loras.length) {
-    loraSel.classList.add('hidden');
-    loraSel.innerHTML = '';
-    paintVocalPlanner();
-    return;
-  }
-  var chosenLora = currentLora || identity.lora || loras[0];
-  var opts = loras.map(function (l) {
-    var label = l;
-    if (l.indexOf('_best') !== -1) {
-      label = 'Best';
-    } else {
-      var m = l.match(/step(\d+)/i);
-      if (m) { label = 'Step ' + m[1]; }
-    }
-    return '<option value="' + esc(l) + '"' + (l === chosenLora ? ' selected' : '') + '>' + esc(label) + '</option>';
-  });
-  loraSel.innerHTML = opts.join('');
-  loraSel.value = chosenLora;
-  loraSel.classList.remove('hidden');
-  paintVocalPlanner();
-  // The picker must not offer what now belongs to this control.
-  paintStyleLoras();
-}
-
-var updatePersonaLoraSelect = updateIdentityLoraSelect;
-
-function onVocalIdentityChange() {
-  var sel = $('vocal-identity') || $('vocal-persona');
-  var p = IDENTITIES_LIST.filter(function (item) { return item.id === sel.value; })[0];
-  updateIdentityLoraSelect();
-  saveForm();
-  if (!p) { return; }
-  if (p.trigger_word) {
-    var style = $('style').value;
-    var tw = p.trigger_word.toLowerCase();
-    if (!styleHas(style, tw)) {
-      style = style ? tw + ', ' + style : tw;
-      $('style').value = tidyStyle(style);
-      $('style').dataset.touched = '1';
-      paintVocals();
-    }
-  }
-  if (p.voice && (p.voice === 'male' || p.voice === 'female') && currentVocalSex() === 'any') {
-    setVocalSex(p.voice);
-  }
-}
-
-var onVocalPersonaChange = onVocalIdentityChange;
 
 /* ---------------------------------------------------------------- settings */
 function setting(key, fallback) {
@@ -1870,10 +1770,6 @@ async function doPlan() {
   }
   statusLine('Queued…');
   try {
-    var identitySel = $('vocal-identity') || $('vocal-persona');
-    var idVal = identitySel ? identitySel.value : null;
-    var loraSel = $('vocal-identity-lora') || $('vocal-persona-lora');
-    var vLora = (idVal && loraSel && !loraSel.classList.contains('hidden')) ? loraSel.value : null;
     var take = await api('/api/songs', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(withStyleLora({
@@ -1887,11 +1783,7 @@ async function doPlan() {
         variety: $('variety').value,
         harmony: harmonyStep(),
         space_id: State.spaceId,
-        realaudio: $('realaudio').checked,
-        identity_id: idVal || null,
-        persona_id: idVal || null,
-        voice_lora: vLora || null,
-        voice_lora_clip: vocalPlanner()
+        realaudio: $('realaudio').checked
       }))
     });
     setSelection({ formTakeId: take.id, boxKind: 'none', boxId: null, awaiting: take.id });
@@ -1915,19 +1807,11 @@ async function doRenderTake() {
       body: JSON.stringify({ abc: $('abc').value })
     });
     // The Interpretation menu applies to this render.
-    var identitySel = $('vocal-identity') || $('vocal-persona');
-    var idVal = identitySel ? identitySel.value : null;
-    var loraSel = $('vocal-identity-lora') || $('vocal-persona-lora');
-    var vLora = (idVal && loraSel && !loraSel.classList.contains('hidden')) ? loraSel.value : null;
     await api('/api/takes/' + id + '/render', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         interpretation: $('interpretation').value,
-        realaudio: $('realaudio').checked,
-        identity_id: idVal || null,
-        persona_id: idVal || null,
-        voice_lora: vLora || null,
-        voice_lora_clip: vocalPlanner()
+        realaudio: $('realaudio').checked
       })
     });
     setSelection({ formTakeId: takeIdInEditor() || selectedTakeId(), boxKind: 'take', boxId: takeIdInEditor() || selectedTakeId() });
@@ -2520,10 +2404,10 @@ async function showIdentityList() {
   var body = getIdentityBody();
   if (!body) { return; }
   body.innerHTML =
-    '<p class="identity-intro persona-intro">An identity is one singer’s voice, prepared from their songs. Point at a folder of songs: ' +
-    'the app separates each vocal, finds its key and tempo, and drafts its lyrics for you to check. The result is a ' +
-    'training set. Only use your own voice, or a singer who has given you permission.</p>' +
-    '<button id="identity-new" class="ghost">New identity</button>' +
+    '<p class="identity-intro persona-intro">A corpus is a folder of recordings, prepared as a training set. ' +
+    'Point at a folder: the app separates each vocal, finds its key and tempo, and drafts its lyrics for you to ' +
+    'check. Then export it and train a LoRA from it, here or on another machine.</p>' +
+    '<button id="identity-new" class="ghost">New corpus</button>' +
     '<div class="identity-cards persona-cards">' + list.map(function (item) {
       return '<div class="identity-card persona-card" data-identity="' + esc(item.id) + '" data-persona="' + esc(item.id) + '"><strong>' + esc(item.name) + '</strong>' +
         '<span class="muted">trigger <code>' + esc(item.trigger_word) + '</code> · ' + (item.included || 0) + ' of ' +
@@ -2539,7 +2423,7 @@ function triggerFrom(name) {
 async function showIdentityNew() {
   IDENTITY.view = 'new';
   var heading = getIdentityHeading();
-  if (heading) { heading.textContent = 'New identity'; }
+  if (heading) { heading.textContent = 'New corpus'; }
   var back = getIdentityBack();
   if (back) { back.classList.remove('hidden'); }
   var body = getIdentityBody();
@@ -2548,7 +2432,7 @@ async function showIdentityNew() {
     '<div class="identity-form persona-form">' +
       '<div class="field"><label for="pn-name">Name</label><input id="pn-name" type="text" maxlength="80" placeholder="Paul Shields"></div>' +
       '<div class="field"><label for="pn-trigger">Trigger word</label><input id="pn-trigger" type="text" maxlength="40" placeholder="paulshields">' +
-        '<div class="hint">Starts every style caption, so a trained model knows when to use this voice. Letters and digits only.</div></div>' +
+        '<div class="hint">Starts every style caption, so a trained LoRA knows when to act. Letters and digits only.</div></div>' +
       '<div class="field"><label for="pn-voice">Voice</label><select id="pn-voice"><option value="male">male</option>' +
         '<option value="female">female</option><option value="">not stated</option></select></div>' +
       '<div class="field"><label for="pn-desc">The sound, for every song</label><input id="pn-desc" type="text" maxlength="400" ' +
@@ -2556,7 +2440,7 @@ async function showIdentityNew() {
         '<div class="hint">Goes into each caption, with each song’s own key and tempo.</div></div>' +
       '<div class="field wide"><label>Folder of songs</label><div id="pn-folder" class="folder-pick"></div>' +
         '<div class="hint">Only read: nothing in it is changed.</div></div>' +
-      '<label class="check wide"><input id="pn-consent" type="checkbox"> These recordings are my own voice, or the singer has given me permission to train on them.</label>' +
+      '<label class="check wide"><input id="pn-consent" type="checkbox"> I have the right to train on these recordings.</label>' +
       '<div class="wide row" style="margin-top:10px"><button id="pn-scan" class="ghost">Scan the folder</button>' +
         '<span id="pn-status" class="status"></span></div>' +
     '</div>';
@@ -2681,7 +2565,7 @@ async function showIdentity(id, preloaded) {
       '<button id="identity-edit-open" class="ghost">Edit</button>' +
       '<button id="identity-analyse" class="ghost">Analyse</button>' +
       '<button id="identity-export" class="ghost">Export training set</button>' +
-      '<button id="identity-delete" class="ghost">Delete identity</button>' +
+      '<button id="identity-delete" class="ghost">Delete corpus</button>' +
       '<span id="identity-status" class="status"></span>' +
     '</div>' +
     '<p class="hint">Analyse separates each included song’s vocal, finds its key, tempo and sections with SheetSage, ' +
@@ -2969,10 +2853,6 @@ function selectTake(take) {
   if (take.realaudio !== undefined) {
     $('realaudio').checked = Boolean(take.realaudio);
   }
-  if (take.identity_id !== undefined || take.persona_id !== undefined) {
-    paintVocalIdentitySelect((take.identity_id !== undefined ? take.identity_id : take.persona_id) || '', take.voice_lora || '');
-    if (take.voice_lora_clip !== undefined) { paintVocalPlanner(take.voice_lora_clip); }
-  }
   if (take.style_lora !== undefined) { showStyleLora(take); }
   $('interpretation').value = INTERPRETATIONS[take.interpretation] ? take.interpretation : 'standard';
   paintInterpretation();
@@ -3186,9 +3066,6 @@ function paintTakes() {
         (full ? '' : ' (' + strengths.map(function (n) { return Number(n).toFixed(2); }).join('/') + ')'));
     }
     if (take.realaudio) { meta.push('realaudio'); }
-    if (take.identity_id || take.persona_id || take.voice_lora) {
-      meta.push(identityName(take.identity_id || take.persona_id) || 'identity');
-    }
     meta.push('seed ' + take.seed);
     meta.push(age(take.created_at));
     var live = '';
@@ -3787,10 +3664,6 @@ async function doRender() {
     seed = Math.floor(Math.random() * 4294967295);
     $('seed').value = seed;
   }
-  var identitySel = $('vocal-identity') || $('vocal-persona');
-  var pId = identitySel ? identitySel.value : null;
-  var loraSel = $('vocal-identity-lora') || $('vocal-persona-lora');
-  var vLora = (pId && loraSel && !loraSel.classList.contains('hidden')) ? loraSel.value : null;
   var body = {
     source_id: source.id,
     title: $('title').value.trim() || guessTitle($('lyrics').value) || source.title,
@@ -3802,11 +3675,7 @@ async function doRender() {
     interpretation: $('interpretation').value,
     max_duration: parseFloat($('max-duration').value) || 360,
     space_id: State.spaceId,
-    realaudio: $('realaudio').checked,
-    identity_id: pId || null,
-    persona_id: pId || null,
-    voice_lora: vLora || null,
-    voice_lora_clip: vocalPlanner()
+    realaudio: $('realaudio').checked
   };
   withStyleLora(body);
   status.textContent = 'Queued\u2026';
@@ -3991,10 +3860,6 @@ function wire() {
     var button = event.target.closest('[data-tone]');
     if (button) { toggleVocalTone(button.dataset.tone); }
   });
-  var vocalIdSel = $('vocal-identity') || $('vocal-persona');
-  if (vocalIdSel) { vocalIdSel.addEventListener('change', onVocalIdentityChange); }
-  var vocalLoraSel = $('vocal-identity-lora') || $('vocal-persona-lora');
-  if (vocalLoraSel) { vocalLoraSel.addEventListener('change', saveForm); }
   $('style').addEventListener('input', paintVocals);
   $('harmony').addEventListener('input', paintHarmony);
 
@@ -4337,10 +4202,6 @@ function wire() {
   $('auto-render').addEventListener('change', saveForm);
   $('seed-fixed').addEventListener('change', saveForm);
   $('realaudio').addEventListener('change', saveForm);
-  $('vocal-planner').addEventListener('input', function () {
-    paintVocalPlanner();
-    saveForm();
-  });
   $('style-lora').addEventListener('change', function () {
     var item = loraChosen();
     applyLoraTrigger(item && item.trigger);

@@ -16,7 +16,7 @@
     <div id="brand-menu" class="brand-menu hidden" role="menu">
       <button id="menu-identities" class="menu-item identities-open" role="menuitem">
         <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-        <span>Identities</span>
+        <span>Corpora</span>
       </button>
       <a id="menu-guide" class="menu-item" role="menuitem" href="/guide">
         <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
@@ -117,19 +117,6 @@
     <div class="field" id="vocal-field">
       <div class="label-row">
         <label>Vocal</label>
-        <div class="vocal-identity-wrap vocal-persona-wrap">
-          <label for="vocal-identity" class="muted">Identity:</label>
-          <select id="vocal-identity" title="Select a trained vocal identity">
-            <option value="">None (Stock Voice)</option>
-          </select>
-          <select id="vocal-identity-lora" class="hidden" title="Select LoRA checkpoint">
-          </select>
-          <span id="vocal-planner-wrap" class="hidden">
-            <label for="vocal-planner" class="muted">Planner <span id="vocal-planner-read">0.00</span></label>
-            <input id="vocal-planner" type="range" min="0" max="1.5" step="0.05" value="0"
-                   title="How much of this Identity writes the score, as well as sings it">
-          </span>
-        </div>
       </div>
       <div id="vocal-sex" class="chips"></div>
       <div id="vocal-tone" class="chips"></div>
@@ -374,11 +361,11 @@
   </div>
 </div>
 
-<div id="identities-modal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Identities">
+<div id="identities-modal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Corpora">
   <div class="modal-box identities personas">
     <div class="modal-head">
-      <strong id="identities-heading">Identities</strong>
-      <button id="identities-back" class="ghost hidden">All identities</button>
+      <strong id="identities-heading">Corpora</strong>
+      <button id="identities-back" class="ghost hidden">All corpora</button>
       <button id="identities-close" class="ghost">Close</button>
     </div>
     <div id="identities-body"></div>

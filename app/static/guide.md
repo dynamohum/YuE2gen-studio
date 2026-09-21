@@ -238,34 +238,31 @@ per check and holds nothing, or turns the check off.
 
 ---
 
-## Voices and Identities
+## Voices
 
 The **Vocal** chips set the singer's sex and character by writing into the style.
 
-An **Identity** is a voice trained from a corpus of songs, attached as a LoRA. Choosing one:
+## Corpora
 
-- puts its **trigger word** at the front of the style, which is how the model knows to use it;
-- offers its **checkpoints** (Best, Step 250…) if it has more than one;
-- shows a **Planner** strength beside them.
+A **corpus** is a folder of recordings prepared as a training set. Open **Corpora** from the menu,
+make one, and point it at the folder. The app separates each song's vocal, reads its key, tempo and
+sections, and drafts its lyrics tagged by section. Review them against the recordings, then press
+**Export training set**.
 
-**Planner** deserves an explanation. A trained LoRA holds two halves. The *decoder* half is the
-voice — how that singer sounds — and it is what an Identity has always applied. The *planner* half
-is how that singer's songs are **written**: their forms, harmonies and phrasing. Planner is that
-half, and it starts at **0**.
+The export is one audio file per song with a caption beside it, and every caption begins with the
+corpus's **trigger word**. That is the layout a trainer reads, including the ComfyUI YuE2 trainer.
 
-| Planner | What happens |
-|---|---|
-| 0 | Their voice, on a song structured however you asked. |
-| 0.3–0.5 | Their writing colours the plan without taking it over. |
-| 1.0 | It writes like its corpus. Expect longer plans, and watch for ones that will not end. |
+**Training does not happen here.** Take the export to a trainer and put the resulting
+`safetensors` in `models/loras/`. The engine finds it and it appears in the **Style LoRA** list
+with everything else, trigger word and all — see that section for the strengths it carries.
 
 ---
 
 ## Copyright and consent
 
 What you train on, and what you do with the result, is your responsibility under the law where you
-live. The app asks you to declare it and does not check it: creating an Identity requires you to
-confirm that the recordings are your own voice, or that the singer has given permission.
+live. The app asks you to declare it and does not check it: creating a corpus requires you to confirm
+that you have the right to train on those recordings.
 
 Two facts are worth knowing:
 
@@ -282,7 +279,7 @@ for the collection installed here.
 A LoRA is a small file that leans the model towards a sound. Put one in `models/loras/`, restart the
 engine, and it appears in the **Style LoRA** list.
 
-Like an Identity, a style LoRA has two halves, and the picker shows which ones a file holds:
+A style LoRA can hold two halves, and the picker shows which ones a file holds:
 
 - **Planner** shapes the score plan — form, harmony, phrasing. Applied when the plan is written.
 - **Sound** shapes the audio — timbre and production.
@@ -313,18 +310,14 @@ The first line names it, a `Trigger:` line becomes the trigger word, and the res
 description. A LoRA of your own gets one by writing a `.txt` beside it. `families.txt` in the same
 folder gives the groups their headings, one `prefix = label` per line.
 
-### Using one with an Identity
+### LoRAs trained from a corpus
 
-They work together: the Identity supplies the voice, the style LoRA the writing and the production.
-Two things to watch, because both halves stack:
+A LoRA trained from one of your corpora is an ordinary style LoRA. It appears in this list with the
+rest, its trigger word beside it, and the same two strengths apply. The **Corpora** screen produces
+the training set; this is where the trained result is used.
 
-- **Two planner strengths add up.** Style 1.0 plus Identity 1.0 is where plans start running away.
-  Style 1.0 with Identity 0.3, or 0.5 each, is a safer shape.
-- **Two sound strengths add up too**, and a style LoRA at full Sound can bury the voice you chose
-  the Identity for. Try Sound around 0.3–0.5 and let the Identity own the timbre.
-
-Your own Identities do not appear in the style list — they have their own control, with the same two
-strengths, so one file is never applied twice.
+New files appear once the engine has looked at `models/loras/` again, which it does when the
+options are reloaded.
 
 ---
 
