@@ -3238,10 +3238,12 @@ function paintTakes() {
     }
     return '<article class="' + classes + '" data-id="' + take.id + '">' +
       '<div class="take-head">' +
-        '<div class="cover ' + ({ song: 'grad-song', instrumental: 'grad-inst' }[take.kind] || 'grad-cover') + '">' + initials(take.title) + '</div>' +
-        '<label class="pick" title="Select this take for deleting">' +
-          '<input type="checkbox" data-act="pick"' + id + (State.picked[take.id] ? ' checked' : '') + '>' +
-        '</label>' +
+        '<div class="take-icon">' +
+          '<div class="cover ' + ({ song: 'grad-song', instrumental: 'grad-inst' }[take.kind] || 'grad-cover') + '">' + initials(take.title) + '</div>' +
+          '<label class="pick" title="Select this take for deleting">' +
+            '<input type="checkbox" data-act="pick"' + id + (State.picked[take.id] ? ' checked' : '') + '>' +
+          '</label>' +
+        '</div>' +
         '<div class="take-headtext">' +
           '<div class="take-title" title="' + esc(take.title) + '">' + esc(take.title) + '</div>' +
           '<div class="take-meta" title="' + esc(meta.join(' \u00b7 ')) + '">' + esc(meta.join(' \u00b7 ')) + '</div>' +
