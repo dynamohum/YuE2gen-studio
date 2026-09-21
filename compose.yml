@@ -15,6 +15,12 @@ services:
     image: yue2studio-engine:latest
     container_name: yue2studio-engine
     restart: unless-stopped
+    # ComfyUI refuses any request body over its own limit, which defaults to 100 MB.
+    # A long lossless recording is bigger than that — 138 MB for a six minute
+    # 24/96 FLAC — so the app's upload of it was refused with "413 Request Entity Too
+    # Large" before anything read it.  Two gigabytes covers any source a person would
+    # hand the app, and MAX_UPLOAD_MB on the app side is set to match.
+    command: python main.py --listen 0.0.0.0 --port 8188 --max-upload-size=${ENGINE_MAX_UPLOAD_MB:-2048}
     # Localhost only, for debugging and for the optional ComfyUI UI.  The app
     # reaches the engine by service name over the compose network.
     ports:

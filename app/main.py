@@ -153,6 +153,7 @@ async def lifespan(app: FastAPI):
     # Songs to build a corpus from go here, so nobody has to mount a folder or know
     # a path: copy the files in, and the corpus screen offers them.
     await asyncio.to_thread(config.CORPUS_INBOX.mkdir, parents=True, exist_ok=True)
+    await asyncio.to_thread(sweep_engine_input)
     # A job that was running when the app stopped cannot be picked up again.  One
     # that was only waiting can, so it goes back in the queue.
     execute("UPDATE takes SET status = 'failed', error = 'interrupted by a restart' WHERE status = 'running'")
@@ -1594,6 +1595,31 @@ def take_peaks(take_id: str) -> dict:
     if not result:
         raise HTTPException(500, "could not read the waveform")
     return result
+
+
+def sweep_engine_input(max_age_hours: float = 24) -> None:
+    """Let go of the copies the app has sent the engine and finished with.
+
+    Everything the app uploads is written into the engine's input folder and, until
+    now, nothing ever removed it: 634 MB had collected.  It is only ever a copy of
+    something the app still holds, so anything a day old goes.  Directories are left
+    alone — a training run caches its encoded latents in one, and rebuilding that
+    costs twenty five seconds per corpus."""
+    root = config.ENGINE_INPUT_DIR
+    if not root or not root.is_dir():
+        return
+    cutoff = time.time() - max_age_hours * 3600
+    removed = 0
+    for entry in root.iterdir():
+        try:
+            if not entry.is_file() or entry.stat().st_mtime > cutoff:
+                continue
+            entry.unlink()
+            removed += 1
+        except OSError as exc:  # noqa: BLE001
+            log.debug("could not remove %s: %s", entry, exc)
+    if removed:
+        log.info("removed %d finished uploads from the engine's input folder", removed)
 
 
 def fill_source_durations() -> None:

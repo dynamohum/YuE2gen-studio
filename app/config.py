@@ -40,7 +40,11 @@ ENGINE_OUTPUT_DIR = Path(os.environ["ENGINE_OUTPUT_DIR"]) if os.environ.get("ENG
 # The engine's input folder, so a training set can be put where the engine can read it.
 ENGINE_INPUT_DIR = Path(os.environ["ENGINE_INPUT_DIR"]) if os.environ.get("ENGINE_INPUT_DIR") else None
 
-MAX_UPLOAD_MB = int(os.environ.get("MAX_UPLOAD_MB", "300"))
+# The largest recording the app will take.  Two gigabytes is a long lossless source:
+# an eleven minute 24/96 FLAC is around 260 MB.  The engine has its own ceiling for
+# what it will accept, set to the same number in compose.yml; if this is raised, that
+# wants raising with it.
+MAX_UPLOAD_MB = int(os.environ.get("MAX_UPLOAD_MB", "2048"))
 
 # Folders the app may read songs from for an identity, as paths inside the container.
 # compose.yml mounts them read-only.  Nothing under them is ever written.
