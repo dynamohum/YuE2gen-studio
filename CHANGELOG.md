@@ -16,6 +16,14 @@ Release notes live in two places and neither is a file in this repository: this 
 history, and each GitHub release holds its published notes. `RELEASE-NOTES-*.md` is ignored so it
 cannot creep back in.
 
+## 0.0.8 - 2026-09-21
+
+- **The takes scroll in their own pane.** The window no longer scrolls: the form and the takes each
+  scroll inside themselves, so the top bar, the space picker, the filters and the player bar all stay
+  where they are however long the library grows. Useful with the pick boxes: the Delete button and
+  the count stay in view while you scroll. Above 1000px only; below that the columns stack and the
+  page scrolls as it did.
+
 ## 0.0.7 - 2026-09-21
 
 - **Lyrics from a recording.** A cover needs the words, and now the app can hear them: a **Lyrics**
