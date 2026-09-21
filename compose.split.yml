@@ -43,7 +43,10 @@ services:
       PORT: "8090"
     volumes:
       - ./data:/data
-    mem_limit: 2g
+    # demucs peaks near 1.8 GB on one worker and 3.7 GB on four (measured on a 3:45
+    # recording, see app/stems.py), so this cap and STEMS_JOBS go together: four
+    # jobs need the larger cap below, and one job fits the smaller one.
+    mem_limit: 4g
     logging:
       driver: json-file
       options:

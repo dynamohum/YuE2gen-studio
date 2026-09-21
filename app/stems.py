@@ -36,8 +36,23 @@ FORMAT_FLAGS = {
     "mp3": ["--mp3", "--mp3-bitrate", "320"],
 }
 
-# Half the machine by default, so separation never starves the rest of it.
+# Half the machine by default, so separation never starves the rest of it. This is
+# the ceiling on torch's own threads, and it does real work: measured on a 3:45
+# recording, the default already averages 6.5 cores.
 DEFAULT_THREADS = int(os.environ.get("STEMS_THREADS") or max(1, (os.cpu_count() or 2) // 2))
+
+# demucs applies its 8 second segments one at a time unless it is given -j, which
+# defaults to 0. Measured on this machine, htdemucs, a 3:45 recording, nothing else
+# running:
+#
+#   -j 0   89.2 s   2.52x realtime   6.5 cores   1.8 GB peak
+#   -j 4   62.6 s   3.59x realtime  11.6 cores   3.7 GB peak
+#   -j 8   63.0 s   3.57x realtime  12.6 cores   5.4 GB peak
+#
+# Four is the knee: it is 1.4x faster than none, and eight buys nothing for half as
+# much memory again. The cost is memory, which matters where the app is capped:
+# compose.split.yml gives it 2 GB, so that setup wants a smaller number here.
+DEFAULT_JOBS = int(os.environ.get("STEMS_JOBS") or min(4, max(1, (os.cpu_count() or 2) // 4)))
 
 PROGRESS_RE = re.compile(rb"(\d{1,3})%\|")
 
@@ -113,7 +128,10 @@ async def separate(
     proc = None
     try:
         report(0.02, "Loading the model")
-        cmd = ["demucs", "-n", model, "-o", str(work), "--filename", "{stem}.{ext}", *FORMAT_FLAGS[fmt], str(src)]
+        cmd = ["demucs", "-n", model, "-o", str(work), "--filename", "{stem}.{ext}", *FORMAT_FLAGS[fmt]]
+        if DEFAULT_JOBS > 0:
+            cmd += ["-j", str(DEFAULT_JOBS)]
+        cmd.append(str(src))
         proc = await asyncio.create_subprocess_exec(
             *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT, env=_env()
         )

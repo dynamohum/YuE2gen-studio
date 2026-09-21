@@ -54,6 +54,9 @@ services:
     environment:
       ENGINE_URL: http://engine:8188
       DATA_DIR: /data
+      # demucs applies its segments one at a time unless told otherwise. Four is
+      # the knee of the curve measured in app/stems.py: 1.4x faster than none.
+      STEMS_JOBS: "4"
       PORT: "8090"
       TZ: Europe/London
       # The engine's output folder, so a render is removed from it once the app

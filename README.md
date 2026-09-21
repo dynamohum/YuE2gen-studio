@@ -328,7 +328,8 @@ missing node or model shows in the header instead of failing a render.
 | `ALLOWED_HOSTS` | `localhost,127.0.0.1,::1` | host names the page may be reached by. Add a LAN name or address when you publish the port; `*` turns the check off |
 | `ENGINE_OUTPUT_DIR` | unset | the engine's output folder, mounted into the app. Renders are removed from it once the app has its copy |
 | `MAX_UPLOAD_MB` | `300` | the largest recording you can upload |
-| `STEMS_THREADS` | half the CPUs | threads demucs may use |
+| `STEMS_THREADS` | half the CPUs | torch threads for the separation |
+| `STEMS_JOBS` | 4, or a quarter of the CPUs | demucs segments applied at once. One uses about 1.8 GB and 2.5x realtime, four uses 3.7 GB and 3.6x. The split setup's 2 GB cap needs this at 1, or the cap raised |
 | `DATA_DIR` | `/data` | the library |
 
 ## Troubleshooting
