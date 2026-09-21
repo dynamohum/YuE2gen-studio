@@ -236,6 +236,19 @@ async def guard(request: Request, call_next):
     return response
 
 
+@app.middleware("http")
+async def revalidate_static(request, call_next):
+    """Let the browser cache the page's scripts and stylesheets, but check them
+    every time.  They are asked for as app.js?v=<VERSION>, and the version moves
+    only for a feature release, so without this a deploy could leave a browser on
+    the old files.  StaticFiles sends an ETag and a Last-Modified, so an unchanged
+    file costs a 304 rather than a download."""
+    response = await call_next(request)
+    if request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 

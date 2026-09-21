@@ -9,6 +9,16 @@ from app.db import execute, one
 from conftest import make_take, tone
 
 
+def test_a_script_asks_the_browser_to_check_again(client):
+    """The page asks for its scripts as app.js?v=<VERSION>, and the version moves only
+    for a feature release. Without revalidation a deploy could leave a browser on the
+    old files."""
+    response = client.get("/static/app.js")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-cache"
+    assert response.headers.get("etag"), "a 304 needs an ETag to check against"
+
+
 def test_starts_with_the_engine_offline(client):
     state = client.get("/api/state").json()
     assert state["engine"]["online"] is False
