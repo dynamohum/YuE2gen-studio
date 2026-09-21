@@ -888,8 +888,20 @@ function paintSource() {
   var map = { none: 'Not transcribed yet.', queued: 'Queued for transcription.', running: 'Transcribing\u2026', done: 'Transcribed. The score is ready to edit.', failed: 'Transcription failed: ' + (source.transcribe_error || 'unknown error') };
   status.textContent = map[source.transcribe_state] || '';
   status.className = 'status' + (source.transcribe_state === 'failed' ? ' bad' : (source.transcribe_state === 'done' ? ' good' : ''));
-  if (State.mode === 'cover' && source.transcribe_state === 'done' && !State.editorTakeId && !State.editorSourceId) {
-    loadScore();
+  // The box must hold this recording's score or nothing. Comparing ids matters:
+  // this tested whether editorSourceId was set at all, so choosing a second
+  // recording left the first one's score in the box, and a cover of the second was
+  // rendered from the first one's melody.
+  if (State.mode === 'cover' && !State.editorTakeId && State.editorSourceId !== source.id) {
+    if (source.transcribe_state === 'done') {
+      loadScore();
+    } else if ($('abc').value.trim()) {
+      $('abc').value = '';
+      scoreBaseline('');
+      State.editorSourceId = null;
+      setChart('');
+      syncEditor();
+    }
   }
 }
 
@@ -922,13 +934,18 @@ async function loadScore() {
   // finished job (paintJob reloads the sources) overwrites the plan that just
   // landed, and the render button then has nothing to point at.
   if (State.editorTakeId) { return; }
+  // Already showing this recording's score: leave the box alone, edits and all.
+  // This is the same mistake as in paintSource below it: the test was whether
+  // editorSourceId was set, not whether it named THIS recording, so a cover of a
+  // second recording was rendered from the first one's melody.
+  if (State.editorSourceId === source.id) { return; }
   var selected = State.leftTakeId;
   var full = await api('/api/sources/' + source.id);
   // Selecting a cover take switches to cover mode, which starts this load, and the
   // take is loaded into the column before the score arrives.  The take wins.  Going
   // on here cleared leftTakeId, and the next card click then took the take's own
   // words for an unsaved draft.
-  if (State.editorTakeId || State.editorSourceId || State.leftTakeId !== selected || currentSource() !== source) { return; }
+  if (State.editorTakeId || State.leftTakeId !== selected || currentSource() !== source) { return; }
   $('abc').value = full.abc || '';
   scoreBaseline(full.abc || '');
   State.editorTakeId = null;
@@ -3569,6 +3586,16 @@ async function doRender() {
   var source = currentSource();
   var status = $('render-status');
   if (!source) { status.textContent = 'Choose a recording first.'; status.className = 'status bad'; return; }
+  // A cover follows the recording's own melody, so it needs a score: the one
+  // transcribed from it, or one in the box. With neither, rendering used to go
+  // ahead and the model wrote its own melody, which is not a cover and sounded
+  // like a different song.
+  if (!source.has_score && !$('abc').value.trim()) {
+    status.textContent = 'This recording has not been transcribed, so there is no melody to cover. '
+      + 'Press Transcribe first. For a melody YuE2 writes itself, use Song from a prompt.';
+    status.className = 'status bad';
+    return;
+  }
   var seed = parseInt($('seed').value, 10);
   if (!($('seed-fixed').checked) || isNaN(seed)) {
     seed = Math.floor(Math.random() * 4294967295);
