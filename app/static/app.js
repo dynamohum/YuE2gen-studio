@@ -52,6 +52,7 @@ function boxShowsSource(sourceId) {
 var State = { sources: [], takes: [], options: {}, filter: 'all', playing: null, busy: false, mode: 'cover',
   layout: 'compact',
   takesRaw: '', takesTotal: 0, takeLimit: 300, takesAt: 0, paintedAt: 0, draft: null, audition: null,
+  picked: {},
   formEdited: false, spaces: [], spaceId: 'default', moveTakeId: null };
 var LAYOUT_KEY = 'yue2.layout';
 var SPACE_KEY = 'yue2.space';
@@ -2022,6 +2023,7 @@ function showSpace(id) {
   State.takesRaw = '';
   State.takesTotal = 0;
   State.takeLimit = 300;
+  clearPicked();          // a pick belongs to the space it was made in
   paintSpaces();
   paintTakes();
   loadTakes();
@@ -3076,6 +3078,56 @@ function takeById(id) {
   return State.takes.filter(function (take) { return take.id === id; })[0] || null;
 }
 
+/* Deleting takes one at a time is slow in a space with many, so cards can be
+   picked and one button removes the lot. The button names the count and the
+   confirmation names the takes, because this cannot be undone. */
+function pickedIds() {
+  return Object.keys(State.picked).filter(function (id) { return State.picked[id]; });
+}
+
+function paintBulk() {
+  var button = $('bulk-delete');
+  if (!button) { return; }
+  var count = pickedIds().length;
+  button.classList.toggle('hidden', !count);
+  button.textContent = count ? 'Delete ' + count : 'Delete';
+  button.disabled = !count;
+}
+
+function clearPicked() {
+  State.picked = {};
+  paintBulk();
+}
+
+async function bulkDelete() {
+  var ids = pickedIds();
+  if (!ids.length) { return; }
+  var names = ids.map(function (id) {
+    var take = takeById(id);
+    return take ? take.title : id;
+  });
+  var shown = names.slice(0, 8).map(function (name) { return '• ' + name; }).join('\n');
+  var more = names.length > 8 ? '\nand ' + (names.length - 8) + ' more' : '';
+  if (!confirm('Delete ' + ids.length + ' take' + (ids.length === 1 ? '' : 's') + '?\n\n' + shown + more
+      + '\n\nTheir audio and stems go with them. This cannot be undone.')) {
+    return;
+  }
+  var done = 0;
+  for (var i = 0; i < ids.length; i++) {
+    statusLine('Deleting ' + (done + 1) + ' of ' + ids.length + '…');
+    try {
+      await api('/api/takes/' + ids[i], { method: 'DELETE' });
+      done += 1;
+    } catch (err) {
+      statusLine('Could not delete ' + (takeById(ids[i]) ? takeById(ids[i]).title : ids[i]) + ': ' + err.message, 'bad');
+      break;
+    }
+  }
+  clearPicked();
+  loadTakes();
+  statusLine('Deleted ' + done + ' take' + (done === 1 ? '' : 's') + '.', 'good');
+}
+
 function paintTakes() {
   var list = State.takes.filter(function (take) {
     return State.filter === 'all' || (State.filter === 'favourite' && take.favourite);
@@ -3176,6 +3228,7 @@ function paintTakes() {
                     take.favourite ? 'Starred. Click to remove the star.' : 'Star this take');
     actions += tile('del', 'trash', 'Delete', 'data-act="del"' + id);
     var classes = 'take';
+    if (State.picked[take.id]) { classes += ' picked'; }
     if (State.playing === take.id) { classes += ' playing'; }
     // The left column points at a take either through the editor, or through a
     // cover retake, where the score in the box belongs to the source.
@@ -3185,6 +3238,9 @@ function paintTakes() {
     }
     return '<article class="' + classes + '" data-id="' + take.id + '">' +
       '<div class="take-head">' +
+        '<label class="pick" title="Select this take for deleting">' +
+          '<input type="checkbox" data-act="pick"' + id + (State.picked[take.id] ? ' checked' : '') + '>' +
+        '</label>' +
         '<div class="cover ' + ({ song: 'grad-song', instrumental: 'grad-inst' }[take.kind] || 'grad-cover') + '">' + initials(take.title) + '</div>' +
         '<div class="take-headtext">' +
           '<div class="take-title" title="' + esc(take.title) + '">' + esc(take.title) + '</div>' +
@@ -3216,6 +3272,7 @@ function togglePlay(id) {
     audio.pause();          // keeps currentTime, so Play resumes where it stopped
     State.playing = null;
     paintTakes();
+    paintBulk();
     paintTransport();
     return;
   }
@@ -3635,7 +3692,8 @@ function wireWave() {
   audio.addEventListener('ended', function () {
     stopWaveLoop(); wave.ratio = 1; drawWave();
     State.playing = null; State.audition = null;
-    paintTakes(); paintTransport(); paintAudition();
+    paintTakes();
+    paintBulk(); paintTransport(); paintAudition();
   });
   audio.addEventListener('pause', function () {
     // Ignore the pause that fires while a new track is being loaded.
@@ -4020,6 +4078,18 @@ function wire() {
     loadTakes();
   });
 
+  $('takes').addEventListener('change', function (event) {
+    var box = event.target.closest('input[data-act="pick"]');
+    if (!box) { return; }
+    var id = box.dataset.id;
+    if (box.checked) { State.picked[id] = true; } else { delete State.picked[id]; }
+    // Mark the card itself rather than repainting the list, so the box keeps focus
+    // and the page does not jump.
+    var card = box.closest('.take');
+    if (card) { card.classList.toggle('picked', box.checked); }
+    paintBulk();
+  });
+  $('bulk-delete').addEventListener('click', function () { bulkDelete(); });
   $('takes').addEventListener('click', function (event) {
     // Save is an anchor, not a button, so the tile handler below never sees it.
     var link = event.target.closest('a.save[href^="/api/takes/"]');
