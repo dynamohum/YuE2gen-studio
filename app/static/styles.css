@@ -98,6 +98,8 @@ a, .link {
 .corpora .corpora-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex: 0 0 auto; }
 .corpora.busy { color: var(--good); border-color: rgba(52, 211, 153, 0.35); }
 .corpora.busy .corpora-dot { background: var(--good); animation: corpora-pulse 1.5s ease-in-out infinite; }
+.corpora.trouble { color: #ff8fa3; border-color: rgba(217, 45, 75, 0.5); }
+.corpora.trouble .corpora-dot { background: #ff8fa3; }
 @keyframes corpora-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.2; } }
 .corpora .count { color: var(--muted); }
 @media (prefers-reduced-motion: reduce) { .corpora.busy .corpora-dot { animation: none; } }

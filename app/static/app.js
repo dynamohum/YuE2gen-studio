@@ -1161,14 +1161,35 @@ var loadVocalPersonas = loadVocalIdentities;
 var CORPUS_POLL_BUSY = 4000;
 var CORPUS_POLL_IDLE = 30000;
 
+/* A stage that has settled is finished, whether it worked or not. Counting only
+   successes would leave a corpus that failed one song reading "10 of 11" for ever,
+   with nothing running and no way to tell it from work in progress.  So the count
+   is what has settled, and a failure lands where it can be seen: on the corpus. */
+var CORPUS_STAGES = ['vocals_state', 'lyrics_state', 'score_state', 'style_state'];
+
 function corpusProgressOf(detail) {
-  var sum = detail.summary || {};
+  var songs = (detail.songs || []).filter(function (song) { return song.include; });
+  var settled = 0;
+  var failed = 0;
+  var active = 0;
+  var started = false;
+  songs.forEach(function (song) {
+    var states = CORPUS_STAGES.map(function (key) { return song[key]; });
+    if (states.some(function (state) { return state && state !== 'none'; })) { started = true; }
+    if (states.indexOf('queued') >= 0 || states.indexOf('running') >= 0) { active += 1; return; }
+    if (states.every(function (state) { return state === 'done' || state === 'failed'; })) {
+      settled += 1;
+      if (states.indexOf('failed') >= 0) { failed += 1; }
+    }
+  });
   return {
     id: detail.id,
     name: detail.name,
-    done: Number(sum.analysed) || 0,
-    total: Number(sum.included) || 0,
-    busy: Boolean(detail.busy)
+    done: settled,
+    total: songs.length || Number((detail.summary || {}).included) || 0,
+    failed: failed,
+    started: started,
+    busy: Boolean(detail.busy) || active > 0
   };
 }
 
@@ -1207,24 +1228,36 @@ function paintCorporaBadge() {
   }
   var busy = null;
   var unfinished = null;
+  var started = null;
   ids.forEach(function (id) {
     var item = progress[id];
     if (item.busy && !busy) { busy = item; }
     if (item.total && item.done < item.total && !unfinished) { unfinished = item; }
+    if (item.started && !started) { started = item; }
   });
-  var shown = busy || unfinished;
+  // Whatever is working, else whatever is unfinished, else one that has been
+  // analysed and stopped: the count stays, so a finished corpus reads 11 of 11.
+  var shown = busy || unfinished || started;
   State.openCorpus = shown ? shown.id : null;
   button.classList.remove('hidden');
   button.classList.add('shown');
   button.classList.toggle('busy', Boolean(busy));
+  var failed = 0;
+  ids.forEach(function (id) { failed += Number(progress[id].failed) || 0; });
+  // A settled failure is not work in progress, so it gets its own mark rather than
+  // a pulse: the count alone would read as a corpus that never finished.
+  button.classList.toggle('trouble', failed > 0 && !busy);
   var text = 'Corpora';
-  if (shown) {
+  // A corpus nobody has analysed says nothing worth reading, so the count waits
+  // until there is one.
+  if (shown && shown.started) {
     text += ' <span class="count">' + shown.done + ' of ' + shown.total + '</span>';
   }
   if ($('corpora-text').innerHTML !== text) { $('corpora-text').innerHTML = text; }
+  var trouble = failed ? ' ' + failed + (failed === 1 ? ' song did not analyse.' : ' songs did not analyse.') : '';
   button.title = busy
-    ? busy.name + ': ' + busy.done + ' of ' + busy.total + ' songs analysed. Click to open it.'
-    : (shown ? shown.name + ': ' + shown.done + ' of ' + shown.total + ' analysed. Click to open it.'
+    ? busy.name + ': ' + busy.done + ' of ' + busy.total + ' songs settled, still working. Click to open it.'
+    : (shown ? shown.name + ': ' + shown.done + ' of ' + shown.total + ' settled.' + trouble + ' Click to open it.'
              : 'Your corpora. Click to open them.');
 }
 
