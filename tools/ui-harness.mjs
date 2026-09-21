@@ -45,7 +45,7 @@ $('title').value = 'Harness click-through';
 $('style').value = 'late 1960s psychedelic';
 $('lyrics').value = '[Verse]\nOne pill makes you larger\nAnd one pill makes you small\n[Chorus]\nGo ask Alice';
 await ctx.doPlan();
-const id = ctx.State.planTakeId;
+const id = ctx.Selection.awaiting;
 for (let i = 0; i < 15; i++) {
   await sleep(4000);
   await ctx.watchPlan();

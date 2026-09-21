@@ -1,12 +1,56 @@
 'use strict';
 
-/* Who owns the left column:
-     editorTakeId   the take whose score is in the box (Render and Replan act on it)
-     editorSourceId the recording whose score is in the box, in cover mode
-     leftTakeId     the take the form describes, and whose card is highlighted
-     planTakeId     a take whose plan is being written; it owns nothing until it lands */
+/* What the left column is about. One object, and only setSelection may write it.
+   Four separate fields used to say this (editorTakeId, editorSourceId, leftTakeId,
+   planTakeId) and they drifted apart three times: a cover was rendered from another
+   recording's score, a new plan was never shown, and a card's score was credited to
+   a recording that had never been transcribed. Reads go through the helpers below.
+
+     formTakeId  the take the form describes, and whose card is highlighted
+     boxKind     who owns the score in the box: 'none', 'take' or 'source'
+     boxId       that take's or recording's id
+     awaiting    a take whose plan is being written; it owns nothing until it lands */
+var Selection = { formTakeId: null, boxKind: 'none', boxId: null, awaiting: null };
+
+function setSelection(next) {
+  Selection = {
+    formTakeId: next.formTakeId || null,
+    boxKind: next.boxKind || 'none',
+    boxId: next.boxId || null,
+    awaiting: next.awaiting || null
+  };
+  syncEditor();
+  paintTakes();          // the highlight follows the form
+  setScoreActions();     // so do Render and Replan
+  saveForm();
+}
+
+/* Used when restoring the form on a reload, before the painters are ready. */
+function restoreSelection(saved) {
+  Selection = { formTakeId: null, boxKind: 'none', boxId: null, awaiting: null };
+  if (saved && saved.boxKind && saved.boxId) { Selection.boxKind = saved.boxKind; Selection.boxId = saved.boxId; }
+  if (saved && saved.formTakeId) { Selection.formTakeId = saved.formTakeId; }
+  if (saved && saved.awaiting) { Selection.awaiting = saved.awaiting; }
+}
+
+function selectedTakeId() { return Selection.formTakeId; }
+function scoreTakeId() { return Selection.boxKind === 'take' ? Selection.boxId : null; }
+function awaitingPlanId() { return Selection.awaiting; }
+
+/* Is the score in the box this recording's? A cover take's transcribed score came
+   from its recording, so the take owns the box while the recording still matches. */
+function boxShowsSource(sourceId) {
+  if (!sourceId) { return false; }
+  if (Selection.boxKind === 'source') { return Selection.boxId === sourceId; }
+  if (Selection.boxKind === 'take') {
+    var take = takeById(Selection.boxId);
+    return Boolean(take && take.source_id === sourceId);
+  }
+  return false;
+}
+
 var State = { sources: [], takes: [], options: {}, filter: 'all', playing: null, busy: false, mode: 'cover',
-  planTakeId: null, layout: 'compact', editorTakeId: null, editorSourceId: null, leftTakeId: null,
+  layout: 'compact',
   takesRaw: '', takesTotal: 0, takeLimit: 300, takesAt: 0, paintedAt: 0, draft: null, audition: null,
   formEdited: false, spaces: [], spaceId: 'default', moveTakeId: null };
 var LAYOUT_KEY = 'yue2.layout';
@@ -409,7 +453,10 @@ function saveForm() {
     data.vocal_identity_lora = (loraSel && !loraSel.classList.contains('hidden')) ? loraSel.value : '';
     data.vocal_persona = data.vocal_identity;
     data.vocal_persona_lora = data.vocal_identity_lora;
-    data.left_take = State.leftTakeId || '';
+    data.left_take = selectedTakeId() || '';
+    data.box_kind = Selection.boxKind;
+    data.box_id = Selection.boxId || '';
+    data.awaiting = awaitingPlanId() || '';
     data.structure = { kind: STRUCTURE.kind, sections: STRUCTURE.sections };
     data.feel = FEEL.value;
     localStorage.setItem(FORM_KEY, JSON.stringify(data));
@@ -446,7 +493,8 @@ function loadForm() {
   if (typeof data.vocal_identity_lora === 'string') { State.savedVocalIdentityLora = data.vocal_identity_lora; }
   else if (typeof data.vocal_persona_lora === 'string') { State.savedVocalIdentityLora = data.vocal_persona_lora; }
   if (data.style) { $('style').dataset.touched = '1'; }
-  if (data.left_take) { State.leftTakeId = data.left_take; }
+  restoreSelection({ formTakeId: data.left_take || null, boxKind: data.box_kind || 'none',
+                     boxId: data.box_id || null, awaiting: data.awaiting || null });
   if (FEELS[data.feel]) { FEEL.value = data.feel; }
   if (data.structure && Array.isArray(data.structure.sections)) {
     STRUCTURE.kind = ['free', 'sections', 'timed'].indexOf(data.structure.kind) >= 0 ? data.structure.kind : 'free';
@@ -892,13 +940,13 @@ function paintSource() {
   // this tested whether editorSourceId was set at all, so choosing a second
   // recording left the first one's score in the box, and a cover of the second was
   // rendered from the first one's melody.
-  if (State.mode === 'cover' && !State.editorTakeId && State.editorSourceId !== source.id) {
+  if (State.mode === 'cover' && !scoreTakeId() && !boxShowsSource(source.id)) {
     if (source.transcribe_state === 'done') {
       loadScore();
     } else if ($('abc').value.trim()) {
       $('abc').value = '';
       scoreBaseline('');
-      State.editorSourceId = null;
+      setSelection({ formTakeId: Selection.formTakeId });
       setChart('');
       syncEditor();
     }
@@ -918,7 +966,8 @@ async function deleteSource() {
     return;
   }
   $('source-select').value = '';
-  if (State.editorSourceId === source.id) {
+  // The box held this recording's score, or a cover take's copy of it.
+  if (boxShowsSource(source.id)) {
     $('abc').value = '';
     scoreBaseline('');
     setChart('');
@@ -933,26 +982,24 @@ async function loadScore() {
   // A take in the editor outranks a source transcription.  Without this guard a
   // finished job (paintJob reloads the sources) overwrites the plan that just
   // landed, and the render button then has nothing to point at.
-  if (State.editorTakeId) { return; }
+  if (scoreTakeId()) { return; }
   // Already showing this recording's score: leave the box alone, edits and all.
   // This is the same mistake as in paintSource below it: the test was whether
   // editorSourceId was set, not whether it named THIS recording, so a cover of a
   // second recording was rendered from the first one's melody.
-  if (State.editorSourceId === source.id) { return; }
-  var selected = State.leftTakeId;
+  if (boxShowsSource(source.id)) { return; }
+  var selected = selectedTakeId();
   var full = await api('/api/sources/' + source.id);
   // Selecting a cover take switches to cover mode, which starts this load, and the
   // take is loaded into the column before the score arrives.  The take wins.  Going
   // on here cleared leftTakeId, and the next card click then took the take's own
   // words for an unsaved draft.
-  if (State.editorTakeId || State.leftTakeId !== selected || currentSource() !== source) { return; }
+  if (scoreTakeId() || selectedTakeId() !== selected || currentSource() !== source) { return; }
   $('abc').value = full.abc || '';
   scoreBaseline(full.abc || '');
-  State.editorTakeId = null;
-  State.editorSourceId = source.id;
-  State.leftTakeId = null;
+  // The recording owns the box now, empty score and all, so this does not fetch again.
+  setSelection({ formTakeId: null, boxKind: 'source', boxId: source.id });
   setChart('');
-  syncEditor();
 }
 
 /* ------------------------------------------------------------------ vocal ---
@@ -1593,8 +1640,7 @@ function setMode(mode) {
   } else if (!ownedByTake) {
     // The editor held a transcription of an uploaded recording. A song must not reuse it.
     $('abc').value = '';
-    State.planTakeId = null;
-    claimEditorFor(null);
+    setSelection({});
     $('score-badge').textContent = 'no plan yet';
     $('score-badge').className = 'badge';
     setChart('');
@@ -1620,8 +1666,8 @@ function loadWorkingScore() {
   } catch (err) { return; }
   if (abc) { $('abc').value = abc; scoreBaseline(abc); }
   if (id) {
-    State.editorTakeId = id;
-    State.planTakeId = id;
+    // The box holds this take's score, and the form describes it.
+    restoreSelection({ formTakeId: id, boxKind: 'take', boxId: id });
   }
 }
 
@@ -1681,47 +1727,52 @@ function syncEditor() {
 }
 
 /* Which take owns the score currently in the box.  A take we are still waiting on
-   (planTakeId) does NOT own the editor: there is nothing to render until its score
-   arrives, and watchPlan only fills the box for a take that does not own it. */
+   does NOT own it: there is nothing to render until its score arrives. */
 function takeIdInEditor() {
-  return State.editorTakeId || '';
+  return scoreTakeId() || '';
 }
 
 function claimEditorFor(takeId) {
-  State.editorTakeId = takeId || null;
-  State.editorSourceId = null;
-  syncEditor();
-  paintTakes();   // move the highlight to the card that now owns the left column
+  setSelection({ formTakeId: takeId || null, boxKind: takeId ? 'take' : 'none', boxId: takeId || null });
+}
+
+function stopAwaiting() {
+  if (!Selection.awaiting) { return; }
+  setSelection({ formTakeId: Selection.formTakeId, boxKind: Selection.boxKind, boxId: Selection.boxId });
 }
 
 async function watchPlan() {
-  if (!State.planTakeId) { return; }
+  var waiting = awaitingPlanId();
+  if (!waiting) { return; }
   var take;
   try {
-    take = await api('/api/takes/' + State.planTakeId);
+    take = await api('/api/takes/' + waiting);
   } catch (err) {
-    State.planTakeId = null;
+    stopAwaiting();
     return;
   }
-  if (take.abc && take.abc.length > 50 && takeIdInEditor() !== take.id) {
+  if (take.abc && take.abc.length > 50 && scoreTakeId() !== take.id) {
     $('abc').value = take.abc;
     scoreBaseline(take.abc);
-    claimEditorFor(take.id);
+    // The plan is here, so the take owns the box from now on.
+    setSelection({ formTakeId: take.id, boxKind: 'take', boxId: take.id });
     $('score-badge').textContent = 'plan ready';
     $('score-badge').className = 'badge ok';
     $('score-box').open = true;
     setChart(chordChart(take.abc));
     showPlanLength(take.abc);
     statusLine('Plan ready. Edit it, or press render.', 'good');
+    loadTakes();
+    return;
   }
   if (take.status === 'failed') {
     statusLine('Plan failed: ' + (take.error || 'unknown error'), 'bad');
-    State.planTakeId = null;
-  } else if (take.status === 'planned') {
-    State.planTakeId = null;
+    stopAwaiting();
     loadTakes();
-  } else if (take.status === 'done') {
-    State.planTakeId = null;
+  } else if (take.status === 'planned' || take.status === 'done') {
+    // It finished between two polls: if the box never received the plan, it is
+    // still on the take, and the call above will have filled it.
+    stopAwaiting();
     loadTakes();
   }
 }
@@ -1762,7 +1813,7 @@ async function doPlan() {
         voice_lora_clip: vocalPlanner()
       }))
     });
-    State.planTakeId = take.id;
+    setSelection({ formTakeId: take.id, boxKind: 'none', boxId: null, awaiting: take.id });
     statusLine('Writing the score plan…');
     loadTakes();
   } catch (err) {
@@ -1798,7 +1849,7 @@ async function doRenderTake() {
         voice_lora_clip: vocalPlanner()
       })
     });
-    State.planTakeId = null;
+    setSelection({ formTakeId: takeIdInEditor() || selectedTakeId(), boxKind: 'take', boxId: takeIdInEditor() || selectedTakeId() });
     statusLine('Rendering…');
     loadTakes();
   } catch (err) {
@@ -1812,14 +1863,12 @@ async function doRenderTake() {
 function awaitNewPlan(id) {
   $('abc').value = '';
   scoreBaseline('');
-  claimEditorFor(null);
-  State.leftTakeId = id;
-  State.planTakeId = id;
+  // The take is what the form describes, but it owns nothing until the plan lands.
+  setSelection({ formTakeId: id, boxKind: 'none', boxId: null, awaiting: id });
   $('score-badge').textContent = 'writing a new plan';
   $('score-badge').className = 'badge';
   setChart('');
   showPlanLength('');
-  paintTakes();
 }
 
 async function doReroll() {
@@ -2123,7 +2172,7 @@ async function doInstrumental() {
         realaudio: $('realaudio').checked
       }))
     });
-    State.planTakeId = take.id;
+    setSelection({ formTakeId: take.id, boxKind: 'none', boxId: null, awaiting: take.id });
     statusLine('Writing the score plan\u2026');
     loadTakes();
   } catch (err) {
@@ -2807,7 +2856,7 @@ function stemsBlock(take) {
    take calls this first, so the panel always describes the take you just touched. */
 function selectTake(take) {
   if (!take) { return; }
-  if (take.id !== State.leftTakeId && formIsDraft()) { stashDraft(); }
+  if (take.id !== selectedTakeId() && formIsDraft()) { stashDraft(); }
   // Songs and instrumentals are both written from a prompt; only a cover has a recording.
   var isInst = take.kind === 'instrumental';
   var isSong = take.kind === 'song' || isInst;
@@ -2845,14 +2894,15 @@ function selectTake(take) {
   if (take.style_lora !== undefined) { showStyleLora(take); }
   $('interpretation').value = INTERPRETATIONS[take.interpretation] ? take.interpretation : 'standard';
   paintInterpretation();
-  // A cover's score belongs to its source, and a plan still being written belongs
-  // to nobody until it lands.
-  claimEditorFor(isSong && !planning ? take.id : null);
-  State.leftTakeId = take.id;
-  // Marks the box as holding this cover's score, so paintSource does not replace it
-  // with the recording's transcription.
-  if (!isSong) { State.editorSourceId = take.source_id || 'take:' + take.id; }
-  State.planTakeId = isSong ? take.id : null;
+  // The take owns the score in the box: its own for a song, its recording's
+  // transcription for a cover, which boxShowsSource recognises by the take's
+  // source_id. A plan still being written owns nothing until it lands.
+  setSelection({
+    formTakeId: take.id,
+    boxKind: planning ? 'none' : 'take',
+    boxId: planning ? null : take.id,
+    awaiting: planning ? take.id : null
+  });
   $('score-badge').textContent = take.abc
     ? (take.status === 'planned' ? 'plan ready' : 'saved score')
     : 'no plan yet';
@@ -2880,7 +2930,7 @@ function formIsDraft() {
   var style = $('style').value;
   var lyrics = State.mode === 'inst' ? '' : $('lyrics').value;
   if (!lyrics.trim() && !title.trim()) { return false; }
-  var shown = State.leftTakeId ? takeById(State.leftTakeId) : null;
+  var shown = selectedTakeId() ? takeById(selectedTakeId()) : null;
   if (State.mode === 'inst') { return Boolean(shown) && (!same(title, shown.title) || !same(style, shown.style)); }
   if (!shown) { return Boolean(lyrics.trim()); }
   return !same(title, shown.title) || !same(style, shown.style) || !same(lyrics, shown.lyrics);
@@ -2910,9 +2960,7 @@ function restoreDraft() {
   var draft = State.draft;
   if (!draft) { return; }
   setMode(draft.mode === 'song' ? 'song' : 'cover');
-  claimEditorFor(null);
-  State.leftTakeId = null;
-  State.planTakeId = null;
+  setSelection({});
   $('title').value = draft.title || '';
   $('style').value = draft.style || '';
   $('lyrics').value = draft.lyrics || '';
@@ -2944,9 +2992,7 @@ function startFresh() {
   }
   if (formIsDraft()) { stashDraft(); }
   var cover = State.mode === 'cover';
-  claimEditorFor(null);
-  State.leftTakeId = null;
-  State.planTakeId = null;
+  setSelection({});
   $('title').value = '';
   if (State.mode !== 'inst') { $('lyrics').value = ''; }   // an instrumental keeps its structure, like a setting
   $('abc').value = '';
@@ -3078,7 +3124,7 @@ function paintTakes() {
     if (State.playing === take.id) { classes += ' playing'; }
     // The left column points at a take either through the editor, or through a
     // cover retake, where the score in the box belongs to the source.
-    if ((State.leftTakeId || takeIdInEditor()) === take.id) {
+    if ((selectedTakeId() || takeIdInEditor()) === take.id) {
       // tone-*, not song/cover: a plain .cover class belongs to the 46px tile.
       classes += ' editing ' + ({ song: 'tone-song', instrumental: 'tone-inst' }[take.kind] || 'tone-cover');
     }
@@ -3559,7 +3605,7 @@ async function uploadFile(file) {
     var source = await api('/api/sources', { method: 'POST', body: form });
     await loadSources();
     $('source-select').value = source.id;
-    State.editorSourceId = null;
+    setSelection({ formTakeId: Selection.formTakeId });
     paintSource();
     $('source-status').textContent = source.duplicate ? 'That recording is already in the library.' : 'Uploaded. Transcribe it to get a score.';
     $('source-status').className = 'status good';
