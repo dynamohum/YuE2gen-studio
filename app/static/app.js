@@ -1187,7 +1187,7 @@ function corporaBadge() {
   button.title = 'Corpora, and what the app is preparing';
   button.innerHTML = '<span class="corpora-dot" aria-hidden="true"></span>' +
     '<span id="corpora-text">Corpora</span>';
-  right.insertBefore(button, right.firstChild);
+  right.appendChild(button);
   button.addEventListener('click', function () {
     openIdentities();
     if (State.openCorpus) { showIdentity(State.openCorpus); }
@@ -2668,9 +2668,9 @@ async function showIdentity(id, preloaded) {
       '<button id="identity-delete" class="ghost">Delete corpus</button>' +
       '<span id="identity-status" class="status"></span>' +
     '</div>' +
-    '<p class="hint">Analyse separates each included song’s vocal, finds its key, tempo and sections with SheetSage, ' +
-    'and drafts its lyrics with Whisper, tagged by section. The first song also downloads Whisper, about 1.6 GB. ' +
-    'Drafts get most words right, not all: open each song with Review, correct it against the recording, and tick checked.</p>' +
+    '<p class="hint">Analyse separates each included song’s vocal, finds its key, tempo and sections with ' +
+    'SheetSage, and drafts its lyrics with Whisper, tagged by section. Drafts may not get all the words ' +
+    'right, so check them and amend what needs it.</p>' +
     '<table class="identity-songs persona-songs"><thead><tr><th></th><th>Song</th><th>Length</th><th>Progress</th><th></th></tr></thead>' +
     '<tbody id="identity-rows">' + data.songs.map(songRow).join('') + '</tbody></table>' +
     '<div id="identity-export-result" class="identity-export persona-export"></div>';
