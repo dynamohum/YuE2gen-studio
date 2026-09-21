@@ -13,13 +13,14 @@ Everything runs in two containers on one machine. No cloud, no API keys, no acco
 
 ## What it looks like
 
-Covering a recording, with the score editor open and a render running:
+Covering a recording, with the score editor open:
 
 [![Cover a recording](docs/screenshots/cover-a-recording.png)](https://raw.githubusercontent.com/dynamohum/YuE2gen-studio/master/docs/screenshots/full/cover-a-recording.png)
 
-The same library in the compact layout:
+The same library in comfy cards, which trade a column for the whole prompt and every setting
+a take was made with. Compact, three across, is what you start with:
 
-[![Compact layout](docs/screenshots/compact-layout.png)](https://raw.githubusercontent.com/dynamohum/YuE2gen-studio/master/docs/screenshots/full/compact-layout.png)
+[![Comfy layout](docs/screenshots/comfy-layout.png)](https://raw.githubusercontent.com/dynamohum/YuE2gen-studio/master/docs/screenshots/full/comfy-layout.png)
 
 Writing a song from a prompt:
 
