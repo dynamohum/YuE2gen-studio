@@ -360,13 +360,15 @@ button.icon { width: 42px; padding: 8px 0; text-align: center; }
 
 /* Two class selectors on purpose: .np-cover sets a fallback background further
    down the file, and a plain .grad-* rule would lose to it. */
-/* The panel's own button takes the colour of the kind of song being written. */
-#start-fresh.type-cover { color: var(--cover-a); border-color: rgba(255, 77, 148, 0.5); background: rgba(255, 77, 148, 0.1); }
-#start-fresh.type-cover:hover { background: rgba(255, 77, 148, 0.18); }
-#start-fresh.type-song { color: var(--song-a); border-color: rgba(56, 189, 248, 0.5); background: rgba(56, 189, 248, 0.1); }
-#start-fresh.type-song:hover { background: rgba(56, 189, 248, 0.18); }
-#start-fresh.type-inst { color: var(--inst-a); border-color: rgba(163, 230, 53, 0.5); background: rgba(163, 230, 53, 0.12); }
-#start-fresh.type-inst:hover { background: rgba(163, 230, 53, 0.2); }
+/* The panel's own button wears the same fill as the mode it is in, so the two read
+   as one control. */
+#start-fresh.type-cover, #start-fresh.type-song, #start-fresh.type-inst {
+  border-color: transparent; font-weight: 600;
+}
+#start-fresh.type-cover { background: linear-gradient(90deg, var(--cover-a), var(--cover-b)); color: #fff; }
+#start-fresh.type-song { background: linear-gradient(90deg, var(--song-a), var(--song-b)); color: #fff; }
+#start-fresh.type-inst { background: linear-gradient(90deg, var(--inst-b), var(--inst-a)); color: #07140c; }
+#start-fresh.type-cover:hover, #start-fresh.type-song:hover, #start-fresh.type-inst:hover { filter: brightness(1.1); }
 
 .cover.grad-cover, .np-cover.grad-cover { background: linear-gradient(135deg, var(--cover-a), var(--cover-b)); }
 .cover.grad-song, .np-cover.grad-song { background: linear-gradient(135deg, var(--song-a), var(--song-b)); }
