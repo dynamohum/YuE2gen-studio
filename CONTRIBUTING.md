@@ -52,6 +52,22 @@ GitHub push carrying a commit with one. Enable the hook once per clone:
 git config core.hooksPath tools/git-hooks
 ```
 
+## Screenshots
+
+The README screenshots must not show a real library: the takes in one are someone's work in
+progress, and an Identity holds their own songs. `tools/demo-library.py` writes a separate data
+folder of invented takes, an invented Identity and one recording to cover, hard linking real
+rendered audio in so the waveforms, lengths and the player are genuine. It only ever reads the
+library you point it at.
+
+```sh
+python3 tools/demo-library.py --from data --to ~/scratch/yue2-docs/data
+```
+
+Run the app against that folder on a spare port, shoot the pages, then save each one twice: the
+full size into `docs/screenshots/full/`, and the same image at half size next to it, which is what
+the README shows inline and links to the full one from.
+
 ## The engine pin
 
 The engine is built from one pinned ComfyUI commit (`ARG COMFYUI_REF` in `engine/Dockerfile`),
