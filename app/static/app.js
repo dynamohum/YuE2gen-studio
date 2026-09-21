@@ -379,6 +379,17 @@ function paintStyleLoraNote() {
       : '<b>' + esc(item.trigger) + '</b> goes in the style when you render.');
   }
   if (item.note) { parts.push(esc(plainNote(item.note)).replace(/\n/g, '<br>')); }
+  // What the file needs to do anything, and whether it currently is.
+  var kind = loraKind(item.name);
+  var holds = { both: 'Holds both halves.', planner: 'Holds the score half only, so Planner has to be above 0.',
+                decoder: 'Holds the sound half only, so Sound has to be above 0.' }[kind];
+  if (holds) { parts.push(holds); }
+  var asleep = [];
+  if ((kind === 'both' || kind === 'planner') && Number($('style-lora-clip').value) === 0) { asleep.push('Planner'); }
+  if ((kind === 'both' || kind === 'decoder') && Number($('style-lora-model').value) === 0) { asleep.push('Sound'); }
+  if (asleep.length) {
+    parts.push('<b>' + asleep.join(' and ') + ' at 0.00</b>, so this file is doing nothing.');
+  }
   parts.push('<button class="link" id="lora-reload" type="button">Look for new LoRAs</button>');
   hint.innerHTML = parts.join('<br>');
 }
@@ -398,6 +409,21 @@ async function reloadLoras() {
     var again = $('lora-reload');
     if (again) { again.textContent = 'Look for new LoRAs'; }
   }
+}
+
+/* A strength of zero on a half the file does hold is the same as not choosing the
+   file at all: it loads and multiplies by nothing.  saveForm stores a zero for a half
+   a file cannot use, so choosing a file that needs that half brought the zero with
+   it.  Choosing a file now wakes the strengths it can use, once, at the moment of
+   choosing — never on a repaint, so a slider deliberately left at zero stays there. */
+function wakeStyleLoraStrengths() {
+  var name = $('style-lora').value;
+  if (!name) { return; }
+  var kind = loraKind(name);
+  var hasPlanner = kind === 'both' || kind === 'planner' || kind === 'unknown';
+  var hasSound = kind === 'both' || kind === 'decoder' || kind === 'unknown';
+  if (hasPlanner && Number($('style-lora-clip').value) === 0) { $('style-lora-clip').value = 1; }
+  if (hasSound && Number($('style-lora-model').value) === 0) { $('style-lora-model').value = 1; }
 }
 
 function paintStyleLoraStrengths() {
@@ -4415,6 +4441,7 @@ function wire() {
   $('style-lora').addEventListener('change', function () {
     var item = loraChosen();
     applyLoraTrigger(item && item.trigger);
+    wakeStyleLoraStrengths();
     paintStyleLoraStrengths();
     saveForm();
   });

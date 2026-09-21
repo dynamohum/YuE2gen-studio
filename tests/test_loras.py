@@ -35,7 +35,7 @@ def test_install_puts_the_file_and_a_note_beside_it(tmp_path):
     assert note[0] == "Alicia"
     assert "Trigger: alicia" in note
     assert any("corpus Alicia" in line for line in note)
-    assert "score and sound" in "\n".join(note), "the note says which halves it holds"
+    assert done["kind"] == "both", "what it holds is reported to the picker, which states it"
 
 
 def test_install_groups_it_under_the_corpus(tmp_path):

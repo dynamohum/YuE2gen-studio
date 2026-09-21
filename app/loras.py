@@ -125,14 +125,13 @@ def install(source: Path, name: str, trigger: str, corpus: str, root: Path | Non
 
     shutil.copyfile(source, target)
     kind = kind_of(names)
-    held = {"both": "score and sound", "planner": "score only",
-            "decoder": "sound only"}.get(kind, "an unrecognised layout")
     note = [name or stem]
     if trigger:
         note.append(f"Trigger: {trigger.lower()}")
     note.append("")
     note.append(f"Trained from the corpus {corpus} on {time.strftime('%Y-%m-%d')}.")
-    note.append(f"Holds {held}.")
+    # Which halves the file holds is what the picker says, with the strength each one
+    # needs, so the note does not repeat it.
     (root / f"{stem}.txt").write_text("\n".join(note) + "\n", encoding="utf-8")
 
     prefix = stem.split("_")[0]
