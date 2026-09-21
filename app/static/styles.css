@@ -115,7 +115,10 @@ main {
   /* main > so this wins over the .panel rule below, which sets padding: 20px and
      would otherwise drop the clearance for the player bar from the left pane. */
   main > .panel, main > .library {
-    min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+    min-height: 0; overscroll-behavior: contain;
+    /* Down only. overflow-y alone would leave the x axis scrollable, and a
+       touchpad then slides the pane a few pixels sideways. */
+    overflow: hidden auto;
     /* The player bar is fixed over the foot of the page. */
     padding-bottom: 118px;
     scrollbar-gutter: stable;
@@ -126,12 +129,13 @@ main {
      under it is softened rather than cut. The band is inside the box: outside it
      would lie over the first row when the pane is at the top. */
   .libsticky {
-    position: sticky; top: -22px; z-index: 3; margin: -22px -22px 0; padding: 22px 22px 18px;
+    position: sticky; top: 0; z-index: 3; padding: 2px 0 18px;
     background: linear-gradient(180deg, var(--bg) 0, var(--bg) calc(100% - 18px), transparent);
   }
   .libhead { margin-bottom: 14px; }
-  /* Room under the header's fading band, so the first row of cards is whole. */
-  #takes { margin-top: 8px; }
+  /* A little air under the header's fading edge, so the first row is never tight
+     against it. */
+  #takes { margin-top: 6px; }
   #empty { margin-bottom: 90px; }
 }
 @media (max-width: 1000px) { main { grid-template-columns: 1fr; } }
