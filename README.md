@@ -216,56 +216,6 @@ requirements-dev.txt   the app's packages plus pytest
 eslint.config.mjs      lint rules for app.js
 ```
 
-## The engine pin
-
-The engine is built from one pinned ComfyUI commit (`ARG COMFYUI_REF` in
-`engine/Dockerfile`), because a build that changes underneath you is worse than one
-that is slightly old. To see what has changed upstream since, and whether any of it
-touches the YuE2 or audio code this app renders through:
-
-```sh
-sh scripts/check-upstream.sh
-```
-
-It prints the pin, upstream's latest commit and release, how many commits behind the
-pin is, and the ritual for moving it: build the candidate beside the live engine,
-render a cover, a song, an instrumental and a lyric draft against it, then move the
-pin in a commit that says what was checked.
-
-## Tests
-
-The tests run in the app image, which already has ffmpeg and the pinned packages:
-
-```sh
-docker run --rm -v "$PWD":/src -w /src --user 1000:1000 -e HOME=/tmp yue2studio-app:latest \
-  sh -c "pip install -q --user -r requirements-dev.txt && python -m pytest -q tests"
-npx eslint@9 app/static/app.js
-```
-
-They need no GPU and no engine: the job lanes run against a fake engine.
-
-## Versioning and where it is pushed
-
-- `VERSION` holds the version, and the app shows it in the header, so a running container can be
-  identified without guessing.
-- Releases are git tags on `master`, each with an entry in `CHANGELOG.md`.
-- `origin` is the author's own git server. Commits go there by default and nowhere else.
-- `github` points at <https://github.com/dynamohum/YuE2gen-studio>. Nothing is pushed there unless it is
-  asked for:
-
-```sh
-git push origin master --tags     # the default
-git push github master --tags     # only when a public release is wanted
-gh release create vX.Y.Z --title vX.Y.Z --notes-file notes.md
-```
-
-PDFs in the top-level folder are git ignored and never go to GitHub: a pre-push hook refuses a
-GitHub push carrying a commit with one. Enable the hook once per clone:
-
-```sh
-git config core.hooksPath tools/git-hooks
-```
-
 ## Where files live
 
 The data folder names things after what they hold, so it reads without the database.
@@ -349,6 +299,12 @@ missing node or model shows in the header instead of failing a render.
 | The app restarts, and its log says it cannot open the database | `data/` belongs to root, because Docker created it | `sudo chown -R 1000:1000 data engine-state/output`, or the uid in compose.yml |
 | The page says *This host name is not allowed* | you reached it by a name not in `ALLOWED_HOSTS` | add that name or address to `ALLOWED_HOSTS` in compose.yml |
 | The Harmony slider is greyed out | the engine image is older than the app and has no `yue2_harmony` node | `docker compose up -d --build engine` |
+
+## Contributing
+
+Working on the code, rather than running it? [CONTRIBUTING.md](CONTRIBUTING.md) has the
+branch and test-instance workflow, the checks to run, the engine pin and how a release is
+cut.
 
 ## Credits
 
