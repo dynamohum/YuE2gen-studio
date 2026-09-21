@@ -119,8 +119,6 @@ def install(source: Path, name: str, trigger: str, corpus: str, root: Path | Non
         raise ValueError("that file holds no tensors")
 
     stem = re.sub(r"[^a-z0-9]+", "_", (name or source.stem).lower()).strip("_") or "lora"
-    if not stem.endswith("_lora"):
-        stem += "_lora"                  # the picker reads the word in front as the group
     target = root / f"{stem}.safetensors"
     if target.exists():
         raise ValueError(f"{target.name} is already in the LoRA folder")
