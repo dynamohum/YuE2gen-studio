@@ -150,6 +150,9 @@ async def lifespan(app: FastAPI):
     migrate()
     remove_tree(config.WORK_DIR)
     config.WORK_DIR.mkdir(parents=True, exist_ok=True)
+    # Songs to build a corpus from go here, so nobody has to mount a folder or know
+    # a path: copy the files in, and the corpus screen offers them.
+    await asyncio.to_thread(config.CORPUS_INBOX.mkdir, parents=True, exist_ok=True)
     # A job that was running when the app stopped cannot be picked up again.  One
     # that was only waiting can, so it goes back in the queue.
     execute("UPDATE takes SET status = 'failed', error = 'interrupted by a restart' WHERE status = 'running'")

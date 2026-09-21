@@ -35,7 +35,11 @@ CHUNK_MIN = 14.0
 
 # ------------------------------------------------------------------- the folder
 def import_roots() -> list[Path]:
-    return [Path(p) for p in config.IMPORT_ROOTS]
+    """Folders a corpus may be built from: the one the user drops songs into, then
+    whatever else this machine is allowed to read."""
+    roots = [config.CORPUS_INBOX]
+    roots.extend(Path(p) for p in config.IMPORT_ROOTS if Path(p) != config.CORPUS_INBOX)
+    return roots
 
 
 def allowed(path: Path) -> bool:

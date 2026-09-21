@@ -22,6 +22,10 @@ DB_PATH = DATA_DIR / "yue2.sqlite"
 # Where DATA_DIR is on the host, when the app runs in a container, so a folder the
 # app wrote can be named the way the user will find it.  Optional.
 DATA_DIR_HOST = os.environ.get("DATA_DIR_HOST", "").rstrip("/")
+# Where to put songs a corpus should be built from.  The app offers this folder to
+# whoever is making one, so nothing has to be mounted or browsed for: copy the files
+# in, and the corpus screen shows them.
+CORPUS_INBOX = Path(os.environ.get("CORPUS_INBOX", str(DATA_DIR / "corpus")))
 STEMS_DIR = DATA_DIR / "stems"
 TAKES_DIR = DATA_DIR / "takes"
 SOURCES_DIR = DATA_DIR / "sources"

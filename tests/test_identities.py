@@ -40,8 +40,20 @@ def test_scan_flags_copies_versions_other_singers_and_short_files(tmp_path, monk
 def test_folders_outside_the_import_roots_are_refused(tmp_path, monkeypatch):
     make_folder(tmp_path, monkeypatch)
     assert not identities.allowed(tmp_path)
+    # The drop folder is a root too, but it is not listed until it exists.
     assert identities.browse(None)["folders"] == [str(tmp_path / "import")]
     assert identities.browse(str(tmp_path / "import"))["folders"] == [str(tmp_path / "import" / "Under")]
+
+
+def test_the_drop_folder_is_offered_and_readable(tmp_path, monkeypatch):
+    """A user copies songs into one folder and needs to know nothing else."""
+    make_folder(tmp_path, monkeypatch)
+    config.CORPUS_INBOX.mkdir(parents=True, exist_ok=True)
+    tone(config.CORPUS_INBOX / "My Song.wav", 100)
+
+    assert identities.allowed(config.CORPUS_INBOX)
+    assert str(config.CORPUS_INBOX) in identities.browse(None)["folders"]
+    assert [s["file"] for s in identities.scan(config.CORPUS_INBOX)] == ["My Song.wav"]
 
 
 def test_chunks_cut_at_quiet_points_and_skip_silence():

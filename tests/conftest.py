@@ -29,6 +29,7 @@ def data_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "TAKES_DIR", tmp_path / "takes")
     monkeypatch.setattr(config, "SOURCES_DIR", tmp_path / "sources")
     monkeypatch.setattr(config, "WORK_DIR", tmp_path / "tmp")
+    monkeypatch.setattr(config, "CORPUS_INBOX", tmp_path / "corpus")
     from app import db
     db._settings_cache.clear()
     db.migrate()
