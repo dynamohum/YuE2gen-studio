@@ -1153,6 +1153,106 @@ async function loadVocalIdentities(preferredId, preferredLora) {
 
 var loadVocalPersonas = loadVocalIdentities;
 
+/* The main page says what the app is doing. Renders and plans show on the engine card
+   already; a corpus being prepared works on the CPU lane and says nothing outside its
+   own screen, so closing that screen leaves the app looking idle while it works.
+   This badge is that missing line: the corpus name is not shown because there is one
+   number worth reading — how many of its songs are done. */
+var CORPUS_POLL_BUSY = 4000;
+var CORPUS_POLL_IDLE = 30000;
+
+function corpusProgressOf(detail) {
+  var sum = detail.summary || {};
+  return {
+    id: detail.id,
+    name: detail.name,
+    done: Number(sum.analysed) || 0,
+    total: Number(sum.included) || 0,
+    busy: Boolean(detail.busy)
+  };
+}
+
+/* The page's HTML is read into memory once at start-up, so a change to it needs a
+   restart; the scripts and styles are read from disk every time. This builds the
+   badge when the markup does not have it yet, so the page and the script can be
+   deployed separately and the badge appears either way. */
+function corporaBadge() {
+  var button = $('corpora-badge');
+  if (button) { return button; }
+  var right = document.querySelector('.topbar-right');
+  if (!right) { return null; }
+  button = document.createElement('button');
+  button.id = 'corpora-badge';
+  button.className = 'pill corpora hidden';
+  button.title = 'Corpora, and what the app is preparing';
+  button.innerHTML = '<span class="corpora-dot" aria-hidden="true"></span>' +
+    '<span id="corpora-text">Corpora</span>';
+  right.insertBefore(button, right.firstChild);
+  button.addEventListener('click', function () {
+    openIdentities();
+    if (State.openCorpus) { showIdentity(State.openCorpus); }
+  });
+  return button;
+}
+
+function paintCorporaBadge() {
+  var button = corporaBadge();
+  if (!button) { return; }
+  var progress = State.corpusProgress || {};
+  var ids = Object.keys(progress);
+  if (!ids.length) {
+    button.classList.add('hidden');
+    button.classList.remove('shown');
+    return;
+  }
+  var busy = null;
+  var unfinished = null;
+  ids.forEach(function (id) {
+    var item = progress[id];
+    if (item.busy && !busy) { busy = item; }
+    if (item.total && item.done < item.total && !unfinished) { unfinished = item; }
+  });
+  var shown = busy || unfinished;
+  State.openCorpus = shown ? shown.id : null;
+  button.classList.remove('hidden');
+  button.classList.add('shown');
+  button.classList.toggle('busy', Boolean(busy));
+  var text = 'Corpora';
+  if (shown) {
+    text += ' <span class="count">' + shown.done + ' of ' + shown.total + '</span>';
+  }
+  if ($('corpora-text').innerHTML !== text) { $('corpora-text').innerHTML = text; }
+  button.title = busy
+    ? busy.name + ': ' + busy.done + ' of ' + busy.total + ' songs analysed. Click to open it.'
+    : (shown ? shown.name + ': ' + shown.done + ' of ' + shown.total + ' analysed. Click to open it.'
+             : 'Your corpora. Click to open them.');
+}
+
+async function pollCorpora() {
+  var busy = false;
+  try {
+    IDENTITIES_LIST = await api('/api/identities');
+  } catch (err) {
+    return;
+  }
+  var progress = {};
+  for (var i = 0; i < IDENTITIES_LIST.length; i++) {
+    var id = IDENTITIES_LIST[i].id;
+    try {
+      var detail = await api('/api/identities/' + id);
+      progress[id] = corpusProgressOf(detail);
+      IDENTITIES_LIST[i] = detail;      // the list route carries no progress
+      if (detail.busy) { busy = true; }
+    } catch (err) { /* leave this one out rather than lie about it */ }
+  }
+  State.corpusProgress = progress;
+  PERSONAS_LIST = IDENTITIES_LIST;
+  paintCorporaBadge();
+  if (typeof paintStyleLoras === 'function') { paintStyleLoras(); }
+  clearTimeout(State.corpusTimer);
+  State.corpusTimer = setTimeout(pollCorpora, busy ? CORPUS_POLL_BUSY : CORPUS_POLL_IDLE);
+}
+
 function identityName(id) {
   if (!id) { return null; }
   for (var i = 0; i < IDENTITIES_LIST.length; i++) {
@@ -4009,6 +4109,8 @@ function wire() {
   });
   $('source-delete').addEventListener('click', deleteSource);
   $('start-fresh').addEventListener('click', startFresh);
+  corporaBadge();
+  pollCorpora();
   var openBtn = $('identities-open') || $('personas-open');
   if (openBtn) { openBtn.addEventListener('click', openIdentities); }
   var closeBtn = $('identities-close') || $('personas-close');

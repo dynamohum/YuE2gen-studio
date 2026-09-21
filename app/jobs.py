@@ -688,6 +688,28 @@ async def _run_graph(kind: str, ref_id: str, graph: dict) -> dict:
         CANCELLED.discard(ref_id)
 
 
+def _without_tags(src: Path, folder: Path) -> Path:
+    """A copy of the audio with its tags dropped, or the original if that fails.
+
+    The engine reads audio with PyAV, and a tag it cannot decode raises inside it:
+    an mp3 carrying a mangled lyrics frame failed the whole score step with
+    "UnicodeDecodeError: 'utf-8' codec can't decode byte 0xfe".  ffmpeg reads the
+    same file happily, and nothing here wants the tags, so they go before the
+    upload."""
+    dest = folder / ("engine-copy" + src.suffix)
+    try:
+        subprocess.run(
+            ["ffmpeg", "-v", "error", "-y", "-i", str(src), "-map_metadata", "-1",
+             "-c", "copy", str(dest)],
+            check=True, capture_output=True, timeout=120,
+        )
+        if dest.exists() and dest.stat().st_size > 0:
+            return dest
+    except (subprocess.SubprocessError, OSError) as exc:
+        log.warning("could not strip the tags from %s: %s", src.name, exc)
+    return src
+
+
 async def _upload(path: Path, name: str) -> str:
     data = await asyncio.to_thread(path.read_bytes)
     result = await ENGINE.upload(name, data)
@@ -708,7 +730,9 @@ async def run_identity_job(kind: str, song_id: str) -> None:
     folder = Path(song["stored_path"]).parent
     try:
         if kind in ("identity_score", "persona_score"):
-            name = await _upload(Path(song["stored_path"]), f"identity-{song_id}{Path(song['stored_path']).suffix}")
+            source = Path(song["stored_path"])
+            staged = await asyncio.to_thread(_without_tags, source, folder)
+            name = await _upload(staged, f"identity-{song_id}{source.suffix}")
             job = await _run_graph(kind, song_id, build_transcribe_graph(name))
             abc = extract_text_output(job, "SheetSage2AudioToABC", "PreviewAny") or ""
             (folder / "score.abc").write_text(abc, encoding="utf-8")

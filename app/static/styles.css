@@ -89,6 +89,18 @@ a, .link {
 }
 .version { font-size: 12px; color: var(--muted); margin-right: 12px; letter-spacing: 0.02em; }
 .pill-on { color: var(--good); border-color: rgba(52, 211, 153, 0.35); }
+
+/* The main page says what the app is doing. A corpus being prepared works on the CPU
+   lane, so the engine pill knows nothing about it and its own screen has to be open
+   to see any progress. This is the one place that says so from anywhere. */
+.corpora { cursor: pointer; font: inherit; display: none; align-items: center; gap: 7px; }
+.corpora.shown { display: inline-flex; }
+.corpora .corpora-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex: 0 0 auto; }
+.corpora.busy { color: var(--good); border-color: rgba(52, 211, 153, 0.35); }
+.corpora.busy .corpora-dot { background: var(--good); animation: corpora-pulse 1.5s ease-in-out infinite; }
+@keyframes corpora-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.2; } }
+.corpora .count { color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { .corpora.busy .corpora-dot { animation: none; } }
 .pill-off { color: var(--bad); border-color: rgba(248, 113, 113, 0.35); }
 
 /* ---------- layout ---------- */
