@@ -3870,9 +3870,11 @@ function wire() {
   });
 
   $('source-select').addEventListener('change', function () {
-    claimEditorFor(null);
+    // Choosing a recording the box's take did not come from lets go of that take:
+    // its words and its score are not this recording's, and covering one with the
+    // other's score is how a render came out as a different song.
+    if (scoreTakeId() && !boxShowsSource($('source-select').value)) { setSelection({}); }
     paintSource();
-    saveForm();
   });
   $('transcribe').addEventListener('click', doTranscribe);
   $('create-cover').addEventListener('click', doRender);
