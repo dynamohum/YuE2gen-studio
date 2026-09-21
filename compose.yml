@@ -63,6 +63,10 @@ services:
       # has its copy.  Leave both lines out and renders accumulate there instead.
       ENGINE_OUTPUT_DIR: /engine-output
       ENGINE_INPUT_DIR: /engine-input
+      # Where the transcriber Analyse uses keeps its weights.  Without this they are
+      # downloaded into the container, about 1.6 GB, and fetched again after every
+      # rebuild.
+      HF_HOME: /data/models/whisper
       # Host names the page may be reached by.  Add a LAN name or address here if
       # you publish the port beyond localhost.
       ALLOWED_HOSTS: localhost,127.0.0.1,::1
@@ -79,6 +83,7 @@ services:
       - ./models/loras:/app/models/loras
       # The engine's input folder, so a training set can be put where the engine reads.
       - ./engine-state/input:/engine-input
+      - ./data/models/whisper:/data/models/whisper
       - /mnt/h:/mnt/h:ro
       - /mnt/h:/import:ro
     logging:
