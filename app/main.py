@@ -1401,8 +1401,6 @@ async def install_identity_lora(
     return result
 
 
-@app.post("/api/identities/{identity_id}/export")
-@app.post("/api/personas/{identity_id}/export", include_in_schema=False)
 def _training_run() -> dict | None:
     """The LoRA being trained, if there is one: it holds the whole GPU."""
     return one("SELECT * FROM lora_runs WHERE state IN ('queued', 'running') ORDER BY started_at IS NULL, started_at DESC LIMIT 1")
@@ -1477,6 +1475,8 @@ async def cancel_lora_run(run_id: str) -> dict:
     return {"cancelled": True}
 
 
+@app.post("/api/identities/{identity_id}/export")
+@app.post("/api/personas/{identity_id}/export", include_in_schema=False)
 async def export_identity(identity_id: str) -> dict:
     """Write the training set: per included song, the audio as FLAC, its lyrics and
     its style caption.  Songs without a copy yet are skipped and listed."""
