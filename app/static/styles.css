@@ -183,7 +183,7 @@ textarea.lyrics { min-height: 200px; font-family: ui-monospace, SFMono-Regular, 
 .filters .chip.danger { color: #ff8fa3; border-color: rgba(217, 45, 75, 0.6); }
 .filters .chip.danger:hover { background: rgba(217, 45, 75, 0.18); color: #fff; }
 /* The pick box on a card, for deleting several at once. */
-.take .pick { display: flex; align-items: center; padding: 2px 2px 2px 0; flex: 0 0 auto; cursor: pointer; }
+.take .pick { display: flex; align-items: center; flex: 0 0 auto; cursor: pointer; margin-left: -5px; }
 .take .pick input { width: 17px; height: 17px; accent-color: #d92d4b; cursor: pointer; }
 .take.picked { border-color: rgba(217, 45, 75, 0.6); }
 
