@@ -19,6 +19,10 @@ from . import config
 
 log = logging.getLogger("yue2.engine")
 
+# How often the engine's checkpoints and LoRAs are read again. A model file added or
+# removed by hand is otherwise invisible until the app restarts.
+OPTIONS_EVERY = 300
+
 STAGE_LABELS = {
     "LoadAudio": "Loading source",
     "AudioEncoderLoader": "Loading transcriber",
@@ -161,6 +165,7 @@ class Engine:
         self.options: dict[str, Any] = {"checkpoints": [], "audio_encoders": [], "harmony": False, "lyrics": False,
                                         "instrumental": False}
         self.options_loaded = False
+        self._options_task: asyncio.Task[None] | None = None
         self.compat: dict[str, Any] = {"ok": False, "missing": [], "notes": []}
         # Refreshed by the keeper, so page polls never wait on the engine.
         self.stats: dict[str, Any] | None = None
@@ -174,6 +179,7 @@ class Engine:
         setup, is picked up by the keeper when it answers."""
         self.client = httpx.AsyncClient(base_url=self.url, timeout=httpx.Timeout(30.0, connect=4.0))
         self._ws_task = asyncio.create_task(self._ws_loop())
+        self._options_task = asyncio.create_task(self._options_loop())
         await self.refresh_status()
         if self.online:
             try:
@@ -182,6 +188,8 @@ class Engine:
                 log.warning("engine options not read at startup: %s", exc)
 
     async def close(self) -> None:
+        if self._options_task:
+            self._options_task.cancel()
         if self._ws_task:
             self._ws_task.cancel()
         if self.client:
@@ -352,6 +360,21 @@ class Engine:
     def forget(self, prompt_id: str) -> None:
         self.progress.pop(prompt_id, None)
         self.graphs.pop(prompt_id, None)
+
+    async def _options_loop(self) -> None:
+        """Look at the engine's lists again, now and then.
+
+        They are read once at start-up: a LoRA put into models/loras, or taken out,
+        went unnoticed until the app was restarted.  Five minutes is often enough
+        for a model file that changes by hand, and one request costs nothing."""
+        while True:
+            await asyncio.sleep(OPTIONS_EVERY)
+            if not self.online:
+                continue
+            try:
+                await self.refresh_options()
+            except Exception as exc:  # noqa: BLE001
+                log.debug("engine options not re-read: %s", exc)
 
     async def _ws_loop(self) -> None:
         import websockets

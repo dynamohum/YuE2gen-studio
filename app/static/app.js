@@ -365,6 +365,8 @@ function loraShortLabel(name) {
    to click, because it has to reach the style box to do anything. */
 function paintStyleLoraNote() {
   var item = loraChosen();
+  // The list is read from the engine, so a file added by hand needs a nudge. The app
+  // looks again every five minutes; this is for when five minutes is too long.
   var hint = $('style-lora-hint');
   if (!item) {
     hint.innerHTML = 'Planner shapes the score, Sound shapes the audio.';
@@ -377,7 +379,25 @@ function paintStyleLoraNote() {
       : '<b>' + esc(item.trigger) + '</b> goes in the style when you render.');
   }
   if (item.note) { parts.push(esc(plainNote(item.note)).replace(/\n/g, '<br>')); }
-  hint.innerHTML = parts.join('<br>') || 'Planner shapes the score, Sound shapes the audio.';
+  parts.push('<button class="link" id="lora-reload" type="button">Look for new LoRAs</button>');
+  hint.innerHTML = parts.join('<br>');
+}
+
+/* The engine's list is read once, and looked at again every few minutes. A file
+   added by hand can wait; this is for when it should not. */
+async function reloadLoras() {
+  var button = $('lora-reload');
+  if (button) { button.textContent = 'Looking\u2026'; }
+  try {
+    var found = await api('/api/engine/reload-options', { method: 'POST' });
+    await pollState();
+    paintStyleLoras();
+    statusLine('The engine lists ' + found.loras + ' LoRAs.', 'good');
+  } catch (err) {
+    statusLine('Could not read the engine\u2019s list: ' + err.message, 'bad');
+    var again = $('lora-reload');
+    if (again) { again.textContent = 'Look for new LoRAs'; }
+  }
 }
 
 function paintStyleLoraStrengths() {
@@ -4345,6 +4365,9 @@ function wire() {
   $('auto-render').addEventListener('change', saveForm);
   $('seed-fixed').addEventListener('change', saveForm);
   $('realaudio').addEventListener('change', saveForm);
+  $('style-lora-field').addEventListener('click', function (event) {
+    if (event.target.closest('#lora-reload')) { reloadLoras(); }
+  });
   $('style-lora').addEventListener('change', function () {
     var item = loraChosen();
     applyLoraTrigger(item && item.trigger);

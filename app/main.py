@@ -1186,6 +1186,18 @@ def import_browse(path: str | None = None) -> dict:
         raise HTTPException(400, str(exc)) from exc
 
 
+@app.post("/api/engine/reload-options")
+async def reload_engine_options() -> dict:
+    """Read the engine's lists again, for a model file that changed by hand."""
+    try:
+        await ENGINE.refresh_options()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(503, f"the engine did not answer: {exc}")
+    options = ENGINE.options or {}
+    return {"checkpoints": len(options.get("checkpoints") or []),
+            "loras": len(options.get("loras") or [])}
+
+
 @app.get("/api/identities")
 @app.get("/api/personas", include_in_schema=False)
 def list_identities() -> list[dict]:
