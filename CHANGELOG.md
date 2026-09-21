@@ -3,13 +3,20 @@
 Versions are git tags on `master`. The number lives in `VERSION`, which is copied into the
 app image and shown in the header, so a running container can be identified at a glance.
 
+**Every deploy bumps `VERSION`; only a release gets a tag.** The number in the header says
+which build is running, so it moves with each change deployed. A tag, an entry here and a push are
+for a milestone worth naming, and are cut only when asked for — not for every update.
+
+To deploy a change:
+
+1. Merge to `master`, bump `VERSION`, redeploy.
+
 To cut a release:
 
-1. Bump `VERSION`.
-2. Add an entry here, newest first.
-3. `git commit -am "Release vX.Y.Z" && git tag vX.Y.Z`
-4. `git push origin master --tags`   (homer only, unless GitHub is wanted)
-5. For a public release: `git push github master --tags` and
+1. Add an entry here, newest first.
+2. `git tag -a vX.Y.Z -m "..."`
+3. `git push origin master --tags`   (homer only, unless GitHub is wanted)
+4. For a public release: `git push github master --tags` and
    `gh release create vX.Y.Z --title vX.Y.Z --notes "..."`
 
 Release notes live in two places and neither is a file in this repository: this changelog holds the
