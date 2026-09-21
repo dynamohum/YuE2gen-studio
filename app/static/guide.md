@@ -261,6 +261,22 @@ half, and it starts at **0**.
 
 ---
 
+## Copyright and consent
+
+What you train on, and what you do with the result, is your responsibility under the law where you
+live. The app asks you to declare it and does not check it: creating an Identity requires you to
+confirm that the recordings are your own voice, or that the singer has given permission.
+
+Two facts are worth knowing:
+
+- The YuE2 weights are **CC BY-NC 4.0** — non-commercial use, whatever you train from them.
+- Training privately on a corpus and publishing the LoRA or its output are different acts. The second
+  is the one that usually needs permission: from whoever holds the rights in the recordings, and for
+  a recognisable voice, from the singer.
+
+LoRAs you did not train yourself carry their own licences. `models/loras/SOURCES.md` records them
+for the collection installed here.
+
 ## Style LoRAs
 
 A LoRA is a small file that leans the model towards a sound. Put one in `models/loras/`, restart the
