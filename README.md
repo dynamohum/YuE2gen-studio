@@ -259,9 +259,6 @@ git push github master --tags     # only when a public release is wanted
 gh release create vX.Y.Z --title vX.Y.Z --notes-file notes.md
 ```
 
-Commit messages say what the change does, in a sentence or two. They describe the code, not the
-conversation that led to it: no references to earlier work, and no account of what was changed from.
-
 PDFs in the top-level folder are git ignored and never go to GitHub: a pre-push hook refuses a
 GitHub push carrying a commit with one. Enable the hook once per clone:
 
