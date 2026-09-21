@@ -9,7 +9,10 @@ Work on a branch, and use the test instance rather than production:
    on <http://localhost:8092>, on the production image with its own copy of the library.
 3. Merge to `master` and redeploy once the change has been used and approved.
 
-## Before pushing
+## Tests
+
+They run in the app image, which already has ffmpeg and the pinned packages. No GPU and no engine
+are needed: the job lanes run against a fake engine.
 
 ```sh
 docker run --rm -v "$PWD":/src -w /src --user 1000:1000 -e HOME=/tmp yue2studio-app:latest \
@@ -18,38 +21,23 @@ npx eslint@9 app/static/app.js
 node tools/selection-harness.mjs
 ```
 
+`tools/selection-harness.mjs` checks who owns the left column after each way of changing it, offline,
+in about a second. `tools/ui-harness.mjs` drives the real page against a running deployment and
+creates takes, so delete them afterwards.
+
 ## Commit messages
 
 Say what the change does, in a sentence or two. Describe the code, not the conversation that led to
 it: no references to earlier work, and no account of what was changed from.
 
-## Releases
+## Releases and pushing
 
-The procedure is at the top of [CHANGELOG.md](CHANGELOG.md). Every deployed change bumps `VERSION`;
-a tag, a changelog entry and a push to the GitHub remote are for a release. `origin` is the
-author's own server and takes every commit.
+`VERSION` holds the version and the app shows it in the header, so a running container can be
+identified without guessing. Every deployed change bumps it.
 
-## Tests
-
-The tests run in the app image, which already has ffmpeg and the pinned packages:
-
-```sh
-docker run --rm -v "$PWD":/src -w /src --user 1000:1000 -e HOME=/tmp yue2studio-app:latest \
-  sh -c "pip install -q --user -r requirements-dev.txt && python -m pytest -q tests"
-npx eslint@9 app/static/app.js
-```
-
-They need no GPU and no engine: the job lanes run against a fake engine.
-
-
-## Versioning and where it is pushed
-
-- `VERSION` holds the version, and the app shows it in the header, so a running container can be
-  identified without guessing.
-- Releases are git tags on `master`, each with an entry in `CHANGELOG.md`.
-- `origin` is the author's own git server. Commits go there by default and nowhere else.
-- `github` points at <https://github.com/dynamohum/YuE2gen-studio>. Nothing is pushed there unless it is
-  asked for:
+A release is a tag on `master`, an entry in [CHANGELOG.md](CHANGELOG.md) and a push to GitHub. The
+procedure is at the top of that file. `origin` is the author's own git server: commits go there by
+default and nowhere else.
 
 ```sh
 git push origin master --tags     # the default
@@ -64,20 +52,17 @@ GitHub push carrying a commit with one. Enable the hook once per clone:
 git config core.hooksPath tools/git-hooks
 ```
 
-
 ## The engine pin
 
-The engine is built from one pinned ComfyUI commit (`ARG COMFYUI_REF` in
-`engine/Dockerfile`), because a build that changes underneath you is worse than one
-that is slightly old. To see what has changed upstream since, and whether any of it
-touches the YuE2 or audio code this app renders through:
+The engine is built from one pinned ComfyUI commit (`ARG COMFYUI_REF` in `engine/Dockerfile`),
+because a build that changes underneath you is worse than one that is slightly old. To see what has
+changed upstream since, and whether any of it touches the YuE2 or audio code this app renders
+through:
 
 ```sh
 sh scripts/check-upstream.sh
 ```
 
-It prints the pin, upstream's latest commit and release, how many commits behind the
-pin is, and the ritual for moving it: build the candidate beside the live engine,
-render a cover, a song, an instrumental and a lyric draft against it, then move the
-pin in a commit that says what was checked.
-
+It prints the pin, upstream's latest commit and release, how many commits behind the pin is, and the
+ritual for moving it: build the candidate beside the live engine, render a cover, a song, an
+instrumental and a lyric draft against it, then move the pin in a commit that says what was checked.
