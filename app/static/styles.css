@@ -360,6 +360,14 @@ button.icon { width: 42px; padding: 8px 0; text-align: center; }
 
 /* Two class selectors on purpose: .np-cover sets a fallback background further
    down the file, and a plain .grad-* rule would lose to it. */
+/* The panel's own button takes the colour of the kind of song being written. */
+#start-fresh.type-cover { color: var(--cover-a); border-color: rgba(255, 77, 148, 0.5); background: rgba(255, 77, 148, 0.1); }
+#start-fresh.type-cover:hover { background: rgba(255, 77, 148, 0.18); }
+#start-fresh.type-song { color: var(--song-a); border-color: rgba(56, 189, 248, 0.5); background: rgba(56, 189, 248, 0.1); }
+#start-fresh.type-song:hover { background: rgba(56, 189, 248, 0.18); }
+#start-fresh.type-inst { color: var(--inst-a); border-color: rgba(163, 230, 53, 0.5); background: rgba(163, 230, 53, 0.12); }
+#start-fresh.type-inst:hover { background: rgba(163, 230, 53, 0.2); }
+
 .cover.grad-cover, .np-cover.grad-cover { background: linear-gradient(135deg, var(--cover-a), var(--cover-b)); }
 .cover.grad-song, .np-cover.grad-song { background: linear-gradient(135deg, var(--song-a), var(--song-b)); }
 .cover.grad-inst, .np-cover.grad-inst { background: linear-gradient(135deg, var(--inst-a), var(--inst-b)); color: #07140c; }

@@ -1704,7 +1704,10 @@ function setMode(mode) {
   show('create-cover', cover);
   show('create-song', mode === 'song');
   show('create-inst', inst);
-  $('start-fresh').textContent = cover ? 'New cover' : (inst ? 'New instrumental' : 'New song');
+  var button = $('start-fresh');
+  button.textContent = cover ? 'New cover' : (inst ? 'New instrumental' : 'New song');
+  button.classList.remove('type-cover', 'type-song', 'type-inst');
+  button.classList.add(inst ? 'type-inst' : (cover ? 'type-cover' : 'type-song'));
   refreshTitleHint();
   paintPresets();
   if (inst) { paintStructure(); paintFeel(); }
