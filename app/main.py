@@ -1427,6 +1427,18 @@ def take_peaks(take_id: str) -> dict:
     return result
 
 
+@app.get("/api/sources/{source_id}/peaks")
+def source_peaks(source_id: str) -> dict:
+    """The waveform for a recording, cached beside it the way a take's is."""
+    source = one("SELECT stored_path FROM sources WHERE id = ?", (source_id,))
+    if not source or not Path(source["stored_path"]).exists():
+        raise HTTPException(404, "no audio for this recording")
+    result = ensure_peaks(Path(source["stored_path"]))
+    if not result:
+        raise HTTPException(500, "could not read the waveform")
+    return result
+
+
 @app.get("/api/sources/{source_id}/audio")
 def source_audio(source_id: str) -> FileResponse:
     source = one("SELECT stored_path, filename FROM sources WHERE id = ?", (source_id,))

@@ -161,6 +161,13 @@ textarea.lyrics { min-height: 200px; font-family: ui-monospace, SFMono-Regular, 
 }
 .small { font-size: 12px; }
 
+/* The Audition button while the recording is playing. */
+.source-row .ghost.on {
+  color: var(--text);
+  border-color: rgba(123, 92, 255, 0.8);
+  background: rgba(123, 92, 255, 0.18);
+}
+
 /* The score button when there is something to save. */
 #save-score.needs-save {
   color: var(--text);
