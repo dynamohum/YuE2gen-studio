@@ -11,6 +11,10 @@ RELEASE-NOTES-*.md
 # Reports such as the audit PDFs live beside the repo, not in it.
 /*.pdf
 # Working notes, kept on this machine and out of the published repository:
+# The refresh-test-instance script stamps this into whichever code folder it runs,
+# a worktree included, so it turns up untracked in every branch.
+.version-test
+
 # IDEAS.md is research and designs not yet built, HANDOVER.md is the internal
 # tour of the codebase.
 IDEAS.md
