@@ -368,6 +368,12 @@ button.icon { width: 42px; padding: 8px 0; text-align: center; }
   font-size: 12.5px; padding: 5px 11px; border-radius: 999px;
   border: 1px solid var(--line); background: transparent; color: var(--muted); cursor: pointer;
 }
+/* The two layout controls read green, like the other text that shows state. */
+.filters .chip.layout { color: var(--good); border-color: rgba(52, 211, 153, 0.4); }
+.filters .chip.layout:hover {
+  color: var(--good); border-color: rgba(52, 211, 153, 0.7); background: rgba(52, 211, 153, 0.12);
+}
+
 .chip:hover { color: var(--text); border-color: rgba(123, 92, 255, 0.5); }
 .chip.active { color: var(--text); border-color: rgba(123, 92, 255, 0.7); background: rgba(123, 92, 255, 0.12); }
 
