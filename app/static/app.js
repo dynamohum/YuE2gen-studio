@@ -442,6 +442,34 @@ function wakeStyleLoraStrengths() {
   if (hasSound && Number($('style-lora-model').value) === 0) { $('style-lora-model').value = 1; }
 }
 
+/* One strength: an editable number and a slider that agree with each other.  A half
+   the file does not hold has no number to edit, so the box goes empty and says why on
+   hover; the note under the picker says it in words as well. */
+function paintStrengthValue(sliderId, held) {
+  var slider = $(sliderId);
+  var box = $(sliderId + '-value');
+  if (!slider || !box) { return; }
+  box.disabled = !held;
+  if (!held) {
+    box.value = '';
+    box.placeholder = '\u2014';
+    box.title = 'This file holds no ' + (sliderId.indexOf('clip') >= 0 ? 'planner' : 'sound') + ' half';
+    return;
+  }
+  if (document.activeElement !== box) { box.value = Number(slider.value).toFixed(2); }
+  box.title = 'Type an exact strength';
+}
+
+function setStrength(sliderId, value) {
+  var slider = $(sliderId);
+  if (!slider) { return; }
+  var number = Number(value);
+  if (!isFinite(number)) { return; }
+  slider.value = String(Math.max(0, Math.min(3, number)));
+  paintStyleLoraStrengths();
+  saveForm();
+}
+
 function paintStyleLoraStrengths() {
   paintStyleLoraNote();
   var name = $('style-lora').value;
@@ -453,8 +481,10 @@ function paintStyleLoraStrengths() {
   var hasSound = kind === 'both' || kind === 'decoder' || kind === 'unknown';
   $('style-lora-clip').disabled = !hasPlanner;
   $('style-lora-model').disabled = !hasSound;
-  $('style-lora-clip-read').textContent = hasPlanner ? Number($('style-lora-clip').value).toFixed(2) : 'not in this file';
-  $('style-lora-model-read').textContent = hasSound ? Number($('style-lora-model').value).toFixed(2) : 'not in this file';
+  // The number beside each slider is editable: a slider with a 0.05 step is a poor way
+  // to reach 2.35.  Typing sets the slider; the slider updates the number.
+  paintStrengthValue('style-lora-clip', hasPlanner);
+  paintStrengthValue('style-lora-model', hasSound);
 }
 
 /* Adds the chosen LoRA to a request body, or nothing at all when none is
@@ -4521,9 +4551,19 @@ function wire() {
   });
   ['style-lora-model', 'style-lora-clip'].forEach(function (id) {
     $(id).addEventListener('input', function () {
-      $(id + '-read').textContent = Number($(id).value).toFixed(2);
+      paintStrengthValue(id, !$(id).disabled);
       saveForm();
+      paintStyleLoraNote();
     });
+    // The number beside the slider, so an exact strength can be typed rather than
+    // hunted for with the mouse.
+    var box = $(id + '-value');
+    if (box) {
+      box.addEventListener('change', function () { setStrength(id, box.value); });
+      box.addEventListener('keydown', function (event) {
+        if (event.key === 'Enter') { setStrength(id, box.value); box.blur(); }
+      });
+    }
   });
   $('lyrics').addEventListener('input', function () {
     State.formEdited = true;
