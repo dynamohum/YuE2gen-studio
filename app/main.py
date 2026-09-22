@@ -277,10 +277,10 @@ class SongIn(BaseModel):
     persona_id: str | None = Field(None, max_length=64)
     voice_lora: str | None = Field(None, max_length=200)
     voice_lora_strength: float = 1.0
-    voice_lora_clip: float = Field(0.0, ge=0.0, le=2.0)
+    voice_lora_clip: float = Field(0.0, ge=0.0, le=3.0)
     style_lora: str | None = Field(None, max_length=200)
-    style_lora_model: float = Field(1.0, ge=0.0, le=2.0)
-    style_lora_clip: float = Field(1.0, ge=0.0, le=2.0)
+    style_lora_model: float = Field(1.0, ge=0.0, le=3.0)
+    style_lora_clip: float = Field(1.0, ge=0.0, le=3.0)
 
 
 def _style_lora_of(body) -> dict:
@@ -317,10 +317,10 @@ class TakeIn(BaseModel):
     persona_id: str | None = Field(None, max_length=64)
     voice_lora: str | None = Field(None, max_length=200)
     voice_lora_strength: float = 1.0
-    voice_lora_clip: float = Field(0.0, ge=0.0, le=2.0)
+    voice_lora_clip: float = Field(0.0, ge=0.0, le=3.0)
     style_lora: str | None = Field(None, max_length=200)
-    style_lora_model: float = Field(1.0, ge=0.0, le=2.0)
-    style_lora_clip: float = Field(1.0, ge=0.0, le=2.0)
+    style_lora_model: float = Field(1.0, ge=0.0, le=3.0)
+    style_lora_clip: float = Field(1.0, ge=0.0, le=3.0)
 
 
 class InstrumentalIn(BaseModel):
@@ -340,10 +340,10 @@ class InstrumentalIn(BaseModel):
     persona_id: str | None = Field(None, max_length=64)
     voice_lora: str | None = Field(None, max_length=200)
     voice_lora_strength: float = 1.0
-    voice_lora_clip: float = Field(0.0, ge=0.0, le=2.0)
+    voice_lora_clip: float = Field(0.0, ge=0.0, le=3.0)
     style_lora: str | None = Field(None, max_length=200)
-    style_lora_model: float = Field(1.0, ge=0.0, le=2.0)
-    style_lora_clip: float = Field(1.0, ge=0.0, le=2.0)
+    style_lora_model: float = Field(1.0, ge=0.0, le=3.0)
+    style_lora_clip: float = Field(1.0, ge=0.0, le=3.0)
 
 
 class IdentityIn(BaseModel):
