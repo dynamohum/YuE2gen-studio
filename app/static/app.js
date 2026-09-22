@@ -365,8 +365,18 @@ function loraShortLabel(name) {
 /* A file name says nothing about what a LoRA does, so whatever its author
    wrote is shown under the picker, and the trigger word is shown as something
    to click, because it has to reach the style box to do anything. */
+/* Is this one of ours?  A file trained by this app is the experimental kind; one
+   downloaded from elsewhere is not, and calling it experimental would be a lie. */
+function loraTrainedHere(name) {
+  return Boolean(name && corpusLoras()[name]);
+}
+
 function paintStyleLoraNote() {
   var item = loraChosen();
+  var label = document.querySelector('label[for="style-lora"]');
+  if (label) {
+    label.textContent = loraTrainedHere(item && item.name) ? 'Style LoRA \u2014 experimental' : 'Style LoRA';
+  }
   // The list is read from the engine, so a file added by hand needs a nudge. The app
   // looks again every five minutes; this is for when five minutes is too long.
   var hint = $('style-lora-hint');
@@ -391,6 +401,10 @@ function paintStyleLoraNote() {
   if ((kind === 'both' || kind === 'decoder') && Number($('style-lora-model').value) === 0) { asleep.push('Sound'); }
   if (asleep.length) {
     parts.push('<b>' + asleep.join(' and ') + ' at 0.00</b>, so this file is doing nothing.');
+  }
+  if (loraTrainedHere(item.name)) {
+    parts.push('<b>Trained here, and experimental</b>: this may change little, or break the sound ' +
+               'at high strength. See the guide.');
   }
   parts.push('<button class="link" id="lora-reload" type="button">Look for new LoRAs</button>');
   hint.innerHTML = parts.join('<br>');
@@ -2609,7 +2623,7 @@ async function showIdentityList() {
   IDENTITY.id = null;
   clearTimeout(IDENTITY.timer);
   var heading = getIdentityHeading();
-  if (heading) { heading.textContent = 'Identities'; }
+  if (heading) { heading.textContent = 'Corpora'; }
   var back = getIdentityBack();
   if (back) { back.classList.add('hidden'); }
   var list = [];
@@ -2620,8 +2634,10 @@ async function showIdentityList() {
   if (!body) { return; }
   body.innerHTML =
     '<p class="identity-intro persona-intro">A corpus is a folder of recordings, prepared as a training set. ' +
-    'Point at a folder: the app separates each vocal, finds its key and tempo, and drafts its lyrics for you to ' +
-    'check. Then export it and take it to a trainer: the app prepares the set, it does not train.</p>' +
+    'Point at a folder: the app separates each vocal, finds its key and tempo, and drafts its lyrics for you ' +
+    'to check. Then export the set and train it — here, or anywhere else.</p>' +
+    '<p class="hint"><b>Training here is experimental.</b> It runs, and the LoRA it makes may change the ' +
+    'sound very little, or break it up at high strength. The guide has the measurements.</p>' +
     '<button id="identity-new" class="ghost">New corpus</button>' +
     '<div class="identity-cards persona-cards">' + list.map(function (item) {
       return '<div class="identity-card persona-card" data-identity="' + esc(item.id) + '" data-persona="' + esc(item.id) + '"><strong>' + esc(item.name) + '</strong>' +
@@ -2790,13 +2806,10 @@ async function showIdentity(id, preloaded) {
     '</div>' +
     (data.lora ? '<p class="hint">LoRA installed from this corpus: <b>' + esc(data.lora) + '</b>. ' +
       'Choose it in the Style LoRA list to write with it.</p>' : '') +
-    '<p class="hint"><b>Train a LoRA</b> is experimental. It runs properly and writes a real file into ' +
-    '<code>models/loras</code>, ready to choose in the Style LoRA list — but what that file does to the ' +
-    'sound is unreliable: measured on two corpora, it changed little at strength 1, changed the audio ' +
-    'without making it more like the corpus between 1.1 and 1.5, and broke the sound at 2. Describing ' +
-    'the sound in words, or using a style LoRA from elsewhere, still does more.</p>' +
-    '<p class="hint">You can also train it anywhere else: <b>Export training set</b> writes the audio and a ' +
-    'caption per song, and <b>Install a LoRA</b> takes a file back, naming it and giving it this corpus\u2019s ' +
+    '<p class="hint"><b>Training here is experimental.</b> It runs, and the LoRA it makes may change the ' +
+    'sound very little, or break it up at high strength. The guide has the measurements.</p>' +
+    '<p class="hint"><b>Export training set</b> writes the audio and a caption per song — the layout a trainer ' +
+    'reads — and <b>Install a LoRA</b> takes a trained file back, naming it and giving it this corpus\u2019s ' +
     'trigger word.</p>' +
     '<p class="hint">Analyse separates each included song’s vocal, finds its key, tempo and sections with ' +
     'SheetSage, and drafts its lyrics with Whisper, tagged by section. The trainer learns from the ' +
