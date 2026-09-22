@@ -83,7 +83,10 @@ services:
       # Host names the page may be reached by.  Add a LAN name or address here if
       # you publish the port beyond localhost.
       ALLOWED_HOSTS: localhost,127.0.0.1,::1
-      IMPORT_ROOTS: /import,/mnt/h
+      # Optional: Uncomment and adjust to let the corpus picker browse your own music
+      # library alongside the built-in ./data/corpus/ folder. Comma-separated
+      # container paths; each needs a matching read-only volume mount below.
+      # IMPORT_ROOTS: /import
       # Experimental, and off. Only has an effect if the engine above was built with
       # WITH_TRAINER=1; the corpus screen hides the Train button unless both are set.
       # Preparing a corpus, exporting its training set and installing a LoRA trained
@@ -102,8 +105,9 @@ services:
       # The engine's input folder, so a training set can be put where the engine reads.
       - ./engine-state/input:/engine-input
       - ./data/models/whisper:/data/models/whisper
-      - /mnt/h:/mnt/h:ro
-      - /mnt/h:/import:ro
+      # Optional: mount a local music library or external drive for corpus building.
+      # The app only reads from it; nothing in it is changed.
+      # - /path/to/your/music:/import:ro
     logging:
       driver: json-file
       options:

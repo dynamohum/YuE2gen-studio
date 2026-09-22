@@ -31,32 +31,27 @@ RUN pip install "torch==2.9.*" "torchvision==0.24.*" "torchaudio==2.9.*" \
         --index-url https://download.pytorch.org/whl/cu128 \
     && pip install -r requirements.txt
 
-# LoRA training, so a corpus built in the app can be trained from it.  Standalone:
-# it bundles the YuE2 model code it needs and asks for no other custom node.  Pinned
-# to the commit this was tested against, the same way ComfyUI is.
+# LoRA training, so a corpus built in the app can be trained from it.
+# Dual-branch training using ComfyUI-FS_Audio_Suite (joint planner LoRA and decoder LoRA).
+# Standalone: applies to ComfyUI's own YuE2 weights; no other checkpoint is downloaded.
+# Pinned to the commit this was tested against.
 #
-# soundfile is required, not optional: this image's torchaudio cannot decode the
-# FLAC a training set is written as, and the pack falls back to soundfile.  Its other
-# dependency, matplotlib, is only for its optional training-curve node, so it is not
-# installed.
+# librosa, scipy and soundfile are required for audio tokenization and latent storage.
 #
-# EXPERIMENTAL, AND LEFT OUT BY DEFAULT.  What this pack trains does not sound like
-# the corpus it was trained on, for a reason no setting fixes: it adapts only the
-# acoustic branch and conditions it on an empty semantic span, while generation gives
-# that branch the semantic tokens the planner wrote.  The measurements are in
-# IDEAS.md and the reasoning is in app/config.py next to TRAINING_ENABLED.
-#
+# EXPERIMENTAL, AND LEFT OUT BY DEFAULT.
 # To build it in:   docker compose build --build-arg WITH_TRAINER=1 engine
 # and run the app with TRAINING_ENABLED=1.  Both are needed: the app hides the
 # button unless the node is present *and* the flag is set.
 ARG WITH_TRAINER=0
-ARG YUE2_TRAINER_REF=4578039513304149fdfd1c00a22783f06812997f
+ARG FS_AUDIO_REF=26fe2e91d20ebf3531cf053c0c654fd3b849e5de
 RUN if [ "${WITH_TRAINER}" = "1" ]; then \
-        git clone --quiet https://github.com/Starnodes2024/ComfyUI-YuE2-Trainer.git \
-            /app/custom_nodes/ComfyUI-YuE2-Trainer \
-        && git -C /app/custom_nodes/ComfyUI-YuE2-Trainer checkout --quiet ${YUE2_TRAINER_REF} \
-        && rm -rf /app/custom_nodes/ComfyUI-YuE2-Trainer/.git \
-        && pip install "soundfile>=0.12"; \
+        git clone --quiet https://github.com/KytraScript/ComfyUI-FS_Audio_Suite.git \
+            /app/custom_nodes/ComfyUI-FS_Audio_Suite \
+        && git -C /app/custom_nodes/ComfyUI-FS_Audio_Suite checkout --quiet ${FS_AUDIO_REF} \
+        && rm -rf /app/custom_nodes/ComfyUI-FS_Audio_Suite/.git \
+        && sed -i 's/scale": "1.0 (no alpha)".*})/&; os.chmod(path, 0o644)/' \
+            /app/custom_nodes/ComfyUI-FS_Audio_Suite/fs_train/artist.py \
+        && pip install "soundfile>=0.12" "librosa>=0.10" "scipy"; \
     else \
         echo "trainer left out: build with --build-arg WITH_TRAINER=1 to include it"; \
     fi

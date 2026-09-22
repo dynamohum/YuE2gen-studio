@@ -152,6 +152,7 @@ async function pollState() {
     // Hidden rather than disabled: a greyed-out row invites a hunt for how to enable it.
     var corporaRow = $('menu-identities');
     if (corporaRow) { corporaRow.classList.toggle('hidden', !trainingAvailable()); }
+    paintCorporaBadge();
     lockGpuControls();
     if (engine.online && engine.compat && engine.compat.ok) {
       pill.className = 'pill pill-on';
@@ -387,7 +388,7 @@ function paintStyleLoraNote() {
   var item = loraChosen();
   var label = document.querySelector('label[for="style-lora"]');
   if (label) {
-    label.textContent = loraTrainedHere(item && item.name) ? 'Style LoRA \u2014 experimental' : 'Style LoRA';
+    label.textContent = loraTrainedHere(item && item.name) ? 'Style LoRA \u2014 custom' : 'Style LoRA';
   }
   // The list is read from the engine, so a file added by hand needs a nudge. The app
   // looks again every five minutes; this is for when five minutes is too long.
@@ -402,6 +403,9 @@ function paintStyleLoraNote() {
       ? 'Trigger word <b>' + esc(item.trigger) + '</b> is in the style.'
       : '<b>' + esc(item.trigger) + '</b> goes in the style when you render.');
   }
+  if (item.styles && item.styles.length) {
+    parts.push('<b>Learned styles:</b> ' + item.styles.length + ' corpus songs. Click any style chip under the Style box to write in that sound.');
+  }
   if (item.note) { parts.push(esc(plainNote(item.note)).replace(/\n/g, '<br>')); }
   // What the file needs to do anything, and whether it currently is.
   var kind = loraKind(item.name);
@@ -414,9 +418,22 @@ function paintStyleLoraNote() {
   if (asleep.length) {
     parts.push('<b>' + asleep.join(' and ') + ' at 0.00</b>, so this file is doing nothing.');
   }
-  if (loraTrainedHere(item.name)) {
-    parts.push('<b>Trained here, and experimental</b>: this may change little, or break the sound ' +
-               'at high strength. See the guide.');
+  if (State.mode === 'inst') {
+    var clipVal = Number($('style-lora-clip') ? $('style-lora-clip').value : 0);
+    var harmVal = Number($('harmony') ? $('harmony').value : 0);
+    if (clipVal > 0.70 || harmVal > 0) {
+      var warnings = [];
+      if (clipVal > 0.70) { warnings.push('Planner above 0.70 (' + clipVal.toFixed(2) + ')'); }
+      if (harmVal > 0) { warnings.push('Varied harmony'); }
+      parts.push('<span style="color: #f59e0b;">⚠️ <b>Instrumental note:</b> The instrumental model is already active on the planner. ' + warnings.join(' and ') + ' can cause token conflicts during score planning. Recommended: <b>Planner ~0.50–0.60</b> with <b>Familiar</b> harmony.</span>');
+    } else {
+      parts.push('<b>Instrumental note:</b> with the instrumental model active, keeping style Planner around <b>0.50–0.60</b> avoids score planner conflicts.');
+    }
+    if (loraTrainedHere(item.name)) {
+      parts.push('<b>Sound texture:</b> Sound strength around <b>~0.55–0.60</b> applies the corpus acoustic texture cleanly.');
+    }
+  } else if (loraTrainedHere(item.name)) {
+    parts.push('<b>Locally trained dual LoRA</b>: for focused, single-era corpora, strengths around Planner ~0.85 / Sound ~0.80 work well. If the training corpus was diverse across genres or eras, lower strengths like Planner ~0.60 / Sound ~0.50\u20130.55 keep the audio clean while preserving artist character.');
   }
   parts.push('<button class="link" id="lora-reload" type="button">Look for new LoRAs</button>');
   hint.innerHTML = parts.join('<br>');
@@ -450,8 +467,13 @@ function wakeStyleLoraStrengths() {
   var kind = loraKind(name);
   var hasPlanner = kind === 'both' || kind === 'planner' || kind === 'unknown';
   var hasSound = kind === 'both' || kind === 'decoder' || kind === 'unknown';
-  if (hasPlanner && Number($('style-lora-clip').value) === 0) { $('style-lora-clip').value = 1; }
-  if (hasSound && Number($('style-lora-model').value) === 0) { $('style-lora-model').value = 1; }
+  var isInst = State.mode === 'inst';
+  if (hasPlanner && (Number($('style-lora-clip').value) === 0 || (isInst && $('style-lora-clip').value === '1'))) {
+    $('style-lora-clip').value = isInst ? 0.6 : 1;
+  }
+  if (hasSound && Number($('style-lora-model').value) === 0) {
+    $('style-lora-model').value = isInst ? 0.6 : 1;
+  }
 }
 
 /* One strength: an editable number and a slider that agree with each other.  A half
@@ -486,6 +508,7 @@ function setStrength(sliderId, value) {
 
 function paintStyleLoraStrengths() {
   paintStyleLoraNote();
+  paintPresets();
   var name = $('style-lora').value;
   var kind = name ? loraKind(name) : '';
   $('style-lora-strengths').classList.toggle('hidden', !name);
@@ -1349,16 +1372,16 @@ function wireCorporaBadge(button) {
   button.dataset.wired = '1';
   button.addEventListener('click', function () {
     openIdentities();
-    if (State.openCorpus) { showIdentity(State.openCorpus); }
+    var target = State.activeCorpus || State.openCorpus;
+    if (target) { showIdentity(target); }
   });
 }
 
 function paintCorporaBadge() {
   var button = corporaBadge();
   if (!button) { return; }
-  // EXPERIMENTAL: the whole corpus workflow is off unless built in, so its badge
-  // never appears either. Preparing a corpus with no way to train it buys nothing.
-  if (!trainingAvailable()) {
+  // Only hide if options have definitively arrived and training is not available.
+  if (State.options && !trainingAvailable()) {
     button.classList.add('hidden');
     button.classList.remove('shown');
     return;
@@ -1379,10 +1402,21 @@ function paintCorporaBadge() {
     if (item.total && item.done < item.total && !unfinished) { unfinished = item; }
     if (item.started && !started) { started = item; }
   });
-  // Whatever is working, else whatever is unfinished, else one that has been
-  // analysed and stopped: the count stays, so a finished corpus reads 11 of 11.
-  var shown = busy || unfinished || started;
+  var savedActive = null;
+  try { savedActive = localStorage.getItem('yue2_active_corpus'); } catch (e) {}
+  // Active corpus takes precedence: open in view, busy working, unfinished,
+  // recently active/opened, saved in storage, or most recent.
+  var active = (IDENTITY.id && progress[IDENTITY.id]) ||
+               busy ||
+               unfinished ||
+               (State.activeCorpus && progress[State.activeCorpus]) ||
+               (savedActive && progress[savedActive]) ||
+               (State.openCorpus && progress[State.openCorpus]) ||
+               started ||
+               progress[ids[0]];
+  var shown = active || progress[ids[0]];
   State.openCorpus = shown ? shown.id : null;
+  State.activeCorpus = shown ? shown.id : null;
   button.classList.remove('hidden');
   button.classList.add('shown');
   button.classList.toggle('busy', Boolean(busy));
@@ -1391,13 +1425,9 @@ function paintCorporaBadge() {
   // A settled failure is not work in progress, so it gets its own mark rather than
   // a pulse: the count alone would read as a corpus that never finished.
   button.classList.toggle('trouble', failed > 0 && !busy);
-  // One corpus is named, because its name is the useful word. Several, and the name
-  // belongs to whichever is working; when none is, the word is the honest one.
-  var name = shown && (ids.length === 1 || busy || unfinished) ? shown.name : 'Corpora';
+  var name = shown ? shown.name : 'Corpora';
   var text = esc(name || 'Corpora');
-  // A corpus nobody has analysed says nothing worth reading, so the count waits
-  // until there is one.
-  if (shown && shown.started) {
+  if (shown && (shown.started || shown.total)) {
     text += ' <span class="count">' + shown.done + ' of ' + shown.total + '</span>';
   }
   if ($('corpora-text').innerHTML !== text) { $('corpora-text').innerHTML = text; }
@@ -1851,6 +1881,7 @@ function paintHarmony() {
   $('harmony-hint').textContent = available
     ? HARMONY_HINTS[step]
     : 'The engine has no harmony node. Rebuild the engine to use this.';
+  if ($('style-lora') && $('style-lora').value) { paintStyleLoraNote(); }
 }
 
 function setMode(mode) {
@@ -1890,7 +1921,15 @@ function setMode(mode) {
   button.classList.add(inst ? 'type-inst' : (cover ? 'type-cover' : 'type-song'));
   refreshTitleHint();
   paintPresets();
-  if (inst) { paintStructure(); paintFeel(); }
+  if (inst) {
+    paintStructure();
+    paintFeel();
+    if ($('style-lora') && $('style-lora').value && $('style-lora-clip') && $('style-lora-clip').value === '1') {
+      $('style-lora-clip').value = 0.6;
+      paintStyleLoraStrengths();
+    }
+  }
+  paintStyleLoraNote();
   $('source-status').textContent = '';
   var ownedByTake = Boolean(takeIdInEditor());
   if (cover) {
@@ -2086,13 +2125,19 @@ async function doRenderTake() {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ abc: $('abc').value })
     });
-    // The Interpretation menu applies to this render.
+    var payload = {
+      interpretation: $('interpretation').value,
+      realaudio: $('realaudio').checked,
+      style_lora: $('style-lora') ? $('style-lora').value : '',
+      style_lora_model: $('style-lora-model') && !$('style-lora-model').disabled ? parseFloat($('style-lora-model').value) : 0,
+      style_lora_clip: $('style-lora-clip') && !$('style-lora-clip').disabled ? parseFloat($('style-lora-clip').value) : 0
+    };
+    if ($('seed-fixed').checked && !isNaN(parseInt($('seed').value, 10))) {
+      payload.seed = parseInt($('seed').value, 10);
+    }
     await api('/api/takes/' + id + '/render', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        interpretation: $('interpretation').value,
-        realaudio: $('realaudio').checked
-      })
+      body: JSON.stringify(payload)
     });
     setSelection({ formTakeId: takeIdInEditor() || selectedTakeId(), boxKind: 'take', boxId: takeIdInEditor() || selectedTakeId() });
     statusLine('Rendering…');
@@ -2317,6 +2362,34 @@ var PRESETS = {
 };
 
 function paintPresets() {
+  var lora = loraChosen();
+  var wrap = $('lora-presets-wrap');
+  var labelEl = $('lora-presets-label');
+  var loraBox = $('lora-presets');
+  if (wrap && labelEl && loraBox) {
+    if (lora && lora.styles && lora.styles.length) {
+      wrap.classList.remove('hidden');
+      var artistName = lora.family || lora.title || lora.name.replace(/\.safetensors$/, '');
+      labelEl.textContent = 'Learned styles for ' + artistName + ' (click to apply):';
+      var loraHtml = lora.styles.map(function (s) {
+        var prompt = s.prompt || '';
+        if (s.tempo) { prompt += ', ' + s.tempo + ' BPM'; }
+        var genreHint = s.prompt ? s.prompt.split(',')[0].trim() : '';
+        var chipLabel = s.title ? esc(s.title) + (genreHint ? ' <span class="muted">\u00b7 ' + esc(genreHint) + '</span>' : '') : esc(genreHint || s.prompt);
+        var fullTitle = (s.title ? s.title + ': ' : '') + s.prompt + (s.tempo ? ' (' + s.tempo + ' BPM' + (s.key ? ', ' + s.key : '') + ')' : '');
+        return '<button type="button" class="chip lora-style-chip" data-lora-style="' + esc(prompt) + '" data-trigger="' + esc(lora.trigger || '') + '" title="' + esc(fullTitle) + '">' + chipLabel + '</button>';
+      }).join('');
+      if (loraBox.dataset.html !== loraHtml) {
+        loraBox.innerHTML = loraHtml;
+        loraBox.dataset.html = loraHtml;
+      }
+    } else {
+      wrap.classList.add('hidden');
+      loraBox.innerHTML = '';
+      loraBox.dataset.html = '';
+    }
+  }
+
   var list = State.mode === 'inst' ? PRESETS.inst : PRESETS.vocal;
   var html = list.map(function (text) {
     var label = State.mode === 'inst' ? text.split(',')[0] : (text.split(',')[1] || text);
@@ -2830,10 +2903,71 @@ function songDetail(song) {
     '</div></div>';
 }
 
+function renderIdentityActions(data) {
+  var sum = data.summary || {};
+  var included = sum.included || 0;
+  var analysed = sum.analysed || 0;
+  var isAnalysed = included > 0 && analysed >= included;
+  var isAnalysing = Boolean(data.busy && !isAnalysed);
+  var isExported = Boolean(data.exported_at);
+  var isTrained = Boolean(data.lora);
+  var isTraining = Boolean(State.training && State.training.identity_id === data.id);
+
+  // Determine current active step (1: analyse, 2: export, 3: train, 4: all done)
+  var nextStep = 1;
+  if (isAnalysed) {
+    nextStep = isExported ? 3 : 2;
+  }
+  if (isTrained) {
+    nextStep = 4;
+  }
+
+  // 1. Analyse button
+  var analyseLabel = isAnalysing ? 'Analysing\u2026' : (isAnalysed ? 'Analysed \u2713' : 'Analyse');
+  var analyseClass = 'ghost' + (isAnalysed ? ' done' : (nextStep === 1 ? ' next-step' : ''));
+  var analyseTitle = isAnalysed ? 'All ' + included + ' songs analysed (click to re-analyse)' : 'Analyse vocals, chords, key, tempo and lyrics';
+
+  // 2. Export button
+  var exportLabel = isExported ? 'Exported \u2713' : 'Export training set';
+  var exportClass = 'ghost' + (isExported ? ' done' : (nextStep === 2 ? ' next-step' : ''));
+  var exportDisabled = (!isAnalysed && !isExported) ? ' disabled' : '';
+  var exportTitle = isExported ? 'Training set exported (click to export again)' : (isAnalysed ? 'Export audio and captions for training' : 'Analyse songs first');
+
+  // 3. Train button (if training available)
+  var trainHtml = '';
+  if (trainingAvailable()) {
+    var trainLabel = isTraining ? 'Training\u2026' : (isTrained ? 'Trained \u2713' : 'Train a LoRA');
+    var trainClass = 'ghost' + (isTrained ? ' done' : (nextStep === 3 ? ' next-step' : ''));
+    var trainDisabled = (!isExported || isTraining) ? ' disabled' : '';
+    var trainTitle = isTrained ? 'LoRA trained (' + esc(data.lora) + '). Click to re-train.' : (isExported ? 'Train a dual-branch LoRA from this corpus' : 'Export the training set first');
+    trainHtml = '<span class="pipeline-sep">\u203a</span><button id="identity-train" class="' + trainClass + '"' + trainDisabled + ' title="' + trainTitle + '">' + trainLabel + '</button>';
+  }
+
+  return '<div class="identity-actions persona-actions">' +
+    '<div class="identity-pipeline">' +
+      '<button id="identity-analyse" class="' + analyseClass + '"' + (isAnalysing ? ' disabled' : '') + ' title="' + analyseTitle + '">' + analyseLabel + '</button>' +
+      '<span class="pipeline-sep">\u203a</span>' +
+      '<button id="identity-export" class="' + exportClass + '"' + exportDisabled + ' title="' + exportTitle + '">' + exportLabel + '</button>' +
+      trainHtml +
+    '</div>' +
+    '<div class="identity-utils">' +
+      '<button id="identity-edit-open" class="ghost small">Edit</button>' +
+      '<button id="identity-install" class="ghost small" title="Install an external LoRA safetensors file">Install a LoRA</button>' +
+      '<button id="identity-delete" class="ghost small danger">Delete corpus</button>' +
+    '</div>' +
+    '<input id="identity-lora-file" type="file" accept=".safetensors" class="hidden">' +
+    '<span id="identity-status" class="status"></span>' +
+  '</div>';
+}
+
 async function showIdentity(id, preloaded) {
   IDENTITY.view = 'identity';
   IDENTITY.id = id;
   IDENTITY.open = {};
+  State.activeCorpus = id;
+  State.openCorpus = id;
+  try { localStorage.setItem('yue2_active_corpus', id); } catch (e) {}
+  paintCorporaBadge();
   var back = getIdentityBack();
   if (back) { back.classList.remove('hidden'); }
   var data = preloaded || await api('/api/identities/' + id);
@@ -2845,36 +2979,18 @@ async function showIdentity(id, preloaded) {
   body.innerHTML =
     '<div id="identity-summary" class="identity-summary persona-summary">' + identitySummary(data) + '</div>' +
     '<div id="identity-edit" class="identity-form persona-form hidden"></div>' +
-    '<div class="identity-actions persona-actions">' +
-      '<button id="identity-edit-open" class="ghost">Edit</button>' +
-      '<button id="identity-analyse" class="ghost">Analyse</button>' +
-      '<button id="identity-export" class="ghost">Export training set</button>' +
-      /* EXPERIMENTAL, off unless built in: without the trainer in the engine image
-         and TRAINING_ENABLED set, the button is not offered at all rather than
-         offered and refused. Everything else here works and stays. */
-      (trainingAvailable()
-        ? '<button id="identity-train" class="ghost"' + (data.exported_at ? '' : ' disabled') +
-          ' title="' + (data.exported_at ? 'Train a LoRA from this corpus' : 'Export the training set first') +
-          '">Train a LoRA</button>'
-        : '') +
-      '<button id="identity-install" class="ghost">Install a LoRA</button>' +
-      '<button id="identity-delete" class="ghost">Delete corpus</button>' +
-      '<input id="identity-lora-file" type="file" accept=".safetensors" class="hidden">' +
-      '<span id="identity-status" class="status"></span>' +
-    '</div>' +
+    renderIdentityActions(data) +
     (data.lora ? '<p class="hint">LoRA installed from this corpus: <b>' + esc(data.lora) + '</b>. ' +
       'Choose it in the Style LoRA list to write with it.</p>' : '') +
     (trainingAvailable()
-      ? '<p class="hint"><b>Training here is experimental.</b> It runs, and the LoRA it makes may change the ' +
-        'sound very little, or break it up at high strength. The guide has the measurements.</p>'
+      ? '<p class="hint"><b>Dual-branch LoRA training:</b> Trains a combined Planner LoRA (musical structure and chords) and Sound LoRA (audio timbre). For focused single-era corpora, strengths around Planner ~0.85 / Sound ~0.80 work well; for diverse multi-genre corpora, lower strengths like Planner ~0.60 / Sound ~0.50–0.55 keep the audio clean while preserving artist character.</p>'
       : '') +
-    '<p class="hint"><b>Export training set</b> writes the audio and a caption per song — the layout a trainer ' +
+    '<p class="hint"><b>Export training set</b> writes the audio, lyrics, and style caption per song — the layout a trainer ' +
     'reads — and <b>Install a LoRA</b> takes a trained file back, naming it and giving it this corpus\u2019s ' +
-    'trigger word. Train it with whichever trainer you prefer; what comes back is an ordinary LoRA.</p>' +
+    'trigger word.</p>' +
     '<p class="hint">Analyse separates each included song’s vocal, finds its key, tempo and sections with ' +
-    'SheetSage, and drafts its lyrics with Whisper, tagged by section. The trainer learns from the ' +
-    'audio and the caption, not the words, so what a song needs is <i>some</i> lyrics: one with none is ' +
-    'left out of the training set.</p>' +
+    'SheetSage, and drafts its lyrics with Whisper, tagged by section. Songs with no detected vocals ' +
+    'are automatically tagged as <b>[instrumental]</b> so they train cleanly for instrumental workflows.</p>' +
     '<table class="identity-songs persona-songs"><thead><tr><th></th><th>Song</th><th>Length</th><th>Progress</th><th></th></tr></thead>' +
     '<tbody id="identity-rows">' + data.songs.map(songRow).join('') + '</tbody></table>' +
     '<div id="identity-export-result" class="identity-export persona-export"></div>';
@@ -2894,6 +3010,10 @@ async function pollIdentity() {
     IDENTITY.data = data;
     var sumEl = $('identity-summary') || $('persona-summary');
     if (sumEl) { sumEl.innerHTML = identitySummary(data); }
+    var actionsEl = document.querySelector('.identity-actions');
+    if (actionsEl && (!document.activeElement || !actionsEl.contains(document.activeElement))) {
+      actionsEl.outerHTML = renderIdentityActions(data);
+    }
     data.songs.forEach(function (song) {
       var steps = document.querySelector('[data-steps="' + song.id + '"]');
       if (steps) {
@@ -3026,10 +3146,9 @@ async function identityClick(event) {
       // disabled — and a disabled button says nothing when it is pressed.  It is
       // enabled here rather than redrawing the row, which would clear this message.
       IDENTITY.data.exported_at = IDENTITY.data.exported_at || out.exported_at || 1;
-      var trainBtn = $('identity-train') || $('persona-train');
-      if (trainBtn) {
-        trainBtn.disabled = false;
-        trainBtn.title = 'Train a LoRA from this corpus';
+      var actionsEl = document.querySelector('.identity-actions');
+      if (actionsEl) {
+        actionsEl.outerHTML = renderIdentityActions(IDENTITY.data);
       }
       var expRes = $('identity-export-result') || $('persona-export-result');
       if (expRes) {
@@ -3044,10 +3163,8 @@ async function identityClick(event) {
   if (target.closest('#identity-train') || target.closest('#persona-train')) {
     var included = (IDENTITY.data.songs || []).filter(function (song) { return song.include; }).length;
     if (!confirm('Train a LoRA from ' + included + ' song' + (included === 1 ? '' : 's') + '?\n\n' +
-        'This is experimental: the file it makes may change very little, and at high strength can ' +
-        'damage the sound.\n\n' +
-        'It also takes about 45 minutes, and the GPU is not available for anything else while it runs. ' +
-        'The progress shows on the main screen, where you can stop it.')) { return; }
+        'Note that this can take a long time (maybe hours) and the GPU will not be available to the app for the duration of the training. ' +
+        'Progress is visible on the main screen, where you can monitor or stop it.')) { return; }
     try {
       var started = await api('/api/identities/' + IDENTITY.id + '/train', { method: 'POST' });
       closeIdentities();
@@ -3217,6 +3334,10 @@ function selectTake(take) {
   }
   if (take.realaudio !== undefined) {
     $('realaudio').checked = Boolean(take.realaudio);
+  }
+  if (take.seed != null) {
+    $('seed').value = take.seed;
+    $('seed-fixed').checked = true;
   }
   if (take.style_lora !== undefined) { showStyleLora(take); }
   $('interpretation').value = INTERPRETATIONS[take.interpretation] ? take.interpretation : 'standard';
@@ -3425,10 +3546,13 @@ function paintTakes() {
     }
     if (written && take.variety && take.variety !== 'normal') { meta.push('Plan: ' + take.variety); }
     if (take.style_lora) {
-      var strengths = [take.style_lora_clip, take.style_lora_model];
-      var full = strengths.every(function (n) { return Number(n) === 1; });
-      meta.push('Style: ' + loraLabel(take.style_lora) +
-        (full ? '' : ' (' + strengths.map(function (n) { return Number(n).toFixed(2); }).join('/') + ')'));
+      var kind = loraKind(take.style_lora);
+      var clip = Number(take.style_lora_clip != null ? take.style_lora_clip : 1).toFixed(2);
+      var model = Number(take.style_lora_model != null ? take.style_lora_model : 1).toFixed(2);
+      var str = (kind === 'planner') ? ' (' + clip + ')'
+              : (kind === 'decoder') ? ' (' + model + ')'
+              : ' (' + clip + '/' + model + ')';
+      meta.push('Style: ' + loraLabel(take.style_lora) + str);
     }
     if (take.realaudio) { meta.push('realaudio'); }
     meta.push('seed ' + take.seed);
@@ -3437,7 +3561,7 @@ function paintTakes() {
     if (status === 'running' && take.live) {
       live = '<div class="take-meta">' + esc(take.live.label || 'working') + ' \u00b7 ' + Math.round((take.live.progress || 0) * 100) + '%</div>';
     } else if (status === 'failed') {
-      live = '<div class="take-status failed">' + esc((take.error || 'failed').slice(0, 120)) + '</div>';
+      live = '<div class="take-status failed" title="' + esc(take.error || 'failed') + '">' + esc(take.error || 'failed') + '</div>';
     } else if (status === 'planned') {
       // An instrumental whose plan holds a vocal line is flagged before it is
       // rendered, so the warning arrives while it still saves you something.
@@ -3512,7 +3636,7 @@ function paintTakes() {
           '</label>' +
         '</div>' +
         '<div class="take-headtext">' +
-          '<div class="take-title" title="' + esc(take.title) + '">' + esc(take.title) + '</div>' +
+          '<div class="take-title" data-act="rename" data-id="' + take.id + '" title="Click to rename this take">' + esc(take.title) + '</div>' +
           '<div class="take-meta" title="' + esc(meta.join(' \u00b7 ')) + '">' + esc(meta.join(' \u00b7 ')) + '</div>' +
         '</div>' +
         // Occasional, so small corner buttons rather than tiles in an already full row.
@@ -3624,6 +3748,7 @@ function nudge(seconds) {
   var audio = $('audio');
   if (!audio.duration || !isFinite(audio.duration)) { return; }
   audio.currentTime = Math.max(0, Math.min(audio.duration, audio.currentTime + seconds));
+  updateTimes();
 }
 
 function updateTimes() {
@@ -3638,11 +3763,18 @@ function paintTransport() {
   // owns no take. The button follows the sound, so it shows Pause whenever
   // something is sounding.
   var playing = Boolean(audio.currentSrc || audio.src) && !audio.paused && !audio.ended;
-  $('btn-play').innerHTML = playing
-    ? '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9 5h2.6v14H9zM13.4 5H16v14h-2.6z"/></svg>'
-    : '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.4v13.2L19 12z"/></svg>';
-  $('btn-play').title = playing ? 'Pause' : 'Play';
-  $('btn-play').setAttribute('aria-label', playing ? 'Pause' : 'Play');
+  var playBtn = $('btn-play');
+  if (playBtn) {
+    var playState = playing ? 'pause' : 'play';
+    if (playBtn.dataset.state !== playState) {
+      playBtn.dataset.state = playState;
+      playBtn.innerHTML = playing
+        ? '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9 5h2.6v14H9zM13.4 5H16v14h-2.6z"/></svg>'
+        : '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.4v13.2L19 12z"/></svg>';
+      playBtn.title = playing ? 'Pause' : 'Play';
+      playBtn.setAttribute('aria-label', playing ? 'Pause' : 'Play');
+    }
+  }
   $('btn-repeat').classList.toggle('on', Boolean(audio.loop));
   var take = currentTake();
   $('btn-star').disabled = !take;
@@ -3835,6 +3967,7 @@ function syncWaveRatio() {
 function waveLoop() {
   syncWaveRatio();
   drawWave();
+  updateTimes();
   if (!$('audio').paused && !$('audio').ended) {
     wave.raf = requestAnimationFrame(waveLoop);
   } else {
@@ -3850,6 +3983,7 @@ function stopWaveLoop() {
   if (wave.raf !== null) { cancelAnimationFrame(wave.raf); wave.raf = null; }
   syncWaveRatio();
   drawWave();
+  updateTimes();
 }
 
 function seekFromPointer(event) {
@@ -3861,17 +3995,25 @@ function seekFromPointer(event) {
   audio.currentTime = ratio * audio.duration;
   wave.ratio = ratio;
   drawWave();
+  updateTimes();
 }
 
 function wireTransport() {
   var audio = $('audio');
+  var lastPauseAt = 0;
   $('btn-play').addEventListener('click', function () {
+    var now = Date.now();
     // Pause whatever is sounding, take or stem. Starting something else while a
     // stem plays was the old behaviour and always surprising.
     if (!audio.paused && !audio.ended) {
+      lastPauseAt = now;
       audio.pause();
       if (State.playing) { State.playing = null; paintTakes(); }
       paintTransport();
+      return;
+    }
+    // Prevent accidental rapid double-clicks immediately restarting playback right after pause
+    if (now - lastPauseAt < 300) {
       return;
     }
     var id = currentTakeId();
@@ -3938,6 +4080,7 @@ function wireTransport() {
   ['play', 'pause', 'ended', 'loadedmetadata', 'durationchange', 'seeking'].forEach(function (name) {
     audio.addEventListener(name, function () { updateTimes(); paintTransport(); paintAudition(); });
   });
+  audio.addEventListener('timeupdate', updateTimes);
   paintTransport();
 }
 
@@ -4210,12 +4353,213 @@ async function replanInstead() {
   loadTakes();
 }
 
+/* ------------------------------------------------------------------ Logs viewer */
+var LogsState = {
+  open: false,
+  level: 'ALL',
+  source: 'ALL',
+  search: '',
+  timer: null
+};
+
+function openLogsModal() {
+  LogsState.open = true;
+  var panel = $('logs-panel');
+  if (panel) { panel.classList.remove('hidden'); }
+  var consoleEl = $('logs-console');
+  if (consoleEl && !consoleEl.children.length) { consoleEl.innerHTML = '<div class="logs-empty">Loading logs\u2026</div>'; }
+  fetchLogs();
+  if (LogsState.timer) { clearInterval(LogsState.timer); }
+  LogsState.timer = setInterval(fetchLogs, 1500);
+}
+
+function closeLogsModal() {
+  LogsState.open = false;
+  var panel = $('logs-panel');
+  if (panel) { panel.classList.add('hidden'); }
+  if (LogsState.timer) {
+    clearInterval(LogsState.timer);
+    LogsState.timer = null;
+  }
+}
+
+async function fetchLogs() {
+  if (!LogsState.open) { return; }
+  try {
+    var url = '/api/logs?limit=300';
+    if (LogsState.level && LogsState.level !== 'ALL') {
+      url += '&level=' + encodeURIComponent(LogsState.level);
+    }
+    if (LogsState.source && LogsState.source !== 'ALL') {
+      url += '&source=' + encodeURIComponent(LogsState.source);
+    }
+    if (LogsState.search) {
+      url += '&search=' + encodeURIComponent(LogsState.search);
+    }
+    var res = await fetch(url);
+    if (!res.ok) { return; }
+    var data = await res.json();
+    renderLogs(data.logs || []);
+  } catch (err) { /* quiet on fetch error */ }
+}
+
+function renderLogs(logs) {
+  var consoleEl = $('logs-console');
+  if (!consoleEl) { return; }
+  if (!logs || !logs.length) {
+    consoleEl.innerHTML = '<div class="logs-empty">No logs matching filter.</div>';
+    return;
+  }
+  var html = logs.map(function (entry) {
+    var lvl = esc(entry.level || 'INFO');
+    var badgeClass = lvl === 'WARNING' ? 'WARN' : lvl;
+    var src = esc((entry.source || 'app').toLowerCase());
+    return '<div class="log-row">' +
+      '<span class="log-time">' + esc(entry.timestamp || '') + '</span> ' +
+      '<span class="log-source ' + src + '">' + src + '</span> ' +
+      '<span class="log-badge ' + badgeClass + '">' + badgeClass + '</span> ' +
+      '<span class="log-logger">[' + esc(entry.logger || '') + ']</span> ' +
+      '<span class="log-msg ' + badgeClass + '">' + esc(entry.message || '') + '</span>' +
+      '</div>';
+  }).join('');
+  consoleEl.innerHTML = html;
+  if ($('logs-tail') && $('logs-tail').checked) {
+    consoleEl.scrollTop = consoleEl.scrollHeight;
+  }
+}
+
+function wireLogs() {
+  var openBtn = $('open-logs');
+  if (openBtn) { openBtn.addEventListener('click', openLogsModal); }
+  var menuBtn = $('menu-logs');
+  if (menuBtn) {
+    menuBtn.addEventListener('click', function () {
+      var menu = $('brand-menu');
+      if (menu) { menu.classList.add('hidden'); }
+      openLogsModal();
+    });
+  }
+  var closeBtn = $('logs-close');
+  if (closeBtn) { closeBtn.addEventListener('click', closeLogsModal); }
+  var clearBtn = $('logs-clear');
+  if (clearBtn) {
+    clearBtn.addEventListener('click', function () {
+      var consoleEl = $('logs-console');
+      if (consoleEl) { consoleEl.innerHTML = '<div class="logs-empty">Cleared.</div>'; }
+    });
+  }
+  var popoutBtn = $('logs-popout');
+  if (popoutBtn) {
+    popoutBtn.addEventListener('click', function () {
+      window.open('/logs', 'yue2_logs', 'width=1050,height=750,menubar=no,toolbar=no');
+      closeLogsModal();
+    });
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('.logs-filter-btn'), function (btn) {
+    btn.addEventListener('click', function () {
+      Array.prototype.forEach.call(document.querySelectorAll('.logs-filter-btn'), function (b) {
+        b.classList.remove('active');
+      });
+      btn.classList.add('active');
+      LogsState.level = btn.dataset.level || 'ALL';
+      fetchLogs();
+    });
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('.logs-source-btn'), function (btn) {
+    btn.addEventListener('click', function () {
+      Array.prototype.forEach.call(document.querySelectorAll('.logs-source-btn'), function (b) {
+        b.classList.remove('active');
+      });
+      btn.classList.add('active');
+      LogsState.source = btn.dataset.source || 'ALL';
+      fetchLogs();
+    });
+  });
+  var searchInput = $('logs-search');
+  if (searchInput) {
+    var searchTimer = null;
+    searchInput.addEventListener('input', function () {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(function () {
+        LogsState.search = (searchInput.value || '').trim();
+        fetchLogs();
+      }, 250);
+    });
+  }
+  // Dragging support for moving the logs window anywhere on screen
+  var head = $('logs-panel') ? $('logs-panel').querySelector('.logs-head') : null;
+  var box = $('logs-panel');
+  if (head && box) {
+    var isDragging = false, startX = 0, startY = 0, startLeft = 0, startTop = 0;
+    head.addEventListener('mousedown', function (e) {
+      if (e.target.closest('button, input, a, select, label')) { return; }
+      isDragging = true;
+      var rect = box.getBoundingClientRect();
+      startX = e.clientX;
+      startY = e.clientY;
+      startLeft = rect.left;
+      startTop = rect.top;
+      box.style.position = 'fixed';
+      box.style.left = startLeft + 'px';
+      box.style.top = startTop + 'px';
+      box.style.right = 'auto';
+      box.style.bottom = 'auto';
+      box.style.margin = '0';
+      document.body.style.userSelect = 'none';
+    });
+    document.addEventListener('mousemove', function (e) {
+      if (!isDragging) { return; }
+      var dx = e.clientX - startX;
+      var dy = e.clientY - startY;
+      var maxLeft = window.innerWidth - 100;
+      var maxTop = window.innerHeight - 80;
+      box.style.left = Math.max(10, Math.min(maxLeft, startLeft + dx)) + 'px';
+      box.style.top = Math.max(10, Math.min(maxTop, startTop + dy)) + 'px';
+    });
+    document.addEventListener('mouseup', function () {
+      if (isDragging) {
+        isDragging = false;
+        document.body.style.userSelect = '';
+      }
+    });
+  }
+}
+
 /* ------------------------------------------------------------------ wiring */
 function wire() {
+  wireLogs();
   paintPresets();
+  if ($('lora-presets')) {
+    $('lora-presets').addEventListener('click', function (event) {
+      var button = event.target.closest('[data-lora-style]');
+      if (!button) { return; }
+      var prompt = button.dataset.loraStyle;
+      var trigger = button.dataset.trigger;
+      if (trigger) {
+        $('style').value = trigger + ', ' + prompt;
+      } else {
+        $('style').value = prompt;
+      }
+      $('style').dataset.touched = '1';
+      paintVocals();
+      paintStyleLoraNote();
+      saveForm();
+    });
+  }
   $('presets').addEventListener('click', function (event) {
     var button = event.target.closest('[data-preset]');
-    if (button) { $('style').value = button.dataset.preset; paintVocals(); }
+    if (button) {
+      var item = loraChosen();
+      if (item && item.trigger) {
+        $('style').value = item.trigger + ', ' + button.dataset.preset;
+      } else {
+        $('style').value = button.dataset.preset;
+      }
+      $('style').dataset.touched = '1';
+      paintVocals();
+      paintStyleLoraNote();
+      saveForm();
+    }
   });
   $('vocal-sex').addEventListener('click', function (event) {
     var button = event.target.closest('[data-sex]');
@@ -4507,9 +4851,19 @@ function wire() {
         return;
       }
       selectTake(takeById(id));
+      var payload = {
+        interpretation: $('interpretation').value,
+        realaudio: $('realaudio').checked,
+        style_lora: $('style-lora') ? $('style-lora').value : '',
+        style_lora_model: $('style-lora-model') && !$('style-lora-model').disabled ? parseFloat($('style-lora-model').value) : 0,
+        style_lora_clip: $('style-lora-clip') && !$('style-lora-clip').disabled ? parseFloat($('style-lora-clip').value) : 0
+      };
+      if ($('seed-fixed').checked && !isNaN(parseInt($('seed').value, 10))) {
+        payload.seed = parseInt($('seed').value, 10);
+      }
       await api('/api/takes/' + id + '/render', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ realaudio: $('realaudio').checked })
+        body: JSON.stringify(payload)
       });
       loadTakes();
     }
@@ -4537,12 +4891,40 @@ function wire() {
       var moving = takeById(id);
       if (moving) { openMoveModal(moving); }
     }
+    if (act === 'rename') {
+      var targetTake = takeById(id);
+      if (!targetTake) { return; }
+      var newTitle = prompt('Rename take:', targetTake.title);
+      if (newTitle && newTitle.trim() && newTitle.trim() !== targetTake.title) {
+        try {
+          var updated = await api('/api/takes/' + id + '/rename', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title: newTitle.trim() })
+          });
+          targetTake.title = updated.title;
+          if (selectedTakeId() === id) { $('title').value = updated.title; }
+          paintTakes();
+        } catch (err) {
+          statusLine('Could not rename take: ' + err.message, 'bad');
+        }
+      }
+    }
     if (act === 'again') {
       var previous = takeById(id);
       if (!previous) { return; }
       selectTake(previous);
-      $('seed').value = Math.floor(Math.random() * 4294967295);
+      if (previous.seed != null) {
+        $('seed').value = previous.seed;
+      }
       $('seed-fixed').checked = true;
+      var adv = $('seed') ? $('seed').closest('details') : null;
+      if (adv) { adv.open = true; }
+      $('seed').dispatchEvent(new Event('input', { bubbles: true }));
+      $('seed').dispatchEvent(new Event('change', { bubbles: true }));
+      $('seed-fixed').dispatchEvent(new Event('change', { bubbles: true }));
+      saveForm();
+      statusLine('Loaded settings and seed ' + previous.seed + ' (fixed) from ' + (previous.title || 'take') + '.', 'good');
       var createButton = $({ song: 'create-song', instrumental: 'create-inst' }[previous.kind] || 'create-cover');
       if (createButton) { createButton.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
     }
@@ -4706,6 +5088,7 @@ function wire() {
     if (event.key === 'Escape' && !$('lyrics-modal').classList.contains('hidden')) { closeLyricsEditor(); return; }
     if (event.key === 'Escape' && !$('stems-modal').classList.contains('hidden')) { closeStemsModal(); return; }
     if (event.key === 'Escape' && !$('settings-modal').classList.contains('hidden')) { closeSettings(); return; }
+    if (event.key === 'Escape' && $('logs-panel') && !$('logs-panel').classList.contains('hidden')) { closeLogsModal(); return; }
     if (event.key === 'Escape' && !$('score-modal').classList.contains('hidden')) { closeScoreEditor(); return; }
 
     // Undo and redo of the score, from either box.

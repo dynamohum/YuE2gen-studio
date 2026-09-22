@@ -35,3 +35,21 @@ def test_extractors():
     assert extract_text_output(job, "PreviewAny") == "X:1\nabc"
     assert extract_audio_item(job, "SaveAudioAdvanced")["filename"] == "take.flac"
     assert extract_text_output({}, "PreviewAny") is None
+
+
+def test_train_graph():
+    from app.jobs import train_graph
+    g = train_graph("lora-run1", "dataset1", "test_lora", 50, 64, 32, 3.5)
+    assert g["1"]["class_type"] == "FSAudioLoraLoader"
+    assert g["2"]["class_type"] == "FSAudioModelLoader"
+    assert g["3"]["class_type"] == "FSAudioDatasetBuilder"
+    assert g["3"]["inputs"]["max_minutes"] == 3.5
+    assert g["4"]["class_type"] == "FSAudioRegularizer"
+    assert g["5"]["class_type"] == "FSAudioArtistTrainer"
+    assert g["5"]["inputs"]["steps"] == 50
+    assert g["5"]["inputs"]["rank_planner"] == 64
+    assert g["5"]["inputs"]["rank_decoder"] == 32
+    assert g["5"]["inputs"]["artist_fraction"] == 0.5
+    assert g["5"]["inputs"]["batch_songs"] == 1
+    assert g["7"]["class_type"] == "PreviewAny"
+

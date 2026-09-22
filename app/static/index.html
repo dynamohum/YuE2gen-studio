@@ -26,10 +26,15 @@
         <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         <span>Settings</span>
       </button>
+      <button id="menu-logs" class="menu-item" role="menuitem">
+        <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+        <span>Logs</span>
+      </button>
     </div>
   </div>
   <div class="topbar-right">
     <span id="app-version" class="version"></span>
+    <button id="open-logs" class="pill logs-btn" title="View system logs">Logs</button>
     <div id="engine-pill" class="pill pill-off">Connecting</div>
     <button id="corpora-badge" class="pill corpora hidden" title="Corpora, and what the app is preparing">
       <span class="corpora-dot" aria-hidden="true"></span><span id="corpora-text">Corpora</span>
@@ -114,6 +119,10 @@
     <div class="field">
       <label>Style</label>
       <input id="style" type="text" autocomplete="off">
+      <div id="lora-presets-wrap" class="hidden" style="margin-top: 8px;">
+        <div id="lora-presets-label" class="muted small" style="margin-bottom: 4px;"></div>
+        <div id="lora-presets" class="chips" style="margin-top: 0;"></div>
+      </div>
       <div id="presets" class="chips"></div>
     </div>
 
@@ -290,6 +299,41 @@
     <p class="hint">Saved on the server, so they follow you to any browser.</p>
     <div id="settings-list"></div>
     <div id="settings-note" class="hint"></div>
+  </div>
+</div>
+
+<div id="logs-panel" class="logs-panel hidden" role="region" aria-label="System Logs">
+  <div class="logs-head">
+    <div class="logs-header-left">
+      <span class="logs-drag-handle" title="Drag to move">⋮⋮</span>
+      <strong>System Logs</strong>
+      <div class="logs-filters">
+        <button class="logs-filter-btn active" data-level="ALL">All</button>
+        <button class="logs-filter-btn" data-level="INFO">Info</button>
+        <button class="logs-filter-btn" data-level="WARN">Warn</button>
+        <button class="logs-filter-btn" data-level="ERROR">Error</button>
+      </div>
+      <div class="logs-source-filters">
+        <button class="logs-source-btn active" data-source="ALL">All Sources</button>
+        <button class="logs-source-btn" data-source="app">App</button>
+        <button class="logs-source-btn" data-source="engine">Engine</button>
+      </div>
+    </div>
+    <div class="logs-header-right">
+      <input id="logs-search" type="search" placeholder="Search logs..." autocomplete="off">
+      <label class="logs-tail-label" title="Automatically scroll to newest logs">
+        <input type="checkbox" id="logs-tail" checked> Live
+      </label>
+      <button id="logs-popout" class="ghost logs-tool-btn" title="Open in a separate browser window">↗ Pop out</button>
+      <a id="logs-download-btn" href="/api/logs/download" class="ghost logs-tool-btn" download="yue2studio.log" title="Download log file">Download</a>
+      <button id="logs-clear" class="ghost logs-tool-btn" title="Clear console view">Clear</button>
+      <button id="logs-close" class="ghost modal-close" title="Close logs window" aria-label="Close">&times;</button>
+    </div>
+  </div>
+  <div class="logs-body">
+    <div id="logs-console" class="logs-console" tabindex="0">
+      <div class="logs-empty">No logs available.</div>
+    </div>
   </div>
 </div>
 

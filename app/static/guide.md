@@ -325,6 +325,11 @@ A style LoRA can hold two halves, and the picker shows which ones a file holds:
 A strength the file cannot use is greyed out, and a file this engine cannot load at all is named as
 such rather than failing quietly inside a render.
 
+### Balancing Planner and Sound
+
+- **Cohesive corpora:** A LoRA trained on a single album or unified acoustic sound (e.g. 1960s folk rock) can run higher strengths, typically around **Planner ~0.85 / Sound ~0.80**.
+- **Diverse corpora:** If the training corpus spans multiple genres, production styles, or eras (e.g. acoustic folk, rock, and synth-pop), high Sound weights can cause acoustic clashing. Lower strengths like **Planner ~0.60 / Sound ~0.50–0.55** keep the audio clean and well-separated while retaining the artist's melodic phrasing and vocal character.
+
 ### Trigger words
 
 Most style LoRAs are trained on captions that **begin** with a trigger word, and do very little
@@ -428,6 +433,19 @@ work too.
 Press **YuE2 Studio** in the top left. Settings live on the server, so they follow you to any
 browser and survive a rebuild: the stem format, the separation model, where stems are written, and
 how instrumentals are checked for singing.
+
+---
+
+## System Logs
+
+The app writes a consolidated, real-time log of every major action — score planning, rendering, audio transcription, stem separation, and LoRA training — tagged with `INFO`, `WARN`, and `ERROR` prefixes.
+
+- **In-Browser Console:** Click the **Logs** button in the topbar (or select *Logs* from the brand menu) to open a floating, draggable, and resizable console. It stays open without blocking the page, allowing you to queue takes and monitor generation in real time.
+- **Standalone Window:** Click **↗ Pop out** in the console header (or navigate directly to `/logs`) to open a dedicated log viewer window.
+- **Terminal Tail:** Logs rotate automatically to `data/logs/yue2studio.log` on the host, where you can follow them live:
+  ```bash
+  tail -f data/logs/yue2studio.log
+  ```
 
 ---
 

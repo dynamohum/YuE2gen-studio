@@ -20,3 +20,7 @@ RELEASE-NOTES-*.md
 IDEAS.md
 HANDOVER.md
 TODO.md
+
+# Local machine Docker compose overrides:
+compose.override.yml
+docker-compose.override.yml

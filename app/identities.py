@@ -201,7 +201,12 @@ def transcribe(vocals: Path, on_progress=None, duration: float = 0.0) -> list[di
     if _whisper is None:
         root = config.DATA_DIR / "models" / "whisper"
         root.mkdir(parents=True, exist_ok=True)
-        _whisper = WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8", download_root=str(root))
+        try:
+            _whisper = WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8",
+                                    download_root=str(root), local_files_only=True)
+        except Exception:
+            _whisper = WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8",
+                                    download_root=str(root), local_files_only=False)
     segments, _ = _whisper.transcribe(str(vocals), language="en", vad_filter=True, beam_size=5,
                                       condition_on_previous_text=False)
     lines = []
@@ -291,11 +296,13 @@ def key_and_tempo(abc: str) -> tuple[str | None, int | None]:
     return name, int(tempo.group(1)) if tempo else None
 
 
-def caption(trigger: str, description: str, voice: str, key: str | None, tempo: int | None) -> str:
+def caption(trigger: str, description: str, voice: str, key: str | None, tempo: int | None,
+            style_hint: str = "") -> str:
     """The style caption a trainer reads: the trigger word first, then the sound."""
     # "key of X" and "N BPM" are the forms the FS_Audio dataset builder looks for; with
     # them present it does not append its own, so the key is not stated twice.
-    parts = [trigger.strip(), description.strip(), f"{voice} vocal" if voice else "", f"key of {key}" if key else "",
+    parts = [trigger.strip(), (style_hint or "").strip(), description.strip(),
+             f"{voice} vocal" if voice else "", f"key of {key}" if key else "",
              f"{tempo} BPM" if tempo else ""]
     return ", ".join(p for p in parts if p)
 

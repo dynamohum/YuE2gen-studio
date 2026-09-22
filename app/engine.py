@@ -10,12 +10,13 @@ import json
 import logging
 import time
 import uuid
+import collections
 from pathlib import Path
 from typing import Any
 
 import httpx
 
-from . import config
+from . import config, logging_setup
 
 log = logging.getLogger("yue2.engine")
 
@@ -39,6 +40,8 @@ STAGE_LABELS = {
     "CLIPLoader": "Loading the lyric writer",
     "TextGenerate": "Writing lyrics",
     "LoraLoader": "Loading the instrumental adapter",
+    "FSAudioDatasetBuilder": "Building dataset & tokens",
+    "FSAudioArtistTrainer": "Training artist LoRA (dual-branch)",
     "YuE2TrainingDataset": "Reading the songs",
     "YuE2LoRATrainer": "Training the LoRA",
 }
@@ -52,9 +55,10 @@ STAGE_WEIGHT = {
     "YuE2GenerateABC": 16,
     "YuE2GenerateABCHarmony": 16,
     "YuE2GenerateMusic": 22,
-    # Training is measured: reading and encoding eleven songs takes about twenty five
-    # seconds, then five thousand steps take forty four minutes.  The weights say so,
-    # so the bar is almost still while the set is read and then moves with the steps.
+    # Training is measured: dataset preparation takes a few moments, then
+    # dual-branch flow and CE steps take the bulk of the run.
+    "FSAudioDatasetBuilder": 5,
+    "FSAudioArtistTrainer": 95,
     "YuE2TrainingDataset": 1,
     "YuE2LoRATrainer": 99,
     "EmptyYuE2LatentAudio": 1,
@@ -179,6 +183,7 @@ class Engine:
         self.queue_counts = {"running": 0, "pending": 0}
         self.queue: list[dict[str, Any]] = []
         self._running_since: dict[str, float] = {}
+        self._seen_engine_logs: collections.deque[tuple[Any, Any]] = collections.deque(maxlen=2000)
 
     # ---------- lifecycle ----------
     async def start(self) -> None:
@@ -226,6 +231,35 @@ class Engine:
         raw = queue.json()
         self.queue_counts = {"running": len(raw.get("queue_running", [])), "pending": len(raw.get("queue_pending", []))}
         self.queue = queue_items(raw, self._running_since, time.time())
+        try:
+            raw_logs = await self.client.get("/internal/logs/raw", timeout=2.0)
+            if raw_logs.status_code == 200:
+                self._ingest_engine_entries(raw_logs.json().get("entries") or [])
+        except Exception:
+            pass
+
+    def _ingest_engine_entries(self, entries: list[dict[str, Any]]) -> None:
+        for entry in entries:
+            t = entry.get("t")
+            m = entry.get("m")
+            if not m:
+                continue
+            key = (t, m)
+            if key in self._seen_engine_logs:
+                continue
+            self._seen_engine_logs.append(key)
+            logging_setup.log_engine_entry(m, timestamp=t)
+
+    async def _subscribe_logs(self) -> None:
+        if not self.client:
+            return
+        try:
+            r = await self.client.get("/internal/logs/raw", timeout=4.0)
+            if r.status_code == 200:
+                self._ingest_engine_entries(r.json().get("entries") or [])
+            await self.client.patch("/internal/logs/subscribe", json={"clientId": self.client_id, "enabled": True}, timeout=4.0)
+        except Exception as exc:  # noqa: BLE001
+            log.debug("engine log subscription: %s", exc)
 
     def gpu(self) -> dict[str, Any] | None:
         try:
@@ -255,7 +289,7 @@ class Engine:
                         # EXPERIMENTAL: the trainer node pack is left out of the engine
                         # image unless it is built with --build-arg WITH_TRAINER=1, so
                         # the app can tell whether training is there to offer at all.
-                        "trainer": "YuE2LoRATrainer" in info,
+                        "trainer": "FSAudioArtistTrainer" in info,
                         "loras": loras}
 
         needed = set()
@@ -399,6 +433,7 @@ class Engine:
                 # nothing, and that is not a dropped connection.
                 async with websockets.connect(ws_url, open_timeout=10, ping_interval=20, ping_timeout=20, max_size=None) as ws:
                     log.info("engine websocket connected")
+                    await self._subscribe_logs()
                     async for raw in ws:
                         if isinstance(raw, bytes):
                             continue
@@ -412,8 +447,16 @@ class Engine:
     def _handle_ws(self, msg: dict[str, Any]) -> None:
         kind = msg.get("type")
         data = msg.get("data") or {}
+        if kind == "logs":
+            self._ingest_engine_entries(data.get("entries") or [])
+            return
         pid = data.get("prompt_id")
         rec = self.progress.get(pid or "")
+        if rec is None and kind == "fsaudio.train":
+            for candidate_rec in self.progress.values():
+                if candidate_rec.get("executing") and candidate_rec.get("stage") == "FSAudioArtistTrainer":
+                    rec = candidate_rec
+                    break
         if rec is None:
             return
         if kind == "execution_start":
@@ -438,5 +481,12 @@ class Engine:
             rec["max"] = data.get("max")
             if rec.get("max"):
                 rec["frac"] = float(rec["value"] or 0) / float(rec["max"])
+        elif kind == "fsaudio.train":
+            step = data.get("step")
+            total = data.get("total")
+            if step is not None and total:
+                rec["value"] = step
+                rec["max"] = total
+                rec["frac"] = float(step) / float(total)
         elif kind in ("execution_error", "execution_interrupted"):
             rec["frac"] = 0.0

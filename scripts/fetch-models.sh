@@ -18,9 +18,9 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 YUE2=https://huggingface.co/Comfy-Org/YuE2/resolve/main
 GEMMA=https://huggingface.co/Comfy-Org/gemma-4/resolve/main
 INSTRUMENTAL=https://huggingface.co/Mothersuperior/YuE2-instrumental-cot-full-loras/resolve/main
-REAL_AUDIO=https://huggingface.co/Mothersuperior/yue2-mothersuperior-realaudio-tokenizer-v4/resolve/main
+REGULARIZER=https://huggingface.co/Mothersuperior/YuE2-hum-to-song/resolve/main
 
-mkdir -p "$ROOT/models/checkpoints" "$ROOT/models/audio_encoders" "$ROOT/models/text_encoders" "$ROOT/models/loras"
+mkdir -p "$ROOT/models/checkpoints" "$ROOT/models/audio_encoders" "$ROOT/models/text_encoders" "$ROOT/models/loras" "$ROOT/models/fs_audio"
 # The folders compose.yml mounts into the app.  Created here, as you, because a
 # folder Docker creates for a mount belongs to root, and the app cannot write to it.
 mkdir -p "$ROOT/data" "$ROOT/engine-state/output"
@@ -54,5 +54,8 @@ fetch "$REAL_AUDIO/nar_lora_joint_v9_comfyui.safetensors" \
 fetch "$REAL_AUDIO/tokenizer_head_joint_v9.safetensors" \
       "$ROOT/models/audio_encoders/tokenizer_head_joint_v9.safetensors"
 
+fetch "$REGULARIZER/minted_regularizer_pack_v2.pt" \
+      "$ROOT/models/fs_audio/minted_regularizer_pack_v2.pt"
+
 echo "done.  models/ now holds:"
-ls -la "$ROOT/models/checkpoints" "$ROOT/models/audio_encoders" "$ROOT/models/text_encoders" "$ROOT/models/loras" | grep -v '^total' | grep -v '^d'
+ls -la "$ROOT/models/checkpoints" "$ROOT/models/audio_encoders" "$ROOT/models/text_encoders" "$ROOT/models/loras" "$ROOT/models/fs_audio" | grep -v '^total' | grep -v '^d'

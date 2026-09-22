@@ -79,6 +79,9 @@ def test_key_tempo_and_caption():
     assert identities.key_and_tempo("X:1\nQ:1/4=70\nK:Dm\n") == ("D minor", 70)
     assert identities.key_and_tempo("K:Bb\n") == ("Bb major", None)
     assert identities.caption("pshields", "pop rock, guitars", "male", "D minor", 70) == "pshields, pop rock, guitars, male vocal, key of D minor, 70 BPM"
+    assert identities.caption("pshields", "pop rock", "male", "D minor", 70, style_hint="acoustic guitar, harmonica") == (
+        "pshields, acoustic guitar, harmonica, pop rock, male vocal, key of D minor, 70 BPM"
+    )
 
 
 def test_score_sections_count_bars_by_time_signature():
@@ -115,6 +118,11 @@ def test_api_needs_consent_scans_and_queues(client, tmp_path, monkeypatch):
     view = client.get(f"/api/identities/{made['id']}").json()
     caption = next(s["caption"] for s in view["songs"] if s["id"] == song["id"])
     assert caption.startswith("pshields, stripped back, acoustic guitar, male vocal")     # this song's own sound
+    from app.db import execute
+    execute("UPDATE identity_songs SET style_hint = 'harmonica, acoustic' WHERE id = ?", (song["id"],))
+    view = client.get(f"/api/identities/{made['id']}").json()
+    caption = next(s["caption"] for s in view["songs"] if s["id"] == song["id"])
+    assert caption.startswith("pshields, harmonica, acoustic, stripped back, acoustic guitar, male vocal")
     other = next(s for s in view["songs"] if s["include"] and s["id"] != song["id"])
     assert other["caption"].startswith("pshields, pop rock, male vocal")                  # the rest keep the identity's
     while not IDENTITY_QUEUE.empty():

@@ -24,6 +24,7 @@ def test_problems():
     assert score.problems(NO_CHORDS) == ["no chord symbols"]
     assert score.problems(NO_CHORDS, need_chords=False) == []
     assert score.problems('X:1\nV: Vocal\n"C"z8|\n') == ["no key", "only 1 bar"]
+    assert "repetitive token collapse" in score.problems("Q:1::::::::::::::::::::::\nK:C\n")
     assert len(score.vocal_bars(GOOD)) == 8   # header voice lines are not bars
 
 
@@ -70,3 +71,20 @@ def test_a_broken_score_is_not_rendered(client):
     assert refused.status_code == 400 and "no vocal part" in refused.json()["detail"]
     fine = make_take(status="done", abc=GOOD)
     assert client.post(f"/api/takes/{fine['id']}/render").status_code == 200
+
+
+def test_instrumental_collapse_advice(monkeypatch):
+    real_sleep = asyncio.sleep
+    monkeypatch.setattr(jobs.asyncio, "sleep", lambda _s: real_sleep(0))
+    monkeypatch.setattr(jobs, "ENGINE", PlanEngine("Q:1::::::::::::::::::::::\n"))
+    while not jobs.QUEUE.empty():
+        jobs.QUEUE.get_nowait()
+    take = make_take(status="queued", kind="instrumental")
+    execute("UPDATE takes SET style_lora_clip = 1.0, harmony = 1 WHERE id = ?", (take["id"],))
+    asyncio.run(jobs.run_job("plan", take["id"]))
+    row = one("SELECT status, error, abc FROM takes WHERE id = ?", (take["id"],))
+    assert row["status"] == "failed" and not row["abc"]
+    assert "repetitive token collapse" in row["error"]
+    assert "no instrument part" in row["error"]
+    assert "lower style LoRA Planner strength" in row["error"]
+    assert "set Harmony to Familiar" in row["error"]

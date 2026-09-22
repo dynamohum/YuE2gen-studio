@@ -83,26 +83,25 @@ TIMEOUTS = {"transcribe": 12 * 60, "plan": 10 * 60, "render": 25 * 60, "lyrics":
 # needs.  To turn it on, build the engine with --build-arg WITH_TRAINER=1 and set
 # TRAINING_ENABLED=1 for the app.
 #
-# Why it is off.  Measured on two corpora: what it produces does not sound like the
-# corpus, and the reason is architectural rather than a setting.  The node pack
-# adapts only the NAR (acoustic) branch and conditions it on an empty semantic span,
-# while at inference the branch is given the hundreds of semantic tokens the planner
-# wrote.  The adapter is fitted to one pattern and asked to work from another, so it
-# behaves as a broadband tint that gets worse with every step, and the trigger word
-# does nothing.  No option here changes that; it needs a trainer that also reaches
-# the AR branch, which this pack cannot do.  The numbers are in IDEAS.md.
-#
-# The code stays because the measurements only mean something while the thing that
-# produced them still exists, and because a trainer that does reach the AR branch
-# would reuse all of it.  Nothing else in the corpus screen is gated: preparing a
-# corpus, exporting the training set and installing a LoRA trained elsewhere all
-# work, and are the supported route to a LoRA that does what you want.
+# Dual-branch training uses ComfyUI-FS_Audio_Suite (FSAudioArtistTrainer):
+# trains the planner LoRA (what they write) and the decoder LoRA (how they sound)
+# in one joint loop, exported as one file that applies to both halves.
+# Evaluated against reference convergence targets (blgr_rhodope): artist loss ~4.635,
+# regularizer loss ~3.576, decoder flow loss ~1.069.
 TRAINING_ENABLED = os.environ.get("TRAINING_ENABLED", "").strip().lower() in ("1", "true", "yes", "on")
 
-# What a training run uses unless the user says otherwise.  Measured here: 5000
-# steps at rank 16 on eleven songs took 44 minutes and 12.5 GB of VRAM.
-TRAIN_STEPS = int(os.environ.get("TRAIN_STEPS", "5000"))
-TRAIN_RANK = int(os.environ.get("TRAIN_RANK", "16"))
-TRAIN_CLIP_SECONDS = float(os.environ.get("TRAIN_CLIP_SECONDS", "10"))
+# Dual-branch training parameters.
+# Rule of thumb: ~10 passes over the artist songs (steps x batch_songs x artist_fraction / songs).
+TRAIN_STEPS = int(os.environ.get("TRAIN_STEPS", "600"))
+TRAIN_RANK_PLANNER = int(os.environ.get("TRAIN_RANK_PLANNER", "64"))
+TRAIN_RANK_DECODER = int(os.environ.get("TRAIN_RANK_DECODER", "32"))
+TRAIN_RANK = TRAIN_RANK_PLANNER
+# Truncating songs at 3.5 minutes ensures all corpus tracks fit within the 8,192 token
+# planner context and relieves VAE/SheetSage2 staging VRAM pressure.
+TRAIN_MAX_MINUTES = float(os.environ.get("TRAIN_MAX_MINUTES", "3.5"))
+TRAIN_END_TOKEN_WEIGHT = float(os.environ.get("TRAIN_END_TOKEN_WEIGHT", "1.0"))
+TRAIN_CLIP_SECONDS = float(os.environ.get("TRAIN_CLIP_SECONDS", "30.0"))
+REGULARIZER_PACK = os.environ.get("REGULARIZER_PACK", "minted_regularizer_pack_v2.pt")
 # Give up on a job when the engine has been unreachable this long.
 ENGINE_LOST_AFTER = 5 * 60
+

@@ -25,7 +25,7 @@ from pathlib import Path
 
 from . import config
 
-log = logging.getLogger("yue2studio.loras")
+log = logging.getLogger("yue2.loras")
 
 PLANNER = "text_encoders"
 DECODER = "diffusion_model"
@@ -163,10 +163,10 @@ def families(root: Path | None) -> dict[str, str]:
     if not root:
         return {}
     path = root / "families.txt"
-    if not path.is_file():
-        return {}
     out = {}
     try:
+        if not path.is_file():
+            return {}
         for line in path.read_text(encoding="utf-8").split("\n"):
             if "=" in line and not line.strip().startswith("#"):
                 key, _, label = line.partition("=")
@@ -183,9 +183,9 @@ def describe(name: str, root: Path | None) -> dict:
     if not root:
         return entry
     path = root / name
-    if not path.is_file():
-        return entry
     try:
+        if not path.is_file():
+            return entry
         entry["kind"] = kind_of(names_in(path))
     except (OSError, ValueError, json.JSONDecodeError, UnicodeDecodeError) as err:
         # A file the engine lists but this side cannot parse is still offered:

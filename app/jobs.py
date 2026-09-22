@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import os
 import shutil
 import subprocess
 import tempfile
@@ -294,7 +295,15 @@ def extract_audio_item(job: dict, class_type: str) -> dict | None:
 
 # ----------------------------------------------------------------------- GPU lane
 def fail(kind: str, ref_id: str, message: str) -> None:
-    log.warning("%s %s failed: %s", kind, ref_id, message)
+    title = None
+    if kind in ("plan", "render"):
+        row = one("SELECT title FROM takes WHERE id = ?", (ref_id,))
+        title = row["title"] if row else None
+    elif kind in ("transcribe", "lyrics"):
+        row = one("SELECT title FROM sources WHERE id = ?", (ref_id,))
+        title = row["title"] if row else None
+    title_str = f" for '{title}'" if title else ""
+    log.warning("%s %s%s failed: %s", kind, ref_id, title_str, message)
     if kind == "lyrics":
         if ref_id in LYRICS:
             LYRICS[ref_id].update({"status": "failed", "error": message})
@@ -380,12 +389,14 @@ async def run_job(kind: str, ref_id: str) -> None:
         if not record or record["status"] != "queued":
             return   # cancelled while it waited
         record["status"] = "running"
+        log.info("Starting lyrics generation for draft %s (structure=%s)", ref_id, record.get("structure"))
         graph = build_lyrics_graph(record)
     elif kind == "transcribe":
         record = one("SELECT * FROM sources WHERE id = ?", (ref_id,))
         if not record or record["transcribe_state"] != "queued":
             return   # deleted or cancelled while it waited
         execute("UPDATE sources SET transcribe_state = 'running', transcribe_error = NULL WHERE id = ?", (ref_id,))
+        log.info("Starting audio transcription for source '%s' (%s)", record.get("title") or ref_id, ref_id)
         try:
             graph = build_transcribe_graph(await _ensure_engine_file(record))
         except Exception as exc:  # noqa: BLE001
@@ -397,6 +408,17 @@ async def run_job(kind: str, ref_id: str) -> None:
             return   # deleted or cancelled while it waited
         graph = build_plan_graph(record) if kind == "plan" else build_render_graph(record)
         execute("UPDATE takes SET status = 'running', error = NULL, stage = NULL WHERE id = ?", (ref_id,))
+        title = record.get("title") or ref_id
+        if kind == "plan":
+            log.info("Starting score plan for '%s' (%s, %s, variety=%s, harmony=%s)",
+                     title, ref_id, record.get("kind", "song"),
+                     record.get("variety", "normal"), record.get("harmony", "familiar"))
+        else:
+            style_info = f", style_lora={record.get('style_lora')}" if record.get("style_lora") else ""
+            voice_info = f", voice_lora={record.get('voice_lora')}" if record.get("voice_lora") else ""
+            log.info("Starting audio render for '%s' (%s, mode=%s%s%s)",
+                     title, ref_id, record.get("mode", "full"),
+                     style_info, voice_info)
         if kind == "render" and record.get("kind") == "instrumental" and check_mode() == "fast":
             # The finished audio will be checked for singing. Loading Demucs takes
             # longer than the check itself, so it is loaded while the render runs
@@ -448,6 +470,7 @@ async def _finish(kind: str, ref_id: str, record: dict, job: dict, started: floa
             return
         record.update({"status": "done", "title": draft["title"], "lyrics": draft["lyrics"],
                        "finished_at": time.time(), "error": None})
+        log.info("Lyrics generation finished for '%s' in %.1fs", draft["title"] or ref_id, time.time() - started)
         return
 
     if kind == "transcribe":
@@ -459,6 +482,7 @@ async def _finish(kind: str, ref_id: str, record: dict, job: dict, started: floa
             "UPDATE sources SET abc = ?, abc_updated_at = ?, transcribe_state = 'done', transcribe_error = NULL WHERE id = ?",
             (abc, time.time(), ref_id),
         )
+        log.info("Audio transcription finished for source '%s' in %.1fs", record.get("title") or ref_id, time.time() - started)
         return
 
     if kind == "plan":
@@ -468,8 +492,18 @@ async def _finish(kind: str, ref_id: str, record: dict, job: dict, started: floa
             return
         issues = score.problems(abc, instrumental=record.get("kind") == "instrumental")
         if issues:
-            # Stored as a failure, never as a plan, so it cannot be rendered or auto-rendered.
-            advice = ", or choose a calmer Plan variety" if record.get("variety") in ("bold", "wild") else ""
+            advice_parts = []
+            is_inst = record.get("kind") == "instrumental"
+            clip_val = float(record.get("style_lora_clip") or 0.0)
+            harmony_val = int(record.get("harmony") or 0)
+            variety_val = record.get("variety")
+            if is_inst and clip_val > 0.6:
+                advice_parts.append(f"lower style LoRA Planner strength ({clip_val:.2f}) to ~0.50–0.60")
+            if harmony_val > 0:
+                advice_parts.append("set Harmony to Familiar")
+            if variety_val in ("bold", "wild"):
+                advice_parts.append("choose a calmer Plan variety")
+            advice = f". Try to {', or '.join(advice_parts)}" if advice_parts else ""
             fail(kind, ref_id, f"the plan came out unreadable ({', '.join(issues)}). Write a new plan{advice}.")
             return
         elapsed = time.time() - started
@@ -478,6 +512,7 @@ async def _finish(kind: str, ref_id: str, record: dict, job: dict, started: floa
             (abc, elapsed, ref_id),
         )
         bump_average("plan", elapsed)
+        log.info("Score plan finished for '%s' in %.1fs", record.get("title") or ref_id, elapsed)
         # An instrumental whose plan has a melody in the Vocal voice will sing.
         # That is knowable now, before the render is paid for, so the take waits
         # to be looked at rather than being rendered automatically.
@@ -489,7 +524,7 @@ async def _finish(kind: str, ref_id: str, record: dict, job: dict, started: floa
         if changed and record.get("auto_render"):
             execute("UPDATE takes SET status = 'queued' WHERE id = ?", (ref_id,))
             await QUEUE.put({"kind": "render", "id": ref_id})
-            log.info("auto-render queued for %s", ref_id)
+            log.info("auto-render queued for '%s' (%s)", record.get("title") or ref_id, ref_id)
         return
 
     item = extract_audio_item(job, "SaveAudioAdvanced")
@@ -521,6 +556,10 @@ async def _finish(kind: str, ref_id: str, record: dict, job: dict, started: floa
         await asyncio.to_thread(write_take_note, fresh, dest)
     await asyncio.to_thread(ensure_peaks, dest)
     bump_average("render", elapsed)
+    log.info("Audio render finished for '%s' (duration=%.1fs, elapsed=%.1fs)",
+             record.get("title") or ref_id, duration or 0.0, elapsed)
+    if sung is not None:
+        log.info("Vocal check for '%s': %.1f%% singing detected", record.get("title") or ref_id, sung * 100)
 
 
 def _drop_engine_output(item: dict) -> None:
@@ -540,6 +579,7 @@ def _drop_engine_output(item: dict) -> None:
 async def cancel_take(take: dict) -> None:
     """Stop a take's job, queued or running.  A queued job is skipped when the
     worker reaches it, because its status is no longer 'queued'."""
+    log.info("Cancelling take '%s' (%s, status=%s)", take.get("title") or take["id"], take["id"], take["status"])
     if take["status"] == "queued":
         execute("UPDATE takes SET status = 'failed', error = 'cancelled' WHERE id = ? AND status = 'queued'", (take["id"],))
     elif take["status"] == "running":
@@ -553,11 +593,13 @@ async def cancel_current() -> dict | None:
     # its own table.
     if CURRENT.get("kind") == "train":
         run_id = CURRENT.get("id")
+        log.info("Cancelling LoRA training run %s", run_id)
         await cancel_train(run_id)
         return {"kind": "train", "id": run_id}
 
     if not CURRENT:
         return None
+    log.info("Cancelling current %s job %s", CURRENT.get("kind"), CURRENT.get("id"))
     CANCELLED.add(CURRENT["id"])
     if CURRENT.get("prompt_id"):
         await ENGINE.cancel(CURRENT["prompt_id"])
@@ -624,6 +666,8 @@ async def prepare_song(song_id: str) -> None:
     if not stored.exists():
         await asyncio.to_thread(shutil.copy2, source, stored)
     set_song(song_id, stored_path=str(stored))
+    song_title = song.get("title") or song.get("file")
+    log.info("Preparing corpus song '%s' for '%s' (separating vocals, transcribing)", song_title, identity["name"])
     # Key and tempo only need the recording, so the GPU can start while demucs runs.
     if song["score_state"] in ("none", "failed"):
         set_song(song_id, score_state="queued")
@@ -642,6 +686,7 @@ async def prepare_song(song_id: str) -> None:
             set_song(song_id, lyrics_state="failed", error=f"lyrics: {exc}"[:400])
             return
         (folder / "whisper.json").write_text(json.dumps(lines, indent=1), encoding="utf-8")
+    log.info("Finished preparing corpus song '%s'", song_title)
     maybe_draft(song_id)
 
 
@@ -658,6 +703,12 @@ def maybe_draft(song_id: str) -> None:
     lines = json.loads((folder / "whisper.json").read_text(encoding="utf-8"))
     abc = (folder / "score.abc").read_text(encoding="utf-8") if (folder / "score.abc").exists() else ""
     draft = identities.tag_lyrics(lines, identities.score_sections(abc), song["duration"] or 0)
+    if not draft.strip():
+        sections = identities.score_sections(abc)
+        if sections:
+            draft = "\n\n".join(f"[{identities.SECTION_TAGS[name]}]" for name, _ in sections)
+        else:
+            draft = "[instrumental]"
     # Words the user has already checked are theirs: a new draft never replaces them.
     if song["lyrics_checked"]:
         set_song(song_id, lyrics_state="done")
@@ -744,6 +795,8 @@ async def run_identity_job(kind: str, song_id: str) -> None:
         return
     set_song(song_id, **{field: "running"})
     folder = Path(song["stored_path"]).parent
+    song_title = song.get("title") or song.get("file")
+    log.info("Starting %s for corpus song '%s'", kind, song_title)
     try:
         if kind in ("identity_score", "persona_score"):
             source = Path(song["stored_path"])
@@ -754,6 +807,7 @@ async def run_identity_job(kind: str, song_id: str) -> None:
             (folder / "score.abc").write_text(abc, encoding="utf-8")
             key, tempo = identities.key_and_tempo(abc)
             set_song(song_id, key=key, tempo=tempo, score_state="done")
+            log.info("Finished score analysis for corpus song '%s' (key=%s, tempo=%s)", song_title, key or "unknown", tempo or "unknown")
             maybe_draft(song_id)
         elif kind in ("identity_style", "persona_style"):
             samples = await asyncio.to_thread(identities.read_mono, Path(song["stored_path"]))
@@ -763,8 +817,9 @@ async def run_identity_job(kind: str, song_id: str) -> None:
             job = await _run_graph(kind, song_id, _gemma_graph(identities.DESCRIBE, [name], 120))
             hint = " ".join((_texts_in_order(job) or [""])[0].split())[:300]
             set_song(song_id, style_hint=hint, style_state="done")
+            log.info("Finished style analysis for corpus song '%s': %s", song_title, hint[:60] + "..." if len(hint) > 60 else hint)
     except Exception as exc:  # noqa: BLE001
-        log.warning("%s for %s failed: %s", kind, song_id, exc)
+        log.warning("%s for '%s' (%s) failed: %s", kind, song_title, song_id, exc)
         set_song(song_id, **{field: "failed"}, error=f"{kind.split('_')[1]}: {exc}"[:400])
         if kind in ("identity_score", "persona_score"):
             maybe_draft(song_id)
@@ -787,25 +842,83 @@ run_persona_job = run_identity_job
 # steps, 44 minutes, 12.5 GB — so nothing else that needs the card may start while it
 # runs, and the routes refuse to start it while something else is using the card.
 
-def train_graph(audio_folder: str, trigger: str, lora_name: str, steps: int, rank: int,
-                clip_seconds: float) -> dict:
-    """The pack's own training graph, in the form the engine's API takes."""
+def train_graph(audio_folder: str, dataset_name: str, lora_name: str, steps: int,
+                rank_planner: int = 64, rank_decoder: int = 32,
+                max_minutes: float = 3.5) -> dict:
+    """The dual-branch FS_Audio training graph in ComfyUI prompt API format.
+
+    Trains both planner LoRA (composition/harmony/phrasing) and decoder LoRA
+    (timbre/production) in one joint loop with regularizer contrast.
+    """
     return {
-        "9": {"class_type": "YuE2TrainingDataset", "inputs": {
-            "checkpoint": config.CHECKPOINT, "audio_folder": audio_folder,
-            "clip_seconds": clip_seconds, "caption_mode": "txt_file",
-            "default_caption": "", "cache_folder": "/app/input/lora-cache",
-            "force_reencode": False}},
-        "10": {"class_type": "YuE2LoRATrainer", "inputs": {
-            "dataset": ["9", 0], "checkpoint": config.CHECKPOINT, "trigger_word": trigger,
-            "steps": steps, "learning_rate": 1e-4, "rank": rank, "alpha": float(rank),
-            "lora_dropout": 0.0, "target_preset": "nar_attn_mlp", "lora_name": lora_name,
-            "seed": 0, "optimizer": "adamw", "lr_scheduler": "cosine", "warmup_steps": 50,
-            "grad_accum": 1, "caption_dropout": 0.1, "t_sampling": "uniform",
-            "max_grad_norm": 1.0, "log_every": 50, "save_every": 500, "ema_decay": 0.999,
-            "live_curve": False}},
-        # The trainer is not an output node, so the graph needs somewhere to end.
-        "11": {"class_type": "PreviewAny", "inputs": {"source": ["10", 0]}},
+        "1": {
+            "class_type": "FSAudioLoraLoader",
+            "inputs": {
+                "lora_name": config.REAL_AUDIO_LORA,
+                "strength_model": 1.0,
+                "strength_clip": 0.0,
+            },
+        },
+        "2": {
+            "class_type": "FSAudioModelLoader",
+            "inputs": {
+                "yue2_checkpoint": config.CHECKPOINT,
+                "melody_transcriber": "sheetsage2_bf16.safetensors",
+                "loras": ["1", 0],
+            },
+        },
+        "3": {
+            "class_type": "FSAudioDatasetBuilder",
+            "inputs": {
+                "pipe": ["2", 0],
+                "audio_folder": audio_folder,
+                "dataset_name": dataset_name,
+                "tokenizer_head": config.TOKENIZER_HEAD,
+                "default_style": "",
+                "default_lyrics": "[instrumental]",
+                "transcribe_scores": True,
+                "hold_out_percent": 0,
+                "max_minutes": max_minutes,
+                "store_latents": True,
+                "auto_tempo_key": True,
+            },
+        },
+        "4": {
+            "class_type": "FSAudioRegularizer",
+            "inputs": {"pack": config.REGULARIZER_PACK},
+        },
+        "5": {
+            "class_type": "FSAudioArtistTrainer",
+            "inputs": {
+                "pipe": ["2", 0],
+                "dataset": ["3", 0],
+                "regularizer": ["4", 0],
+                "lora_name": lora_name,
+                "steps": max(50, steps),
+                "decoder_steps": max(50, steps),
+                "rank_planner": rank_planner,
+                "rank_decoder": rank_decoder,
+                "planner_lr": 3e-5,
+                "decoder_lr": 4e-5,
+                "io_lr": 2e-5,
+                "artist_fraction": 0.5,
+                "batch_songs": 1,
+                "kl_weight": 0.1,
+                "score_first_fraction": 0.5,
+                "end_token_weight": config.TRAIN_END_TOKEN_WEIGHT,
+                "max_tokens": 8192,
+                "window_seconds": 30.0,
+                "ema_decay": 0.99,
+                "eval_every": 25,
+                "checkpoint_from": 100,
+                "checkpoint_every": 100,
+                "seed": 0,
+                "strength_model": 1.0,
+                "strength_clip": 1.0,
+            },
+        },
+        # FSAudioArtistTrainer is not an output node, so PreviewAny provides the output sink.
+        "7": {"class_type": "PreviewAny", "inputs": {"source": ["5", 1]}},
     }
 
 
@@ -832,7 +945,7 @@ async def run_lora_train(run_id: str) -> None:
         return
 
     # The node reads a folder, and the engine can only read its own, so the set is
-    # copied in.  The latents it caches there make a second run much quicker.
+    # copied in.
     staged = config.ENGINE_INPUT_DIR / f"lora-{run_id}"
     try:
         await asyncio.to_thread(remove_tree, staged)
@@ -843,25 +956,65 @@ async def run_lora_train(run_id: str) -> None:
         return
 
     started = time.time()
-    _run_state(run_id, state="running", stage="Reading the songs", progress=0.0,
+    _run_state(run_id, state="running", stage="Building dataset & tokens", progress=0.0,
                started_at=started, error=None)
     try:
-        graph = train_graph(f"/app/input/lora-{run_id}", identity["trigger_word"],
-                            run["lora_name"], int(run["steps"]), int(run["rank"]),
-                            config.TRAIN_CLIP_SECONDS)
+        steps = max(50, int(run["steps"]))
+        rank_planner = int(run.get("rank") or config.TRAIN_RANK_PLANNER)
+        rank_decoder = config.TRAIN_RANK_DECODER
+        log.info("Starting LoRA training run %s for corpus '%s' (%d steps, rank=%d, name=%s)",
+                 run_id, identity["name"], steps, rank_planner, run["lora_name"])
+        graph = train_graph(f"lora-{run_id}", f"dataset_{run_id}",
+                            run["lora_name"], steps, rank_planner, rank_decoder,
+                            config.TRAIN_MAX_MINUTES)
         await _run_graph("train", run_id, graph)
         root = loras.folder()
-        produced = (root / f"{run['lora_name']}.safetensors") if root else None
+        produced = None
+        if root:
+            for cand_name in (f"{run['lora_name']}_best.safetensors", f"{run['lora_name']}.safetensors"):
+                cand = root / cand_name
+                if cand.exists():
+                    produced = cand
+                    break
         if not produced or not produced.exists():
             raise RuntimeError("the engine finished but wrote no LoRA file")
-        # Name it, group it, and remember it on the corpus, exactly as installing one
-        # by hand does: the user trained it here, so it should arrive ready to use.
+
+        # Ensure all produced checkpoints and logs are readable by non-root processes
+        for p in root.glob(f"{run['lora_name']}*"):
+            with contextlib.suppress(OSError):
+                os.chmod(p, 0o644)
+
+        canonical = root / f"{run['lora_name']}.safetensors"
+        if produced != canonical:
+            with contextlib.suppress(OSError):
+                shutil.copyfile(produced, canonical)
+                with contextlib.suppress(OSError):
+                    os.chmod(canonical, 0o644)
+                produced = canonical
+
+        # Parse training log if present to check loss progression against reference targets
+        # (blgr_rhodope: artist ~4.635, regularizer ~3.576, decoder ~1.069).
+        log_file = root / f"{run['lora_name']}_log.json"
+        if log_file.exists():
+            try:
+                log_data = json.loads(log_file.read_text(encoding="utf-8"))
+                if log_data and isinstance(log_data, list):
+                    last = log_data[-1]
+                    log.info("LoRA %s training finished. Final losses: artist=%s (target ~4.635), "
+                             "regularizer=%s (target ~3.576), decoder=%s (target ~1.069)",
+                             run["lora_name"], last.get("artist"), last.get("regularizer"), last.get("decoder"))
+            except Exception as e:
+                log.debug("Could not parse training log %s: %s", log_file, e)
+
+        # Name it, group it, and remember it on the corpus.
         await asyncio.to_thread(loras.write_note, produced, identity["trigger_word"], identity["name"])
         execute("UPDATE identities SET lora = ? WHERE id = ?", (produced.name, identity["id"]))
         with contextlib.suppress(Exception):
             await ENGINE.refresh_options()
         _run_state(run_id, state="done", stage=None, progress=1.0, finished_at=time.time(),
                    elapsed=round(time.time() - started, 1))
+        log.info("LoRA training run %s for corpus '%s' finished in %.1fs -> %s",
+                 run_id, identity["name"], time.time() - started, produced.name)
     except Exception as exc:  # noqa: BLE001
         log.warning("training %s failed: %s", run_id, exc)
         _run_state(run_id, state="failed", error=str(exc)[:300], finished_at=time.time(),
@@ -967,6 +1120,9 @@ async def run_stems_job(set_id: str) -> None:
 
     wanted = [s for s in (job["wanted"] or "").split(",") if s]
     dest = Path(job["folder"]) if job.get("folder") else (config.STEMS_DIR / set_id)
+    target_type = "take" if job.get("take_id") else "source"
+    target_id = job.get("take_id") or job.get("source_id") or set_id
+    log.info("Starting stem separation for %s %s (model=%s, wanted=%s)", target_type, target_id, job["model"], job["wanted"])
     await stems.separate(Path(input_path), dest, job["model"], wanted, job["fmt"], progress, work_root=config.WORK_DIR)
 
     elapsed = time.time() - started
@@ -979,7 +1135,7 @@ async def run_stems_job(set_id: str) -> None:
         remove_tree(dest)   # deleted while it ran
         return
     bump_average("stems", elapsed)
-    log.info("stems %s done in %.1fs", set_id, elapsed)
+    log.info("Stem separation %s for %s %s finished in %.1fs -> %s", set_id, target_type, target_id, elapsed, dest)
 
 
 def singing_share(audio: Path) -> float | None:
@@ -1039,6 +1195,9 @@ async def run_vocal_check(take_id: str) -> None:
 
 
 def fail_cover_lyrics(source_id: str, message: str) -> None:
+    row = one("SELECT title FROM sources WHERE id = ?", (source_id,))
+    title_str = f" for '{row['title']}'" if row and row.get("title") else ""
+    log.warning("cover lyrics extraction %s%s failed: %s", source_id, title_str, message)
     execute("UPDATE sources SET lyrics_state = 'failed', lyrics_error = ?, lyrics_stage = NULL WHERE id = ?",
             (message, source_id))
 
@@ -1054,6 +1213,9 @@ async def run_cover_lyrics(source_id: str) -> None:
         fail_cover_lyrics(source_id, "the recording is missing")
         return
 
+    started = time.time()
+    source_title = source.get("title") or source_id
+    log.info("Starting lyrics extraction for source '%s' (%s)", source_title, source_id)
     last = {"at": 0.0}
 
     def progress(frac: float, stage: str) -> None:
@@ -1091,6 +1253,8 @@ async def run_cover_lyrics(source_id: str) -> None:
         text = await asyncio.to_thread(identities.tag_lyrics, lines, sections, seconds)
         execute("UPDATE sources SET lyrics = ?, lyrics_state = 'done', lyrics_stage = NULL,"
                 " lyrics_progress = 1 WHERE id = ?", (text, source_id))
+        log.info("Lyrics extraction finished for source '%s' in %.1fs (%d lines heard)",
+                 source_title, time.time() - started, len(lines))
     finally:
         shutil.rmtree(work, ignore_errors=True)
 

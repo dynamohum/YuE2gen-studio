@@ -56,6 +56,7 @@ def test_instrumental_scores_pass_on_either_voice():
     assert score.problems(PLAN, instrumental=True) == []
     assert score.problems(INS_ONLY, instrumental=True) == []
     assert "no vocal part" in score.problems(INS_ONLY)
+    assert "no instrument part" in score.problems("X:1\nK:C\n", instrumental=True)
 
 
 def test_the_api_creates_an_instrumental(client, monkeypatch):

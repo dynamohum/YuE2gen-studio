@@ -1,6 +1,17 @@
-"""Hearing the words in a recording: the job, its state, and stopping it."""
+import asyncio
+import pytest
 import app.jobs as jobs
 from app.db import execute, one
+
+
+@pytest.fixture(autouse=True)
+def pause_stems_worker(monkeypatch):
+    event = asyncio.Event()
+    async def idle():
+        await event.wait()
+    monkeypatch.setattr(jobs, "stems_worker", idle)
+    yield
+    event.set()
 
 
 def a_source(client, tmp_path):

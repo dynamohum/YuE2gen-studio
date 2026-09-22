@@ -38,6 +38,16 @@ def test_cross_site_write_is_refused(client):
     assert client.post("/api/takes/nope/favourite").status_code == 404
 
 
+def test_rename_take(client):
+    take = make_take(title="Old Name")
+    res = client.post(f"/api/takes/{take['id']}/rename", json={"title": "New Name"})
+    assert res.status_code == 200
+    assert res.json()["title"] == "New Name"
+    assert one("SELECT title FROM takes WHERE id = ?", (take["id"],))["title"] == "New Name"
+    assert client.post(f"/api/takes/{take['id']}/rename", json={"title": ""}).status_code == 422
+    assert client.post("/api/takes/nope/rename", json={"title": "Test"}).status_code == 404
+
+
 def test_upload_dedupes_and_limits_size(client):
     first = client.post("/api/sources", files={"file": ("My Song.wav", b"RIFF" + b"1" * 1000)}).json()
     assert first["duplicate"] is False and first["engine_file"] is None
@@ -58,6 +68,24 @@ def test_render_and_replan_refuse_a_busy_take(client):
     take = make_take(status="queued", abc="X:1" * 30)
     assert client.post(f"/api/takes/{take['id']}/render").status_code == 409
     assert client.post(f"/api/takes/{take['id']}/replan").status_code == 409
+
+
+def test_render_take_honors_custom_seed(client):
+    valid_score = "X:1\nL:1/8\nK:C\nV:Vocal\n|\"C\"c4 d4|\"G\"e4 d4|\"Am\"c4 A4|\"F\"G8|\n" * 3
+    take = make_take(status="planned", abc=valid_score, seed=12345)
+    resp = client.post(f"/api/takes/{take['id']}/render", json={"seed": 98765})
+    assert resp.status_code == 200
+    assert resp.json()["seed"] == 98765
+    row = one("SELECT seed FROM takes WHERE id = ?", (take["id"],))
+    assert row["seed"] == 98765
+
+    # Omitting seed keeps the take's seed
+    take2 = make_take(status="planned", abc=valid_score, seed=54321)
+    resp2 = client.post(f"/api/takes/{take2['id']}/render", json={})
+    assert resp2.status_code == 200
+    assert resp2.json()["seed"] == 54321
+    row2 = one("SELECT seed FROM takes WHERE id = ?", (take2["id"],))
+    assert row2["seed"] == 54321
 
 
 def test_cancel_a_queued_take(client):

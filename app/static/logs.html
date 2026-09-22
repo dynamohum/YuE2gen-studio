@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>YuE2 Studio — System Logs</title>
+<link rel="stylesheet" href="/static/styles.css?v={{VERSION}}">
+<style>
+  html, body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    background: var(--bg, #0f1015);
+    color: var(--text, #f1f5f9);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .logs-page-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 12px 20px;
+    background: var(--bg-2, #14151d);
+    border-bottom: 1px solid var(--line, #282836);
+    flex-wrap: wrap;
+    flex-shrink: 0;
+  }
+  .logs-page-brand {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .logs-page-brand a {
+    color: var(--muted, #94a3b8);
+    text-decoration: none;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .logs-page-brand a:hover {
+    color: var(--text, #fff);
+  }
+  .logs-page-title {
+    font-size: 15px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .logs-live-indicator {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--good, #34d399);
+    display: inline-block;
+    animation: live-pulse 2s ease-in-out infinite;
+  }
+  @keyframes live-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.3; transform: scale(0.85); }
+  }
+  .logs-page-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .logs-container {
+    flex: 1;
+    min-height: 0;
+    padding: 14px 20px;
+    display: flex;
+    flex-direction: column;
+  }
+  .logs-console-window {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    background: #08090d;
+    border: 1px solid var(--line, #282836);
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    font-size: 12px;
+    line-height: 1.55;
+    color: #cbd5e1;
+    user-select: text;
+  }
+</style>
+</head>
+<body>
+<header class="logs-page-nav">
+  <div class="logs-page-brand">
+    <a href="/" title="Back to YuE2 Studio">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+      Studio
+    </a>
+    <div class="logs-page-title">
+      <span class="logs-live-indicator" aria-hidden="true"></span>
+      System Logs
+    </div>
+    <div class="logs-filters">
+      <button class="logs-filter-btn active" data-level="ALL">All</button>
+      <button class="logs-filter-btn" data-level="INFO">Info</button>
+      <button class="logs-filter-btn" data-level="WARN">Warn</button>
+      <button class="logs-filter-btn" data-level="ERROR">Error</button>
+    </div>
+    <div class="logs-source-filters">
+      <button class="logs-source-btn active" data-source="ALL">All Sources</button>
+      <button class="logs-source-btn" data-source="app">App</button>
+      <button class="logs-source-btn" data-source="engine">Engine</button>
+    </div>
+  </div>
+  <div class="logs-page-controls">
+    <input id="logs-search" type="search" placeholder="Search logs..." autocomplete="off">
+    <label class="logs-tail-label" title="Automatically scroll to newest logs">
+      <input type="checkbox" id="logs-tail" checked> Live Tail
+    </label>
+    <a id="logs-download-btn" href="/api/logs/download" class="ghost logs-tool-btn" download="yue2studio.log" title="Download raw log file">Download</a>
+    <button id="logs-clear" class="ghost logs-tool-btn" title="Clear console view">Clear</button>
+  </div>
+</header>
+<main class="logs-container">
+  <div id="logs-console" class="logs-console-window" tabindex="0">
+    <div class="logs-empty">Connecting to logs stream...</div>
+  </div>
+</main>
+<script>
+var LogsState = {
+  level: 'ALL',
+  source: 'ALL',
+  search: '',
+  timer: null
+};
+
+function esc(str) {
+  return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+async function fetchLogs() {
+  try {
+    var url = '/api/logs?limit=400';
+    if (LogsState.level && LogsState.level !== 'ALL') {
+      url += '&level=' + encodeURIComponent(LogsState.level);
+    }
+    if (LogsState.source && LogsState.source !== 'ALL') {
+      url += '&source=' + encodeURIComponent(LogsState.source);
+    }
+    if (LogsState.search) {
+      url += '&search=' + encodeURIComponent(LogsState.search);
+    }
+    var res = await fetch(url);
+    if (!res.ok) { return; }
+    var data = await res.json();
+    renderLogs(data.logs || []);
+  } catch (err) { /* retry on next tick */ }
+}
+
+function renderLogs(logs) {
+  var consoleEl = document.getElementById('logs-console');
+  if (!consoleEl) { return; }
+  if (!logs || !logs.length) {
+    consoleEl.innerHTML = '<div class="logs-empty">No logs matching filter.</div>';
+    return;
+  }
+  var html = logs.map(function (entry) {
+    var lvl = esc(entry.level || 'INFO');
+    var badgeClass = lvl === 'WARNING' ? 'WARN' : lvl;
+    var src = esc((entry.source || 'app').toLowerCase());
+    return '<div class="log-row">' +
+      '<span class="log-time">' + esc(entry.timestamp || '') + '</span> ' +
+      '<span class="log-source ' + src + '">' + src + '</span> ' +
+      '<span class="log-badge ' + badgeClass + '">' + badgeClass + '</span> ' +
+      '<span class="log-logger">[' + esc(entry.logger || '') + ']</span> ' +
+      '<span class="log-msg ' + badgeClass + '">' + esc(entry.message || '') + '</span>' +
+      '</div>';
+  }).join('');
+  consoleEl.innerHTML = html;
+  var tailCheckbox = document.getElementById('logs-tail');
+  if (tailCheckbox && tailCheckbox.checked) {
+    consoleEl.scrollTop = consoleEl.scrollHeight;
+  }
+}
+
+document.querySelectorAll('.logs-filter-btn').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    document.querySelectorAll('.logs-filter-btn').forEach(function (b) { b.classList.remove('active'); });
+    btn.classList.add('active');
+    LogsState.level = btn.dataset.level || 'ALL';
+    fetchLogs();
+  });
+});
+
+document.querySelectorAll('.logs-source-btn').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    document.querySelectorAll('.logs-source-btn').forEach(function (b) { b.classList.remove('active'); });
+    btn.classList.add('active');
+    LogsState.source = btn.dataset.source || 'ALL';
+    fetchLogs();
+  });
+});
+
+var searchInput = document.getElementById('logs-search');
+var searchTimer = null;
+if (searchInput) {
+  searchInput.addEventListener('input', function () {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(function () {
+      LogsState.search = (searchInput.value || '').trim();
+      fetchLogs();
+    }, 250);
+  });
+}
+
+var clearBtn = document.getElementById('logs-clear');
+if (clearBtn) {
+  clearBtn.addEventListener('click', function () {
+    var consoleEl = document.getElementById('logs-console');
+    if (consoleEl) { consoleEl.innerHTML = '<div class="logs-empty">Cleared.</div>'; }
+  });
+}
+
+fetchLogs();
+setInterval(fetchLogs, 1500);
+</script>
+</body>
+</html>

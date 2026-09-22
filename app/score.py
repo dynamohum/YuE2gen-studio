@@ -12,6 +12,7 @@ KEY = re.compile(r"^K:\s*\S", re.M)
 VOICE = re.compile(r"^V:\s*(\S+)")
 HEADER = re.compile(r"^[A-Za-z]:")
 CHORD = re.compile(r'"[A-G][#b]?[^"\s]*"')
+COLLAPSE = re.compile(r"([^\w\s])\1{7,}")
 MIN_BARS = 4
 
 
@@ -64,13 +65,15 @@ def problems(abc: str, need_chords: bool = True, instrumental: bool = False) -> 
     An instrumental plan keeps a Vocal voice of rests that carries the chords, and
     puts its melody in an Ins voice; either one will do."""
     found = []
+    if COLLAPSE.search(abc or ""):
+        found.append("repetitive token collapse")
     if not KEY.search(abc or ""):
         found.append("no key")
     bars = vocal_bars(abc)
     if instrumental and not bars:
         bars = vocal_bars(abc, "Ins")
     if not bars:
-        found.append("no vocal part")
+        found.append("no instrument part" if instrumental else "no vocal part")
     elif len(bars) < MIN_BARS:
         found.append(f"only {len(bars)} bar{'s' if len(bars) != 1 else ''}")
     if need_chords and bars and not any(CHORD.search(bar) for bar in bars):

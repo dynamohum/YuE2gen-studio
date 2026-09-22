@@ -33,7 +33,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 
-from . import config, identities, instrumental, jobs, loras, lyrics, score, stems
+from . import config, identities, instrumental, jobs, logging_setup, loras, lyrics, score, stems
 from .db import DEFAULT_SPACE, execute, get_setting, migrate, one, rows, set_setting
 
 personas = identities
@@ -43,10 +43,8 @@ from .jobs import (CURRENT, CURRENT_STEMS, ENGINE, HARMONY_STEPS, INTERPRETATION
 from .library import (audio_duration, ensure_peaks, inside, relayout, remove_tree, slugify,
                       source_path, take_folder)
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+logging_setup.setup_logging(config.DATA_DIR / "logs")
 log = logging.getLogger("yue2")
-# The keeper polls the engine every two seconds; one log line per request is noise.
-logging.getLogger("httpx").setLevel(logging.WARNING)
 
 STATIC_DIR = Path(__file__).parent / "static"
 ACTIVE = ("queued", "running")
@@ -422,6 +420,7 @@ class RenderIn(BaseModel):
     persona_id: str | None = Field(None, max_length=64)
     voice_lora: str | None = Field(None, max_length=200)
     voice_lora_strength: float | None = None
+    seed: int | None = Field(None, ge=0, le=MAX_SEED)
 
 
 class VariationsIn(BaseModel):
@@ -484,9 +483,38 @@ def guide() -> HTMLResponse:
     return HTMLResponse(_GUIDE)
 
 
+@app.get("/logs")
+def logs_page() -> HTMLResponse:
+    """Standalone live logs viewer in its own window or tab."""
+    content = (STATIC_DIR / "logs.html").read_text(encoding="utf-8").replace("{{VERSION}}", config.VERSION)
+    return HTMLResponse(content)
+
+
 @app.get("/api/health")
 def health() -> dict:
     return {"ok": True, "engine": ENGINE.online, "version": config.VERSION}
+
+
+@app.get("/api/logs")
+def get_logs(
+    level: str | None = None,
+    search: str | None = None,
+    source: str | None = None,
+    limit: int = 200,
+    since_id: int | None = None,
+) -> dict:
+    return logging_setup.get_recent_logs(level=level, search=search, source=source, limit=limit, since_id=since_id)
+
+
+@app.get("/api/logs/download")
+def download_logs():
+    if not logging_setup.LOG_FILE_PATH or not logging_setup.LOG_FILE_PATH.exists():
+        raise HTTPException(404, "No log file found")
+    return FileResponse(
+        logging_setup.LOG_FILE_PATH,
+        media_type="text/plain",
+        filename="yue2studio.log",
+    )
 
 
 def _shorten(text: str, limit: int) -> str:
@@ -556,6 +584,49 @@ def queue_view() -> list[dict]:
     return items
 
 
+def _lora_corpus_styles() -> dict[str, list[dict]]:
+    """Map each identity's LoRA filename to its included songs' learned styles."""
+    try:
+        identity_rows = rows("SELECT id, lora FROM identities WHERE lora IS NOT NULL AND lora != ''")
+        out: dict[str, list[dict]] = {}
+        for iden in identity_rows:
+            songs = rows(
+                "SELECT title, style_hint, tempo, key FROM identity_songs "
+                "WHERE identity_id = ? AND include = 1 AND style_hint IS NOT NULL AND style_hint != '' "
+                "ORDER BY position, id",
+                (iden["id"],),
+            )
+            if songs:
+                seen_hints = set()
+                song_list = []
+                for s in songs:
+                    hint = (s["style_hint"] or "").strip()
+                    if not hint or hint in seen_hints:
+                        continue
+                    seen_hints.add(hint)
+                    song_list.append({
+                        "title": s["title"],
+                        "prompt": hint,
+                        "tempo": s["tempo"],
+                        "key": s["key"],
+                    })
+                if song_list:
+                    out[iden["lora"]] = song_list
+        return out
+    except Exception as err:
+        log.warning("could not query corpus styles for loras: %s", err)
+        return {}
+
+
+def _catalogue_with_styles() -> list[dict]:
+    items = loras.catalogue(ENGINE.options.get("loras", []))
+    corpus_styles = _lora_corpus_styles()
+    for item in items:
+        if item["name"] in corpus_styles:
+            item["styles"] = corpus_styles[item["name"]]
+    return items
+
+
 @app.get("/api/state")
 def state() -> dict:
     """Served from what the keeper last saw, so a page poll never waits on the engine."""
@@ -612,7 +683,7 @@ def state() -> dict:
             "lyrics_available": ENGINE.options.get("lyrics", False),
             "instrumental_available": ENGINE.options.get("instrumental", False),
             "realaudio": ENGINE.options.get("realaudio", False),
-            "loras": loras.catalogue(ENGINE.options.get("loras", [])),
+            "loras": _catalogue_with_styles(),
             "harmony_steps": HARMONY_STEPS,
             # Unknown until the engine has been read, so only a confirmed absence disables it.
             "harmony_available": ENGINE.options.get("harmony", False) or not ENGINE.options_loaded,
@@ -715,6 +786,8 @@ async def upload_source(file: UploadFile = File(...), title: str = Form("", max_
            VALUES(:id, :title, :filename, :stored_path, :engine_file, :sha256, :created_at, :duration)""",
         record,
     )
+    dur_str = f", {record['duration']:.1f}s" if record.get("duration") else ""
+    log.info("Uploaded source recording '%s' (%s%s)", record["title"], record["id"], dur_str)
     return {**record, "transcribe_state": "none", "abc": None, "duplicate": False}
 
 
@@ -730,6 +803,7 @@ async def transcribe(source_id: str) -> dict:
         raise HTTPException(400, "the file for this recording is missing")
     execute("UPDATE sources SET transcribe_state = 'queued', transcribe_error = NULL WHERE id = ?", (source_id,))
     await QUEUE.put({"kind": "transcribe", "id": source_id})
+    log.info("Queued transcription for source '%s' (%s)", source.get("title") or source_id, source_id)
     return {"queued": True}
 
 
@@ -754,6 +828,7 @@ async def delete_source(source_id: str) -> dict:
         jobs.cancel_stems(item)
     execute("DELETE FROM stem_sets WHERE source_id = ?", (source_id,))
     execute("DELETE FROM sources WHERE id = ?", (source_id,))
+    log.info("Deleted source recording '%s' (%s)", source.get("title") or source_id, source_id)
     folders = [(Path(source["stored_path"]), config.SOURCES_DIR)]
     folders += [(Path(item["folder"]), config.DATA_DIR) for item in sets if item["folder"]]
     await asyncio.to_thread(remove_folders, folders)
@@ -829,6 +904,23 @@ def favourite(take_id: str, value: bool = True) -> dict:
     return {"favourite": value}
 
 
+class RenameTakeIn(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+
+
+@app.post("/api/takes/{take_id}/rename")
+@app.patch("/api/takes/{take_id}")
+async def rename_take(take_id: str, body: RenameTakeIn) -> dict:
+    take = one("SELECT id, title FROM takes WHERE id = ?", (take_id,))
+    if not take:
+        raise HTTPException(404, "no such take")
+    title = body.title.strip()
+    if not title:
+        raise HTTPException(400, "title cannot be empty")
+    execute("UPDATE takes SET title = ? WHERE id = ?", (title, take_id))
+    return {"id": take_id, "title": title}
+
+
 @app.delete("/api/takes/{take_id}")
 async def delete_take(take_id: str) -> dict:
     take = one("SELECT * FROM takes WHERE id = ?", (take_id,))
@@ -843,6 +935,7 @@ async def delete_take(take_id: str) -> dict:
     # points at nothing.
     execute("DELETE FROM stem_sets WHERE take_id = ?", (take_id,))
     execute("DELETE FROM takes WHERE id = ?", (take_id,))
+    log.info("Deleted take '%s' (%s)", take.get("title") or take_id, take_id)
     folder = Path(take["audio_path"]).parent if take.get("audio_path") else take_folder(take_id, take["title"])
     folders = [(folder, config.TAKES_DIR)] + [(Path(item["folder"]), config.DATA_DIR) for item in sets if item["folder"]]
     await asyncio.to_thread(remove_folders, folders)
@@ -916,6 +1009,7 @@ async def create_take(body: TakeIn) -> dict:
     if record["mode"] == "full" and not record["abc"]:
         log.info("render queued with an empty score; the engine will write its own chords")
     await QUEUE.put({"kind": "render", "id": take_id})
+    log.info("Queued cover render for '%s' (%s, mode=%s, seed=%d)", record["title"], take_id, record["mode"], record["seed"])
     return {**record, "status": "queued"}
 
 
@@ -990,6 +1084,8 @@ async def _plan_new_take(kind: str, title: str, words: str, body: SongIn | Instr
         record,
     )
     await QUEUE.put({"kind": "plan", "id": take_id})
+    log.info("Queued %s plan for '%s' (%s, variety=%s, auto_render=%s)",
+             kind, title, take_id, record["variety"], bool(record["auto_render"]))
     return {**record, "status": "queued"}
 
 
@@ -1090,10 +1186,21 @@ async def render_take(take_id: str, body: RenderIn | None = None) -> dict:
         identity_val = take.get("identity_id") or take.get("persona_id")
     voice_lora = take.get("voice_lora") if body is None or body.voice_lora is None else (body.voice_lora or None)
     voice_lora_strength = take.get("voice_lora_strength", 1.0) if body is None or body.voice_lora_strength is None else body.voice_lora_strength
-    seed = int.from_bytes(os.urandom(4), "big") if (body is not None and body.reseed) else take["seed"]
-    execute("UPDATE takes SET status = 'queued', error = NULL, stage = NULL, checkpoint = ?, interpretation = ?, realaudio = ?, identity_id = ?, persona_id = ?, voice_lora = ?, voice_lora_strength = ?, seed = ?, vocal_check = NULL WHERE id = ?",
-            (config.CHECKPOINT, interpretation, realaudio, identity_val, identity_val, voice_lora, voice_lora_strength, seed, take_id))
+    sl = _style_lora_of(body) if (body is not None and getattr(body, "style_lora", None) is not None) else {
+        "style_lora": take.get("style_lora"),
+        "style_lora_model": take.get("style_lora_model", 1.0),
+        "style_lora_clip": take.get("style_lora_clip", 1.0),
+    }
+    if body is not None and body.seed is not None:
+        seed = body.seed
+    elif body is not None and body.reseed:
+        seed = int.from_bytes(os.urandom(4), "big")
+    else:
+        seed = take["seed"]
+    execute("UPDATE takes SET status = 'queued', error = NULL, stage = NULL, checkpoint = ?, interpretation = ?, realaudio = ?, identity_id = ?, persona_id = ?, voice_lora = ?, voice_lora_strength = ?, style_lora = ?, style_lora_model = ?, style_lora_clip = ?, seed = ?, vocal_check = NULL WHERE id = ?",
+            (config.CHECKPOINT, interpretation, realaudio, identity_val, identity_val, voice_lora, voice_lora_strength, sl["style_lora"], sl["style_lora_model"], sl["style_lora_clip"], seed, take_id))
     await QUEUE.put({"kind": "render", "id": take_id})
+    log.info("Queued audio render for take '%s' (%s, seed=%d)", take.get("title") or take_id, take_id, seed)
     return {"queued": True, "seed": seed}
 
 
@@ -1132,6 +1239,8 @@ async def replan_take(take_id: str, body: ReplanIn | None = None) -> dict:
         (seed, variety, harmony, config.CHECKPOINT, take_id),
     )
     await QUEUE.put({"kind": "plan", "id": take_id})
+    log.info("Queued replan for take '%s' (%s, variety=%s, harmony=%s, seed=%d)",
+             take.get("title") or take_id, take_id, variety, harmony, seed)
     return {"queued": True, "seed": seed}
 
 
@@ -1188,6 +1297,7 @@ async def variations(take_id: str, body: VariationsIn) -> dict:
         )
         await QUEUE.put({"kind": "render", "id": record["id"]})
         created.append({"id": record["id"], "title": record["title"], "interpretation": name})
+    log.info("Queued %d variations for take '%s' (%s)", len(created), take.get("title") or take_id, take_id)
     return {"created": created}
 
 
@@ -1210,7 +1320,8 @@ def _identity_view(identity: dict) -> dict:
     songs = rows("SELECT * FROM identity_songs WHERE identity_id = ? ORDER BY position", (identity["id"],))
     for song in songs:
         song["caption"] = identities.caption(identity["trigger_word"], song["description"] or identity["description"],
-                                            identity["voice"], song["key"], song["tempo"])
+                                             identity["voice"], song["key"], song["tempo"],
+                                             style_hint=song.get("style_hint") or "")
     chosen = [s for s in songs if s["include"]]
     busy = any(s[f] in ("queued", "running") for s in songs for f in IDENTITY_STEPS)
     return {**identity, "songs": songs, "busy": busy,
@@ -1359,7 +1470,7 @@ edit_persona_song = edit_identity_song
 async def analyse_identity(identity_id: str) -> dict:
     """Queue every step not yet done for each included song.  Safe to press again:
     finished steps are kept, failed ones are tried again."""
-    _identity(identity_id)
+    identity = _identity(identity_id)
     queued = 0
     for song in rows("SELECT * FROM identity_songs WHERE identity_id = ? AND include = 1 ORDER BY position", (identity_id,)):
         cpu = {f: "queued" for f in ("vocals_state", "lyrics_state") if song[f] in ("none", "failed")}
@@ -1373,6 +1484,7 @@ async def analyse_identity(identity_id: str) -> dict:
                     jobs.set_song(song["id"], **{field: "queued"}, error=None)
                     await QUEUE.put({"kind": kind, "id": song["id"]})
                     queued += 1
+    log.info("Queued analysis for corpus '%s' (%d jobs queued)", identity.get("name") or identity_id, queued)
     return {"queued": queued}
 
 
@@ -1513,6 +1625,7 @@ async def train_identity(identity_id: str, body: TrainIn | None = None) -> dict:
         run,
     )
     await jobs.QUEUE.put({"kind": "train", "id": run_id})
+    log.info("Queued LoRA training run %s for corpus '%s' (%d steps, rank=%d)", run_id, identity["name"], run["steps"], run["rank"])
     return {**run, "state": "queued", "songs": len(songs)}
 
 
@@ -1538,13 +1651,14 @@ async def export_identity(identity_id: str) -> dict:
     dest.mkdir(parents=True, exist_ok=True)
     written, skipped, unchecked = [], [], []
     for song in [s for s in view["songs"] if s["include"]]:
-        if not song["stored_path"] or not Path(song["stored_path"]).is_file() or not song["lyrics"].strip():
+        if not song["stored_path"] or not Path(song["stored_path"]).is_file():
             skipped.append(song["title"])
             continue
+        lyrics_content = (song["lyrics"] or "").strip() or "[instrumental]"
         name = identities.export_name(song)
         await asyncio.to_thread(subprocess.run, ["ffmpeg", "-v", "error", "-y", "-i", song["stored_path"], str(dest / f"{name}.flac")],
                                 check=True, timeout=600)
-        (dest / f"{name}.lyrics.txt").write_text(song["lyrics"].strip() + "\n", encoding="utf-8")
+        (dest / f"{name}.lyrics.txt").write_text(lyrics_content + "\n", encoding="utf-8")
         (dest / f"{name}.txt").write_text(song["caption"] + "\n", encoding="utf-8")
         written.append(song["title"])
         if not song["lyrics_checked"]:
@@ -1553,6 +1667,7 @@ async def export_identity(identity_id: str) -> dict:
                 "songs": written, "unchecked_lyrics": unchecked, "exported_at": time.time(), "app": config.VERSION}
     (dest / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     execute("UPDATE identities SET exported_at = ?, export_dir = ? WHERE id = ?", (time.time(), str(dest), identity_id))
+    log.info("Exported training dataset for corpus '%s' (%d songs) -> %s", identity["name"], len(written), dest)
     return {"folder": _host_path(dest), "written": written, "skipped": skipped, "unchecked": unchecked}
 
 
@@ -1587,6 +1702,7 @@ async def write_lyrics(body: LyricsIn) -> dict:
     }
     LYRICS[record["id"]] = record
     await QUEUE.put({"kind": "lyrics", "id": record["id"]})
+    log.info("Queued lyrics draft (%s, structure=%s, brief='%s')", record["id"], record["structure"], record["brief"][:40])
     return record
 
 
@@ -1790,6 +1906,7 @@ def queue_stems(kind: str, ref_id: str, body: StemsIn) -> dict:
 async def take_stems(take_id: str, body: StemsIn) -> dict:
     result = queue_stems("take", take_id, body)
     await STEM_QUEUE.put({"id": result["id"]})
+    log.info("Queued stem separation for take %s (%s, model=%s, wanted=%s)", take_id, result["id"], body.model, body.wanted)
     return result
 
 
@@ -1797,6 +1914,7 @@ async def take_stems(take_id: str, body: StemsIn) -> dict:
 async def source_stems(source_id: str, body: StemsIn) -> dict:
     result = queue_stems("source", source_id, body)
     await STEM_QUEUE.put({"id": result["id"]})
+    log.info("Queued stem separation for source %s (%s, model=%s, wanted=%s)", source_id, result["id"], body.model, body.wanted)
     return result
 
 
@@ -1815,6 +1933,7 @@ async def source_lyrics(source_id: str) -> dict:
     execute("UPDATE sources SET lyrics_state = 'queued', lyrics_error = NULL, lyrics_progress = 0,"
             " lyrics_stage = 'Waiting' WHERE id = ?", (source_id,))
     await STEM_QUEUE.put({"kind": "lyrics", "id": source_id})
+    log.info("Queued lyrics extraction for source '%s' (%s)", source.get("title") or source_id, source_id)
     return {"state": "queued", "progress": 0.0}
 
 

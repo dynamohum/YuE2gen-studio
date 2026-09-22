@@ -69,6 +69,9 @@ def _env() -> dict:
     for key in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
         env[key] = str(DEFAULT_THREADS)
     env["TORCH_HOME"] = env.get("TORCH_HOME", "/data/models/torch")
+    hf_cache = Path(env.get("HF_HOME", "/data/models/whisper")) / "hub"
+    if hf_cache.exists() and any(hf_cache.glob("models--adefossez--*")):
+        env.setdefault("HF_HUB_OFFLINE", "1")
     return env
 
 
@@ -211,7 +214,21 @@ def _warm_model():
     from demucs.pretrained import get_model
 
     if "model" not in _warm:
-        model = get_model("htdemucs")
+        prev_offline = os.environ.get("HF_HUB_OFFLINE")
+        try:
+            os.environ["HF_HUB_OFFLINE"] = "1"
+            model = get_model("htdemucs")
+        except Exception:
+            if prev_offline is not None:
+                os.environ["HF_HUB_OFFLINE"] = prev_offline
+            else:
+                os.environ.pop("HF_HUB_OFFLINE", None)
+            model = get_model("htdemucs")
+        else:
+            if prev_offline is not None:
+                os.environ["HF_HUB_OFFLINE"] = prev_offline
+            else:
+                os.environ.pop("HF_HUB_OFFLINE", None)
         model.eval()
         _warm["model"] = model
     return _warm["model"]
