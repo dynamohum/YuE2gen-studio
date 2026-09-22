@@ -60,9 +60,9 @@ An identity: one singer's songs, analysed and ready to train a voice on:
   separates each vocal, finds its key, tempo and sections, drafts its lyrics, and writes out a
   training set — audio and a caption per song, the layout a trainer reads. **Install a LoRA** takes a
   trained file back, names it, gives it the corpus trigger word and puts it in the style list.
-- **Train one here — experimental.** **Train a LoRA** runs the trainer in the engine and needs about
-  45 minutes of the GPU. It works, and on the two corpora measured here what it produced had little
-  effect on the sound, and broke up at high strength. Worth playing with; not a finished thing.
+  Train the set with whichever trainer you like; what comes back is an ordinary LoRA.
+- **Training a LoRA in the app is not built in.** It exists and it is switched off, because what it
+  makes does not sound like the corpus and no setting reaches the cause. See Training a LoRA below.
 - **Lean on a style LoRA.** Drop other people's trained files into `models/loras/` and pick one
   from a list, with separate strengths for the score and the sound. See Style LoRAs below.
 - **Read the score three ways.** Expand opens a full size editor, with the chord find and replace
@@ -107,6 +107,40 @@ the app's job is to make them usable without knowing how they are put together:
 The [user guide](app/static/guide.md#style-loras) has the detail, including what to do when a song
 will not end.
 
+## Training a LoRA
+
+The app can train a LoRA from a corpus, and it **ships switched off**. The engine image is built
+without the trainer node pack, and the app hides the button; the route answers 501 with the reason
+rather than 404, so it reads as a decision rather than a fault.
+
+**Why.** What it makes does not sound like the corpus, and that is not a setting anyone can find.
+The trainer adapts only the half of YuE2 that renders audio, and fits that half against an empty
+score — while a real render hands the same half the score the planner has just written. It is
+tuned for one situation and used in another. Measured on two corpora:
+
+- the **trigger word does nothing**: the sound changes by the same amount whether or not it is in
+  the style, so the file has not learned a thing to be switched on;
+- **more training makes it worse**: step 2000 was a better file than step 5000, and each checkpoint
+  is noisier than the last rather than closer to the corpus;
+- a style LoRA that *does* work moves the opposite way — warmer and more tonal, where this one gets
+  brighter and noisier.
+
+Fixing it needs a trainer that also adapts the half that writes the score, which this node pack
+cannot do. The code is kept, and marked, because such a trainer would reuse all of it.
+
+**What works instead.** Prepare a corpus, analyse it and **Export training set**, then train that
+set with a trainer of your choosing and bring the result back with **Install a LoRA**. The style
+LoRAs that do most in this app were made that way. None of that is gated.
+
+**To turn it on anyway**, both halves are needed:
+
+```sh
+docker compose build --build-arg WITH_TRAINER=1 engine
+```
+
+and `TRAINING_ENABLED: "1"` on the app in `compose.yml`. It will hold the GPU for about 45 minutes
+and produce the file described above.
+
 ## Requirements
 
 - An NVIDIA GPU with 12 GB of VRAM or more is recommended, with 16 GB of system RAM. An 8 GB card
@@ -127,6 +161,22 @@ docker compose up -d --build
 ```
 
 Then open <http://localhost:8090>.
+
+### Build options
+
+One thing is built out by default, and turning it on needs a rebuild rather than a setting.
+
+| Build arg | Default | What it does |
+|---|---|---|
+| `WITH_TRAINER` | `0` | on the **engine** service. Includes the LoRA trainer node pack in the image. Left out because training in the app is off; see Training a LoRA below |
+| `YUE2_TRAINER_REF` | pinned commit | which commit of that pack to use, if it is included |
+| `COMFYUI_REF` | pinned commit | which commit of ComfyUI the engine is built from. See Contributing for how far it has drifted |
+
+They are set under `build: args:` in `compose.yml`, or passed on the command line:
+
+```sh
+docker compose build --build-arg WITH_TRAINER=1 engine
+```
 
 The fetch script also creates `data/` and `engine-state/output/`. Let it, rather than leaving them
 to Docker: a folder Docker creates for a mount belongs to root, and the app, which runs as uid
@@ -234,7 +284,8 @@ server-side change only.
 
 ```
 compose.yml            engine + app, the one machine setup
-engine/Dockerfile      ComfyUI pinned to the commit this was built against
+engine/Dockerfile      ComfyUI pinned to the commit this was built against, and the
+                       WITH_TRAINER build arg, off, that leaves the trainer out
 engine/custom_nodes/   yue2_harmony, the node behind the Harmony slider
 Dockerfile             the app: FastAPI, one static page, demucs
 app/                   the application
@@ -324,6 +375,7 @@ missing node or model shows in the header instead of failing a render.
 | `MAX_UPLOAD_MB` | `2048` | the largest recording you can upload, in megabytes. The engine has its own ceiling, `ENGINE_MAX_UPLOAD_MB` on the engine service, set to the same figure: raise both together |
 | `STEMS_THREADS` | half the CPUs | torch threads for the separation |
 | `STEMS_JOBS` | 4, or a quarter of the CPUs | demucs segments applied at once. One uses about 1.8 GB and 2.5x realtime, four uses 3.7 GB and 3.6x. The split setup's 2 GB cap needs this at 1, or the cap raised |
+| `TRAINING_ENABLED` | `0` | turns on training a LoRA from a corpus. Needs the engine built with `WITH_TRAINER=1` as well: with only one of the two the button stays hidden. See Training a LoRA |
 | `DATA_DIR` | `/data` | the library |
 
 ## Troubleshooting
@@ -338,6 +390,7 @@ missing node or model shows in the header instead of failing a render.
 | Render fails out of memory | another program is using the GPU | close other GPU work; see Requirements |
 | **Write score plan** is greyed out in Instrumental | the LoRA is not in `models/loras` | `sh scripts/fetch-models.sh`, then `docker compose restart engine` |
 | **Write lyrics** is greyed out | Gemma is not in `models/text_encoders` | `sh scripts/fetch-models.sh`, then `docker compose restart engine` |
+| **Train a LoRA** is not on the corpus screen | it is not built in, by design | see Training a LoRA above; it needs `WITH_TRAINER=1` on the engine build *and* `TRAINING_ENABLED=1` on the app |
 | Header says the checkpoint is missing | `yue2_3b_bf16.safetensors` is not in `models/checkpoints` | `sh scripts/fetch-models.sh`, then `docker compose restart engine` |
 | **Render this score** and **Write a new plan** are greyed out | no take's score is in the editor | press **Score** on a take in the library, or write a plan |
 | The app restarts, and its log says it cannot open the database | `data/` belongs to root, because Docker created it | `sudo chown -R 1000:1000 data engine-state/output`, or the uid in compose.yml |
