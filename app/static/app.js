@@ -147,6 +147,11 @@ async function pollState() {
     var engine = data.engine;
     State.options = data.options || {};
     State.training = data.training || null;
+    // EXPERIMENTAL: no way in to a workflow that is not built in. Here rather than at
+    // wiring time, because the options this reads arrive with the state, not before it.
+    // Hidden rather than disabled: a greyed-out row invites a hunt for how to enable it.
+    var corporaRow = $('menu-identities');
+    if (corporaRow) { corporaRow.classList.toggle('hidden', !trainingAvailable()); }
     lockGpuControls();
     if (engine.online && engine.compat && engine.compat.ok) {
       pill.className = 'pill pill-on';
@@ -1351,6 +1356,13 @@ function wireCorporaBadge(button) {
 function paintCorporaBadge() {
   var button = corporaBadge();
   if (!button) { return; }
+  // EXPERIMENTAL: the whole corpus workflow is off unless built in, so its badge
+  // never appears either. Preparing a corpus with no way to train it buys nothing.
+  if (!trainingAvailable()) {
+    button.classList.add('hidden');
+    button.classList.remove('shown');
+    return;
+  }
   var progress = State.corpusProgress || {};
   var ids = Object.keys(progress);
   if (!ids.length) {

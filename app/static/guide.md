@@ -242,7 +242,11 @@ per check and holds nothing, or turns the check off.
 
 The **Vocal** chips set the singer's sex and character by writing into the style.
 
-## Corpora
+## Corpora — not in this build
+
+Corpora and training a LoRA from one are **switched off**, so there is no **Corpora** in the menu and
+no badge for it. The section below describes what they do when they are built in; skip it unless you
+mean to turn them on.
 
 A **corpus** is a folder of recordings prepared as a training set. Open **Corpora** from the menu,
 make one, and point it at the folder. The app separates each song's vocal, reads its key, tempo and
@@ -346,9 +350,12 @@ folder gives the groups their headings, one `prefix = label` per line.
 
 ### LoRAs trained from a corpus
 
-A LoRA trained from one of your corpora is an ordinary style LoRA. It appears in this list with the
-rest, its trigger word beside it, and the same two strengths apply. The **Corpora** screen produces
-the training set; this is where the trained result is used.
+A LoRA trained from one of your corpora is an ordinary style LoRA: it appears in this list with the
+rest, its trigger word beside it, and the same two strengths apply.
+
+Corpora are not in this build, so no new one can be made here — but a file trained before they were
+switched off is still in `models/loras` and still in this list, marked **experimental**, because the
+list shows whatever the engine can load. If you would rather not be offered them, delete the files.
 
 New files appear once the engine has looked at `models/loras/` again, which it does when the
 options are reloaded.

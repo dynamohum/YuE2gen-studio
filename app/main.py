@@ -28,7 +28,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
@@ -214,6 +214,35 @@ def host_allowed(host_header: str) -> bool:
         return True
     hostname = (urlsplit("//" + host_header).hostname or "").lower()
     return hostname in config.ALLOWED_HOSTS
+
+
+# Every path the corpus and training workflow answers on.  One tuple in one place,
+# because the workflow has twenty-odd route decorators and a guard repeated that many
+# times is a guard that will be forgotten on the next one added.
+EXPERIMENTAL_PATHS = ("/api/identities", "/api/personas", "/api/lora-runs", "/api/import/")
+
+
+@app.middleware("http")
+async def experimental_off(request: Request, call_next):
+    """EXPERIMENTAL FEATURE GATE.  Training a LoRA from a corpus is off unless built in.
+
+    The whole workflow is behind this, not only the training step: preparing a corpus
+    costs real CPU — a vocal separation and a transcription for every song — and with
+    no way to train at the end of it, that work buys nothing.  Offering half the path
+    would waste somebody's evening before the wall appeared.
+
+    See config.TRAINING_ENABLED for why it is off.  The code and any corpus already on
+    disk are untouched; only the way in is closed."""
+    if not config.TRAINING_ENABLED and request.url.path.startswith(EXPERIMENTAL_PATHS):
+        # JSON with a detail key, like every other refusal here, so the page shows the
+        # reason rather than a wall of plain text.
+        return JSONResponse(
+            {"detail": "Corpora and LoRA training are experimental and are not built in. "
+                       "Build the engine with --build-arg WITH_TRAINER=1 and set "
+                       "TRAINING_ENABLED=1 for the app."},
+            status_code=501,
+        )
+    return await call_next(request)
 
 
 @app.middleware("http")

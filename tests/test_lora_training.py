@@ -87,6 +87,7 @@ def test_training_is_off_unless_it_is_built_in(client, monkeypatch):
     assert answer.status_code == 501
     detail = answer.json()["detail"]
     assert "experimental" in detail and "WITH_TRAINER=1" in detail
+    assert "TRAINING_ENABLED=1" in detail
 
 
 def test_the_gate_comes_before_anything_else(client, monkeypatch):
@@ -113,9 +114,45 @@ def test_it_still_needs_the_engine_node_when_the_flag_is_on(client, monkeypatch)
     assert client.get("/api/state").json()["options"]["training_available"] is True
 
 
-def test_exporting_a_training_set_is_not_gated(client, monkeypatch):
-    """The route to a LoRA that works: prepare a corpus, export it, train it
-    elsewhere, install the file. None of that depends on the experiment."""
-    monkeypatch.setattr(config, "TRAINING_ENABLED", False)
+def test_exporting_is_gated_with_everything_else(client, monkeypatch):
+    """Exporting a set was once left open, on the argument that it feeds a trainer
+    elsewhere. It closes with the rest: a set nobody can train here is an hour of CPU
+    spent on a folder, and the wall should come before the work, not after it."""
+    monkeypatch.setattr(config, "TRAINING_ENABLED", True)
     corpus = a_corpus()
-    assert client.post(f"/api/identities/{corpus['id']}/export").status_code != 501
+    monkeypatch.setattr(config, "TRAINING_ENABLED", False)
+    assert client.post(f"/api/identities/{corpus['id']}/export").status_code == 501
+
+
+# ------------------------------------- the whole workflow, not just the button
+
+def test_the_corpus_routes_are_closed_too(client, monkeypatch):
+    """Preparing a corpus costs a vocal separation and a transcription for every song.
+    With no way to train at the end of it that work buys nothing, so the way in closes
+    with the training step rather than after it."""
+    monkeypatch.setattr(config, "TRAINING_ENABLED", False)
+    for method, path in (
+        ("get", "/api/identities"),
+        ("post", "/api/identities"),
+        ("get", "/api/personas"),
+        ("get", "/api/import/browse"),
+        ("post", "/api/lora-runs/whatever/cancel"),
+    ):
+        answer = getattr(client, method)(path)
+        assert answer.status_code == 501, f"{method} {path} answered {answer.status_code}"
+
+
+def test_a_corpus_that_exists_is_left_alone(client, monkeypatch):
+    """Closing the way in must not touch what is already on disk or in the database."""
+    monkeypatch.setattr(config, "TRAINING_ENABLED", True)
+    corpus = a_corpus()
+    monkeypatch.setattr(config, "TRAINING_ENABLED", False)
+    assert client.get(f"/api/identities/{corpus['id']}").status_code == 501
+    assert one("SELECT * FROM identities WHERE id = ?", (corpus["id"],)) is not None
+
+
+def test_the_rest_of_the_app_is_untouched(client, monkeypatch):
+    """The gate is a prefix match, so this is the test that catches it growing teeth."""
+    monkeypatch.setattr(config, "TRAINING_ENABLED", False)
+    for path in ("/api/state", "/api/takes", "/api/sources", "/api/spaces", "/api/settings"):
+        assert client.get(path).status_code == 200, path

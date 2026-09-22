@@ -1,11 +1,19 @@
 """Identities: scanning a folder (read only), flags, chunking, captions, the API."""
 import numpy as np
+import pytest
 
 from app import config, identities, jobs, personas
 from app.db import one
 from app.jobs import IDENTITY_QUEUE, PERSONA_QUEUE
 
 from conftest import tone
+
+
+@pytest.fixture(autouse=True)
+def corpora_built_in(monkeypatch):
+    """Corpora are experimental and off by default; these test the workflow, so they
+    turn it on. The tests for it being off live in test_lora_training.py."""
+    monkeypatch.setattr(config, "TRAINING_ENABLED", True)
 
 
 def make_folder(tmp_path, monkeypatch):
