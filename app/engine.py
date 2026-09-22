@@ -170,7 +170,7 @@ class Engine:
         self.last_error: str | None = None
         self.last_contact = 0.0
         self.options: dict[str, Any] = {"checkpoints": [], "audio_encoders": [], "harmony": False, "lyrics": False,
-                                        "instrumental": False}
+                                        "instrumental": False, "trainer": False}
         self.options_loaded = False
         self._options_task: asyncio.Task[None] | None = None
         self.compat: dict[str, Any] = {"ok": False, "missing": [], "notes": []}
@@ -252,6 +252,10 @@ class Engine:
                         "lyrics": "TextGenerate" in info and config.LYRICS_MODEL in text_models,
                         "instrumental": config.INSTRUMENTAL_LORA in loras,
                         "realaudio": config.REAL_AUDIO_LORA in loras,
+                        # EXPERIMENTAL: the trainer node pack is left out of the engine
+                        # image unless it is built with --build-arg WITH_TRAINER=1, so
+                        # the app can tell whether training is there to offer at all.
+                        "trainer": "YuE2LoRATrainer" in info,
                         "loras": loras}
 
         needed = set()

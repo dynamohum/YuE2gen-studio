@@ -12,6 +12,13 @@ services:
   engine:
     build:
       context: ./engine
+      # Training a LoRA from a corpus is experimental and is NOT built in. What it
+      # produces does not sound like the corpus, for a reason no setting fixes; see
+      # app/config.py next to TRAINING_ENABLED. To include the trainer node pack,
+      # set WITH_TRAINER to 1 here and TRAINING_ENABLED to 1 on the app below, then
+      # `docker compose build engine`. Both are needed.
+      args:
+        WITH_TRAINER: "0"
     image: yue2studio-engine:latest
     container_name: yue2studio-engine
     restart: unless-stopped
@@ -77,6 +84,11 @@ services:
       # you publish the port beyond localhost.
       ALLOWED_HOSTS: localhost,127.0.0.1,::1
       IMPORT_ROOTS: /import,/mnt/h
+      # Experimental, and off. Only has an effect if the engine above was built with
+      # WITH_TRAINER=1; the corpus screen hides the Train button unless both are set.
+      # Preparing a corpus, exporting its training set and installing a LoRA trained
+      # elsewhere all work regardless of this.
+      TRAINING_ENABLED: "0"
     volumes:
       - ./data:/data
       - ./engine-state/output:/engine-output

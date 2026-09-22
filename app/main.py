@@ -587,6 +587,9 @@ def state() -> dict:
             "harmony_steps": HARMONY_STEPS,
             # Unknown until the engine has been read, so only a confirmed absence disables it.
             "harmony_available": ENGINE.options.get("harmony", False) or not ENGINE.options_loaded,
+            # EXPERIMENTAL: off unless built in, so the corpus screen hides the button
+            # rather than offering something that answers 501.  See config.TRAINING_ENABLED.
+            "training_available": config.TRAINING_ENABLED and ENGINE.options.get("trainer", False),
         },
     }
 
@@ -1431,13 +1434,30 @@ class TrainIn(BaseModel):
     rank: int | None = Field(None, ge=4, le=128)
 
 
+def _training_built_in() -> None:
+    """EXPERIMENTAL FEATURE GATE.  Training is off unless it was built in.
+
+    See config.TRAINING_ENABLED for why it is off by default: the node pack it needs
+    adapts only the acoustic branch and what it produces does not sound like the
+    corpus.  The route stays so the feature can be turned back on whole, and so a
+    caller gets a reason rather than a 404 that looks like a bug."""
+    if not config.TRAINING_ENABLED:
+        raise HTTPException(
+            501,
+            "Training a LoRA here is experimental and is not built in. Build the engine "
+            "with --build-arg WITH_TRAINER=1 and set TRAINING_ENABLED=1 for the app. "
+            "Export the training set instead and train it elsewhere.",
+        )
+
+
 @app.post("/api/identities/{identity_id}/train")
 async def train_identity(identity_id: str, body: TrainIn | None = None) -> dict:
-    """Train a LoRA from this corpus's exported training set.
+    """EXPERIMENTAL, off unless built in.  Train a LoRA from this corpus's set.
 
     It takes the better part of an hour and the whole GPU, so the app refuses to start
     it while the engine is busy, refuses to start anything else on the engine while it
     runs, and shows it on the main screen with a stop button."""
+    _training_built_in()
     identity = _identity(identity_id)
     if _training_run():
         raise HTTPException(409, "A LoRA is already training.")
@@ -1469,6 +1489,7 @@ async def train_identity(identity_id: str, body: TrainIn | None = None) -> dict:
 
 @app.post("/api/lora-runs/{run_id}/cancel")
 async def cancel_lora_run(run_id: str) -> dict:
+    """EXPERIMENTAL, off unless built in.  Stop a run started before it was turned off."""
     run = one("SELECT * FROM lora_runs WHERE id = ?", (run_id,))
     if not run:
         raise HTTPException(404, "no such training run")

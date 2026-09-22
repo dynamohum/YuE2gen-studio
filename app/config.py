@@ -76,7 +76,30 @@ TIMEOUTS = {"transcribe": 12 * 60, "plan": 10 * 60, "render": 25 * 60, "lyrics":
             # timeout would be worse than waiting.
             "train": 150 * 60}
 
-# What a LoRA training run uses unless the user says otherwise.  Measured here: 5000
+# ---------------------------------------------------------------- LoRA training
+#
+# EXPERIMENTAL, AND OFF UNLESS IT IS BUILT IN.  Training a LoRA from a corpus is
+# shipped disabled, and the engine image is built without the trainer node pack it
+# needs.  To turn it on, build the engine with --build-arg WITH_TRAINER=1 and set
+# TRAINING_ENABLED=1 for the app.
+#
+# Why it is off.  Measured on two corpora: what it produces does not sound like the
+# corpus, and the reason is architectural rather than a setting.  The node pack
+# adapts only the NAR (acoustic) branch and conditions it on an empty semantic span,
+# while at inference the branch is given the hundreds of semantic tokens the planner
+# wrote.  The adapter is fitted to one pattern and asked to work from another, so it
+# behaves as a broadband tint that gets worse with every step, and the trigger word
+# does nothing.  No option here changes that; it needs a trainer that also reaches
+# the AR branch, which this pack cannot do.  The numbers are in IDEAS.md.
+#
+# The code stays because the measurements only mean something while the thing that
+# produced them still exists, and because a trainer that does reach the AR branch
+# would reuse all of it.  Nothing else in the corpus screen is gated: preparing a
+# corpus, exporting the training set and installing a LoRA trained elsewhere all
+# work, and are the supported route to a LoRA that does what you want.
+TRAINING_ENABLED = os.environ.get("TRAINING_ENABLED", "").strip().lower() in ("1", "true", "yes", "on")
+
+# What a training run uses unless the user says otherwise.  Measured here: 5000
 # steps at rank 16 on eleven songs took 44 minutes and 12.5 GB of VRAM.
 TRAIN_STEPS = int(os.environ.get("TRAIN_STEPS", "5000"))
 TRAIN_RANK = int(os.environ.get("TRAIN_RANK", "16"))

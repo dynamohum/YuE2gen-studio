@@ -40,11 +40,20 @@ def test_the_guide_does_not_promise_what_is_not_built():
         assert unbuilt not in text, f"the guide describes {unbuilt}, which is not in the app"
 
 
-def test_training_is_marked_experimental():
-    """It runs, and what it produces is unreliable.  Measured on two corpora: no
-    audible change at strength 1, a change in the wrong direction between 1.1 and 1.5,
-    and broken sound at 2.  A guide that offered it as finished would waste an hour of
-    somebody's GPU."""
+def test_the_guide_says_training_is_not_shipped():
+    """It is off, and the guide has to say so rather than describe a button that is
+    not there.  A guide that offered it as finished would waste an hour of somebody's
+    GPU on a file that does not sound like their corpus."""
     text = GUIDE.read_text(encoding="utf-8")
-    assert "Training is experimental" in text
-    assert "static" in text, "the guide says what happens at high strength"
+    assert "not shipped" in text, "the guide says training is off, not merely shaky"
+    assert "WITH_TRAINER=1" in text, "and how to turn it on anyway"
+    assert "TRAINING_ENABLED=1" in text, "both halves, or it stays hidden"
+
+
+def test_the_guide_points_at_what_does_work():
+    """Turning the button off is only half the message: exporting a set and installing
+    a LoRA trained elsewhere is the route that produces something usable, and it is
+    unaffected."""
+    text = GUIDE.read_text(encoding="utf-8")
+    assert "Install a LoRA" in text
+    assert "Export the training set" in text
