@@ -201,6 +201,12 @@ textarea.lyrics { min-height: 200px; font-family: ui-monospace, SFMono-Regular, 
   background: rgba(4, 4, 8, 0.72); backdrop-filter: blur(6px);
 }
 .modal.hidden { display: none; }
+/* `.hidden` is one class, so any rule with two beats it and the element stays on
+   screen.  That has now caught `.grid2`, `.job` and the brand menu's rows, each
+   found only by looking at the running page.  These restate it at the losing
+   selector's own weight; `!important` would do it in one line, but it would also
+   win against a future rule that genuinely should hide something differently. */
+.brand-menu .menu-item.hidden { display: none; }
 /* General purpose: the score views and anything else that toggles with this class. */
 .hidden { display: none; }
 .modal-box {
