@@ -445,7 +445,7 @@ function wakeStyleLoraStrengths() {
 /* One strength: an editable number and a slider that agree with each other.  A half
    the file does not hold has no number to edit, so the box goes empty and says why on
    hover; the note under the picker says it in words as well. */
-function paintStrengthValue(sliderId, held) {
+function paintStrengthValue(sliderId, held, force) {
   var slider = $(sliderId);
   var box = $(sliderId + '-value');
   if (!slider || !box) { return; }
@@ -456,7 +456,9 @@ function paintStrengthValue(sliderId, held) {
     box.title = 'This file holds no ' + (sliderId.indexOf('clip') >= 0 ? 'planner' : 'sound') + ' half';
     return;
   }
-  if (document.activeElement !== box) { box.value = Number(slider.value).toFixed(2); }
+  // Skipped while the box has focus, so a half-typed number is not overwritten — but
+  // not when the slider itself moved, which is the user saying the opposite.
+  if (force || document.activeElement !== box) { box.value = Number(slider.value).toFixed(2); }
   box.title = 'Type an exact strength';
 }
 
@@ -4551,7 +4553,7 @@ function wire() {
   });
   ['style-lora-model', 'style-lora-clip'].forEach(function (id) {
     $(id).addEventListener('input', function () {
-      paintStrengthValue(id, !$(id).disabled);
+      paintStrengthValue(id, !$(id).disabled, true);
       saveForm();
       paintStyleLoraNote();
     });
