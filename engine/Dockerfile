@@ -39,12 +39,27 @@ RUN pip install "torch==2.9.*" "torchvision==0.24.*" "torchaudio==2.9.*" \
 # FLAC a training set is written as, and the pack falls back to soundfile.  Its other
 # dependency, matplotlib, is only for its optional training-curve node, so it is not
 # installed.
+#
+# EXPERIMENTAL, AND LEFT OUT BY DEFAULT.  What this pack trains does not sound like
+# the corpus it was trained on, for a reason no setting fixes: it adapts only the
+# acoustic branch and conditions it on an empty semantic span, while generation gives
+# that branch the semantic tokens the planner wrote.  The measurements are in
+# IDEAS.md and the reasoning is in app/config.py next to TRAINING_ENABLED.
+#
+# To build it in:   docker compose build --build-arg WITH_TRAINER=1 engine
+# and run the app with TRAINING_ENABLED=1.  Both are needed: the app hides the
+# button unless the node is present *and* the flag is set.
+ARG WITH_TRAINER=0
 ARG YUE2_TRAINER_REF=4578039513304149fdfd1c00a22783f06812997f
-RUN git clone --quiet https://github.com/Starnodes2024/ComfyUI-YuE2-Trainer.git \
-        /app/custom_nodes/ComfyUI-YuE2-Trainer \
-    && git -C /app/custom_nodes/ComfyUI-YuE2-Trainer checkout --quiet ${YUE2_TRAINER_REF} \
-    && rm -rf /app/custom_nodes/ComfyUI-YuE2-Trainer/.git \
-    && pip install "soundfile>=0.12"
+RUN if [ "${WITH_TRAINER}" = "1" ]; then \
+        git clone --quiet https://github.com/Starnodes2024/ComfyUI-YuE2-Trainer.git \
+            /app/custom_nodes/ComfyUI-YuE2-Trainer \
+        && git -C /app/custom_nodes/ComfyUI-YuE2-Trainer checkout --quiet ${YUE2_TRAINER_REF} \
+        && rm -rf /app/custom_nodes/ComfyUI-YuE2-Trainer/.git \
+        && pip install "soundfile>=0.12"; \
+    else \
+        echo "trainer left out: build with --build-arg WITH_TRAINER=1 to include it"; \
+    fi
 
 # YuE2 Studio's own node: the Harmony control for score plans.  Copied after the
 # slow installs, so a change to it rebuilds in seconds.

@@ -259,26 +259,31 @@ corpus's **trigger word**. That is the layout a trainer reads, including the Com
 **Deleting a corpus** removes the app's copies of its songs, the separated vocals, the lyrics and
 the scores. The folder you pointed it at is never touched.
 
-### Training is experimental
+### Training a LoRA here is not shipped
 
-**Train a LoRA** runs a trainer inside the engine and writes a real LoRA into `models/loras`, ready to
-choose in the **Style LoRA** list. It takes about 45 minutes and holds the GPU for the whole of it:
-nothing else that needs the card will start, the main screen shows the progress with a stop button,
-and the run is cancelled cleanly if you stop it.
+The app can train a LoRA from a corpus, and it is **switched off**, because what it
+produces does not sound like the corpus. That is not a setting anyone can find: the trainer
+adapts only the half of YuE2 that renders audio, and it fits that half against an empty
+score, while a real render hands it the score the planner just wrote. It is tuned for one
+situation and used in another, so it behaves as a tint that gets worse the longer it trains,
+and the trigger word does nothing at all.
 
-What it produces is the experimental part. Measured on two corpora of eleven and nine songs, at 5000
-steps:
+Measured on two corpora of eleven and nine songs:
 
-| strength | what it did |
+| | |
 |---|---|
-| 1.0 | no audible change against a render without the LoRA |
-| 1.1–1.5 | changed the audio measurably, but did not make it more like the corpus |
-| 2.0 | broke the sound into something close to static |
+| the trigger word | changes the sound by the same amount whether or not it is in the style |
+| more training | step 2000 was a better file than step 5000; it gets noisier, not closer |
+| against a LoRA that works | that one gets warmer and more tonal — ours goes the other way |
 
-The trainer itself is young and upstream reports the same. So: a LoRA from here may be worth trying,
-and is unlikely to transform a render. Describing the sound in words, or a style LoRA from a third
-party, still does more. Train it here by all means — and expect to spend the strength sliders
-looking for a setting you like.
+So the button is not there. If you want it anyway, build the engine with
+`--build-arg WITH_TRAINER=1` and run the app with `TRAINING_ENABLED=1`; it will hold the GPU
+for about 45 minutes and you will get the file described above.
+
+**What to do instead.** Export the training set and train it with a trainer that reaches
+both halves of the model — the style LoRAs that work best in this app were made that way,
+and their own files record the recipe. Then bring the result back with **Install a LoRA**.
+Preparing a corpus, analysing it and exporting the set are all unaffected by any of this.
 
 **Installing one from elsewhere** is the other half, and it works: press **Install a LoRA** and choose
 the file. The app puts it in `models/loras`, writes a note beside it naming it and giving the corpus

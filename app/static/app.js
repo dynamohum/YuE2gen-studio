@@ -365,6 +365,13 @@ function loraShortLabel(name) {
 /* A file name says nothing about what a LoRA does, so whatever its author
    wrote is shown under the picker, and the trigger word is shown as something
    to click, because it has to reach the style box to do anything. */
+/* EXPERIMENTAL FEATURE GATE.  Training a LoRA here is off unless the engine image
+   carries the trainer node pack and the app has TRAINING_ENABLED set. The server
+   answers both in one flag, so the page never offers a button that would 501. */
+function trainingAvailable() {
+  return Boolean(State.options && State.options.training_available);
+}
+
 /* Is this one of ours?  A file trained by this app is the experimental kind; one
    downloaded from elsewhere is not, and calling it experimental would be a lie. */
 function loraTrainedHere(name) {
@@ -2667,9 +2674,11 @@ async function showIdentityList() {
   body.innerHTML =
     '<p class="identity-intro persona-intro">A corpus is a folder of recordings, prepared as a training set. ' +
     'Point at a folder: the app separates each vocal, finds its key and tempo, and drafts its lyrics for you ' +
-    'to check. Then export the set and train it — here, or anywhere else.</p>' +
-    '<p class="hint"><b>Training here is experimental.</b> It runs, and the LoRA it makes may change the ' +
-    'sound very little, or break it up at high strength. The guide has the measurements.</p>' +
+    'to check. Then export the set and train it' + (trainingAvailable() ? ' — here, or anywhere else' : ' with the trainer of your choice') + '.</p>' +
+    (trainingAvailable()
+      ? '<p class="hint"><b>Training here is experimental.</b> It runs, and the LoRA it makes may change the ' +
+        'sound very little, or break it up at high strength. The guide has the measurements.</p>'
+      : '') +
     '<button id="identity-new" class="ghost">New corpus</button>' +
     '<div class="identity-cards persona-cards">' + list.map(function (item) {
       return '<div class="identity-card persona-card" data-identity="' + esc(item.id) + '" data-persona="' + esc(item.id) + '"><strong>' + esc(item.name) + '</strong>' +
@@ -2828,9 +2837,14 @@ async function showIdentity(id, preloaded) {
       '<button id="identity-edit-open" class="ghost">Edit</button>' +
       '<button id="identity-analyse" class="ghost">Analyse</button>' +
       '<button id="identity-export" class="ghost">Export training set</button>' +
-      '<button id="identity-train" class="ghost"' + (data.exported_at ? '' : ' disabled') +
-        ' title="' + (data.exported_at ? 'Train a LoRA from this corpus' : 'Export the training set first') +
-        '">Train a LoRA</button>' +
+      /* EXPERIMENTAL, off unless built in: without the trainer in the engine image
+         and TRAINING_ENABLED set, the button is not offered at all rather than
+         offered and refused. Everything else here works and stays. */
+      (trainingAvailable()
+        ? '<button id="identity-train" class="ghost"' + (data.exported_at ? '' : ' disabled') +
+          ' title="' + (data.exported_at ? 'Train a LoRA from this corpus' : 'Export the training set first') +
+          '">Train a LoRA</button>'
+        : '') +
       '<button id="identity-install" class="ghost">Install a LoRA</button>' +
       '<button id="identity-delete" class="ghost">Delete corpus</button>' +
       '<input id="identity-lora-file" type="file" accept=".safetensors" class="hidden">' +
@@ -2842,7 +2856,7 @@ async function showIdentity(id, preloaded) {
     'sound very little, or break it up at high strength. The guide has the measurements.</p>' +
     '<p class="hint"><b>Export training set</b> writes the audio and a caption per song — the layout a trainer ' +
     'reads — and <b>Install a LoRA</b> takes a trained file back, naming it and giving it this corpus\u2019s ' +
-    'trigger word.</p>' +
+    'trigger word. Train it with whichever trainer you prefer; what comes back is an ordinary LoRA.</p>' +
     '<p class="hint">Analyse separates each included song’s vocal, finds its key, tempo and sections with ' +
     'SheetSage, and drafts its lyrics with Whisper, tagged by section. The trainer learns from the ' +
     'audio and the caption, not the words, so what a song needs is <i>some</i> lyrics: one with none is ' +
