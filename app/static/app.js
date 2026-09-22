@@ -2745,7 +2745,7 @@ function songDetail(song) {
       (song.vocals_state === 'done' ? '<div class="muted">The separated vocal</div><audio controls preload="none" src="' + base + '?which=vocals"></audio>' : '')
     : '<p class="muted">Press Analyse to copy this song in.</p>';
   return '<div class="grid"><div>' +
-      '<div class="label-row"><label>Lyrics' + (song.lyrics_state === 'done' && !song.lyrics_checked ? ' <span class="muted">(a draft: correct it)</span>' : '') +
+      '<div class="label-row"><label>Lyrics' + (song.lyrics_state === 'done' && !song.lyrics_checked ? ' <span class="muted">(a draft)</span>' : '') +
       '</label><label class="check"><input type="checkbox" data-checked="' + song.id + '"' + (song.lyrics_checked ? ' checked' : '') + '> checked</label></div>' +
       '<textarea data-lyrics="' + song.id + '" spellcheck="false" placeholder="[Verse]&#10;...">' + esc(song.lyrics || '') + '</textarea>' +
       '<div class="row" style="margin-top:6px"><button class="ghost" data-save="' + song.id + '">Save</button>' +
@@ -2790,12 +2790,18 @@ async function showIdentity(id, preloaded) {
     '</div>' +
     (data.lora ? '<p class="hint">LoRA installed from this corpus: <b>' + esc(data.lora) + '</b>. ' +
       'Choose it in the Style LoRA list to write with it.</p>' : '') +
-    '<p class="hint">The app prepares the training set and does not train. Train it wherever you like, ' +
-    'then <b>Install a LoRA</b> with the file that comes back: it goes to <code>models/loras</code> ' +
-    'with the corpus trigger word, and appears in the Style LoRA list.</p>' +
+    '<p class="hint"><b>Train a LoRA</b> is experimental. It runs properly and writes a real file into ' +
+    '<code>models/loras</code>, ready to choose in the Style LoRA list — but what that file does to the ' +
+    'sound is unreliable: measured on two corpora, it changed little at strength 1, changed the audio ' +
+    'without making it more like the corpus between 1.1 and 1.5, and broke the sound at 2. Describing ' +
+    'the sound in words, or using a style LoRA from elsewhere, still does more.</p>' +
+    '<p class="hint">You can also train it anywhere else: <b>Export training set</b> writes the audio and a ' +
+    'caption per song, and <b>Install a LoRA</b> takes a file back, naming it and giving it this corpus\u2019s ' +
+    'trigger word.</p>' +
     '<p class="hint">Analyse separates each included song’s vocal, finds its key, tempo and sections with ' +
-    'SheetSage, and drafts its lyrics with Whisper, tagged by section. Drafts may not get all the words ' +
-    'right, so check them and amend what needs it.</p>' +
+    'SheetSage, and drafts its lyrics with Whisper, tagged by section. The trainer learns from the ' +
+    'audio and the caption, not the words, so what a song needs is <i>some</i> lyrics: one with none is ' +
+    'left out of the training set.</p>' +
     '<table class="identity-songs persona-songs"><thead><tr><th></th><th>Song</th><th>Length</th><th>Progress</th><th></th></tr></thead>' +
     '<tbody id="identity-rows">' + data.songs.map(songRow).join('') + '</tbody></table>' +
     '<div id="identity-export-result" class="identity-export persona-export"></div>';
@@ -2943,6 +2949,15 @@ async function identityClick(event) {
     try {
       var out = await api('/api/identities/' + IDENTITY.id + '/export', { method: 'POST' });
       if (status) { status.textContent = ''; }
+      // The action row was drawn before this export existed, so Train a LoRA was
+      // disabled — and a disabled button says nothing when it is pressed.  It is
+      // enabled here rather than redrawing the row, which would clear this message.
+      IDENTITY.data.exported_at = IDENTITY.data.exported_at || out.exported_at || 1;
+      var trainBtn = $('identity-train') || $('persona-train');
+      if (trainBtn) {
+        trainBtn.disabled = false;
+        trainBtn.title = 'Train a LoRA from this corpus';
+      }
       var expRes = $('identity-export-result') || $('persona-export-result');
       if (expRes) {
         expRes.innerHTML = 'Wrote ' + out.written.length + ' song' + (out.written.length === 1 ? '' : 's') +
@@ -2956,7 +2971,9 @@ async function identityClick(event) {
   if (target.closest('#identity-train') || target.closest('#persona-train')) {
     var included = (IDENTITY.data.songs || []).filter(function (song) { return song.include; }).length;
     if (!confirm('Train a LoRA from ' + included + ' song' + (included === 1 ? '' : 's') + '?\n\n' +
-        'It takes about 45 minutes, and the GPU is not available for anything else while it runs.\n' +
+        'This is experimental: the file it makes may change very little, and at high strength can ' +
+        'damage the sound.\n\n' +
+        'It also takes about 45 minutes, and the GPU is not available for anything else while it runs. ' +
         'The progress shows on the main screen, where you can stop it.')) { return; }
     try {
       var started = await api('/api/identities/' + IDENTITY.id + '/train', { method: 'POST' });

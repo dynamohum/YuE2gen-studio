@@ -36,5 +36,15 @@ def test_every_feature_has_a_section():
 
 def test_the_guide_does_not_promise_what_is_not_built():
     text = GUIDE.read_text(encoding="utf-8").lower()
-    for unbuilt in ("mixing desk", "timeline editor", "train a lora"):
+    for unbuilt in ("mixing desk", "timeline editor"):
         assert unbuilt not in text, f"the guide describes {unbuilt}, which is not in the app"
+
+
+def test_training_is_marked_experimental():
+    """It runs, and what it produces is unreliable.  Measured on two corpora: no
+    audible change at strength 1, a change in the wrong direction between 1.1 and 1.5,
+    and broken sound at 2.  A guide that offered it as finished would waste an hour of
+    somebody's GPU."""
+    text = GUIDE.read_text(encoding="utf-8")
+    assert "Training is experimental" in text
+    assert "static" in text, "the guide says what happens at high strength"

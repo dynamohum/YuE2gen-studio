@@ -56,10 +56,13 @@ An identity: one singer's songs, analysed and ready to train a voice on:
   **Variations** renders one take in the others, so you can compare them by ear.
 - **Choose the voice.** Chips set female, male or duet and a voice character. YuE2 has no vocal
   parameter, so the chips write into the style text, and the take keeps the choice.
-- **Identities: one singer, one voice.** Point an Identity at a folder of someone's songs and the
-  app separates each vocal, finds its key, tempo and sections, drafts its lyrics, and writes out a
-  training set. Training happens elsewhere; bring the LoRA back and the Identity sings with it,
-  with its own trigger word and a planner strength that decides how much its writing shows.
+- **Corpora: a folder of songs, prepared for training.** Point a corpus at a folder and the app
+  separates each vocal, finds its key, tempo and sections, drafts its lyrics, and writes out a
+  training set — audio and a caption per song, the layout a trainer reads. **Install a LoRA** takes a
+  trained file back, names it, gives it the corpus trigger word and puts it in the style list.
+- **Train one here — experimental.** **Train a LoRA** runs the trainer in the engine and needs about
+  45 minutes of the GPU. It works, and on the two corpora measured here what it produced had little
+  effect on the sound, and broke up at high strength. Worth playing with; not a finished thing.
 - **Lean on a style LoRA.** Drop other people's trained files into `models/loras/` and pick one
   from a list, with separate strengths for the score and the sound. See Style LoRAs below.
 - **Read the score three ways.** Expand opens a full size editor, with the chord find and replace

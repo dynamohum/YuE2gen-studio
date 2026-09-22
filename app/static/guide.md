@@ -246,8 +246,12 @@ The **Vocal** chips set the singer's sex and character by writing into the style
 
 A **corpus** is a folder of recordings prepared as a training set. Open **Corpora** from the menu,
 make one, and point it at the folder. The app separates each song's vocal, reads its key, tempo and
-sections, and drafts its lyrics tagged by section. Review them against the recordings, then press
-**Export training set**.
+sections, and drafts its lyrics tagged by section.
+
+Every song needs *some* lyrics, because one without any is left out of the training set — but the
+words are not what the trainer learns from. It takes the audio and the caption beside it. Checking
+the drafts is about catching a song that would otherwise be dropped, not about getting every word
+right.
 
 The export is one audio file per song with a caption beside it, and every caption begins with the
 corpus's **trigger word**. That is the layout a trainer reads, including the ComfyUI YuE2 trainer.
@@ -255,12 +259,31 @@ corpus's **trigger word**. That is the layout a trainer reads, including the Com
 **Deleting a corpus** removes the app's copies of its songs, the separated vocals, the lyrics and
 the scores. The folder you pointed it at is never touched.
 
-**Training does not happen here.** Take the export to a trainer, then press **Install a LoRA** on
-the corpus screen and choose the file that comes back. The app puts it in `models/loras`, writes a
-note beside it naming it and giving the corpus trigger word, and asks the engine to look at the
-folder again, so it appears in the Style LoRA list at once. The corpus remembers the file, so
-deleting the corpus can say what it left behind. The engine finds it and it appears in the **Style LoRA** list
-with everything else, trigger word and all — see that section for the strengths it carries.
+### Training is experimental
+
+**Train a LoRA** runs a trainer inside the engine and writes a real LoRA into `models/loras`, ready to
+choose in the **Style LoRA** list. It takes about 45 minutes and holds the GPU for the whole of it:
+nothing else that needs the card will start, the main screen shows the progress with a stop button,
+and the run is cancelled cleanly if you stop it.
+
+What it produces is the experimental part. Measured on two corpora of eleven and nine songs, at 5000
+steps:
+
+| strength | what it did |
+|---|---|
+| 1.0 | no audible change against a render without the LoRA |
+| 1.1–1.5 | changed the audio measurably, but did not make it more like the corpus |
+| 2.0 | broke the sound into something close to static |
+
+The trainer itself is young and upstream reports the same. So: a LoRA from here may be worth trying,
+and is unlikely to transform a render. Describing the sound in words, or a style LoRA from a third
+party, still does more. Train it here by all means — and expect to spend the strength sliders
+looking for a setting you like.
+
+**Installing one from elsewhere** is the other half, and it works: press **Install a LoRA** and choose
+the file. The app puts it in `models/loras`, writes a note beside it naming it and giving the corpus
+trigger word, and asks the engine to look at the folder again, so it appears in the Style LoRA list at
+once. The corpus remembers the file, so deleting the corpus can say what it left behind.
 
 ---
 
