@@ -2852,8 +2852,10 @@ async function showIdentity(id, preloaded) {
     '</div>' +
     (data.lora ? '<p class="hint">LoRA installed from this corpus: <b>' + esc(data.lora) + '</b>. ' +
       'Choose it in the Style LoRA list to write with it.</p>' : '') +
-    '<p class="hint"><b>Training here is experimental.</b> It runs, and the LoRA it makes may change the ' +
-    'sound very little, or break it up at high strength. The guide has the measurements.</p>' +
+    (trainingAvailable()
+      ? '<p class="hint"><b>Training here is experimental.</b> It runs, and the LoRA it makes may change the ' +
+        'sound very little, or break it up at high strength. The guide has the measurements.</p>'
+      : '') +
     '<p class="hint"><b>Export training set</b> writes the audio and a caption per song — the layout a trainer ' +
     'reads — and <b>Install a LoRA</b> takes a trained file back, naming it and giving it this corpus\u2019s ' +
     'trigger word. Train it with whichever trainer you prefer; what comes back is an ordinary LoRA.</p>' +
