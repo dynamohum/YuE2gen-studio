@@ -175,3 +175,49 @@ def test_the_log_says_why_the_llm_setting_was_not_used(whisper, monkeypatch, cap
     caplog.set_level("INFO")
     hear()
     assert "provider is not External LLM" in first_line(caplog)
+
+
+# ------------------------------------------------- a reply that is not the whole song
+
+def test_a_trailing_line_is_not_a_held_back_reply():
+    assert llm.held_back(["Hold on…", "Modern girl"]) is None
+
+
+def test_lines_cut_short_are_held_back():
+    """What the Gemini app did with a well-known song: every section cut to "..."."""
+    assert llm.held_back(["You'd think that people would've had enough...", "I love you..."]) == "cut lines short"
+
+
+def test_a_notice_about_lyrics_is_held_back():
+    note = ("You can view the complete, licensed lyrics by searching for the song on Google "
+            "or visiting major lyric databases like Genius or LyricFind.")
+    assert llm.held_back(["I love you", note]) == "wrote a notice instead of the full lyrics"
+    assert llm.held_back(["I cannot provide the lyrics to this song"]) is not None
+
+
+def test_sung_words_that_look_like_a_notice_are_not():
+    assert llm.held_back(["Love is a genius thing", "Complete me, baby",
+                          "I wrote you the lyrics of my heart", "Search your soul"]) is None
+
+
+def test_a_held_back_reply_falls_back_and_says_why(whisper, monkeypatch):
+    """The agreement check would pass it: every word it does give is in the song."""
+    async def cut(vocal):
+        return ["I walked into a trap...", "Modern girl..."]
+    monkeypatch.setattr(llm, "hear_lyrics", cut)
+    external()
+    set_setting("lyrics.transcriber", "llm")
+    lines, method = hear()
+    assert lines == WHISPER
+    assert method == "Whisper (gemini-3.8-flash cut lines short)"
+
+
+def test_far_fewer_words_than_whisper_heard_falls_back(whisper, monkeypatch):
+    async def short(vocal):
+        return ["Modern girl"]
+    monkeypatch.setattr(llm, "hear_lyrics", short)
+    external()
+    set_setting("lyrics.transcriber", "llm")
+    lines, method = hear()
+    assert lines == WHISPER
+    assert "returned 2 words where Whisper heard 10" in method

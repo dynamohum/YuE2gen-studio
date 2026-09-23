@@ -215,8 +215,9 @@ misheard, especially where voices overlap.
 *Lyrics from a recording*. Set it to **External LLM** and the separated vocal is sent to the model to
 hear the words, while Whisper still works out when each line is sung. On the same two songs Gemini
 got **1.5% and 23%**, so the two are close; try both on a song Whisper struggles with. It needs a
-model that accepts audio, such as Gemini. If the model refuses the audio, or writes words that don't
-match the recording, you get Whisper's version instead. The message when it finishes names which one
+model that accepts audio, such as Gemini. If the model refuses the audio, writes words that don't
+match the recording, or holds back — cutting lines short, or pointing you at a lyrics site, as a
+model may with a song it recognises — you get Whisper's version instead. The message when it finishes names which one
 heard the words. The vocal leaves your machine for this; Whisper keeps it here.
 
 ---

@@ -408,6 +408,32 @@ def _hear_lines(reply: str) -> list[str]:
     return lines
 
 
+# A model asked to write out a song it recognises may hold back and say why instead:
+# the Gemini app, given a well-known song's lyrics and asked to lay them out, gave
+# each section's first line and "...", then pointed at "licensed lyrics" on Genius or
+# LyricFind.  Those words all match the song, so the agreement check passes them,
+# and a notice would be laid out as sung lines.  These catch it.
+ELIDED = re.compile(r"(\.\.\.|\u2026)\s*$")
+# A notice talks about lyrics and where to find them, or refuses outright.  A sung
+# line may say "genius" or "complete"; it is very unlikely to say "lyrics" with them.
+NOTICE_REFUSAL = re.compile(r"\b(can(no|')t|unable to|not able to) (provide|reproduce|share|write out|transcribe)\b",
+                            re.IGNORECASE)
+NOTICE_LYRICS = re.compile(r"\blyrics?\b", re.IGNORECASE)
+NOTICE_WHERE = re.compile(r"\b(licen[cs]ed?|copyright(ed)?|genius|lyricfind|musixmatch|azlyrics|full|complete"
+                          r"|database|website|site|search(ing)?)\b", re.IGNORECASE)
+
+
+def held_back(lines: list[str]) -> str | None:
+    """Why a reply is not the whole song, or None when nothing says it is not."""
+    # One line may trail off as sung; a held-back reply cut every section short.
+    if sum(1 for line in lines if ELIDED.search(line)) >= 2:
+        return "cut lines short"
+    if any(NOTICE_REFUSAL.search(line) or (NOTICE_LYRICS.search(line) and NOTICE_WHERE.search(line))
+           for line in lines):
+        return "wrote a notice instead of the full lyrics"
+    return None
+
+
 async def hear_lyrics(vocal: "Path") -> list[str]:
     """Send a separated vocal to the external LLM and return the lines it hears.
 

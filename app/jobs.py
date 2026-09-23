@@ -1260,6 +1260,12 @@ def fail_cover_lyrics(source_id: str, message: str) -> None:
             (message, source_id))
 
 
+# An LLM that heard the whole song writes about as many words as Whisper, or more:
+# 204 against 205 on Modern Girl, 281 against about 250 on Silly Love Songs.  Well
+# under that, it left something out.
+COMPLETE_SHARE = 0.6
+
+
 async def hear(vocal: Path, seconds: float = 0.0, on_progress=None, on_stage=None,
                title: str = "") -> tuple[list[dict], str]:
     """The sung lines of a separated vocal, with times, and which method heard them.
@@ -1299,6 +1305,16 @@ async def hear(vocal: Path, seconds: float = 0.0, on_progress=None, on_stage=Non
         log.warning("Lyrics for '%s': %s could not hear the vocal, keeping Whisper's lines: %s",
                     name, model, exc)
         return lines, f"Whisper ({model} could not take the audio: {str(exc)[:160]})"
+    # A reply that is not the whole song still matches what Whisper heard, word for
+    # word, as far as it goes: the agreement check below cannot see what is missing.
+    reason = llm.held_back(heard)
+    heard_words = sum(len(line.split()) for line in heard)
+    whisper_words = sum(len(line["text"].split()) for line in lines)
+    if reason is None and whisper_words and heard_words < COMPLETE_SHARE * whisper_words:
+        reason = f"returned {heard_words} words where Whisper heard {whisper_words}"
+    if reason:
+        log.warning("Lyrics for '%s': %s %s, keeping Whisper's lines", name, model, reason)
+        return lines, f"Whisper ({model} {reason})"
     timed = identities.time_lines(lines, heard)
     if timed is None:
         log.warning("Lyrics for '%s': %s's words did not match what Whisper heard, keeping "
