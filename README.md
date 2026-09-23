@@ -324,6 +324,7 @@ The data folder names things after what they hold, so it reads without the datab
 data/
   yue2.sqlite                                    everything the app knows
   sources/f72ac22518a9ea05-modern-girl.wav       your upload, hash first, then its name
+  sources/f72ac22518a9ea05-modern-girl.vocals.flac  its vocal, kept once lyrics are extracted
   takes/modern-girl-take1-329e420d5990/
     modern-girl-take1.flac                       the rendered audio
     modern-girl-take1.peaks.json                 the waveform the player draws, cached
@@ -345,7 +346,8 @@ and the database. Copy that folder and you have the library. Scores and settings
 database, so a take is reproducible from it.
 
 `data/tmp/` and `data/models/` can be left out: one is emptied on start and the other downloads
-again. So can the `*.peaks.json` files, which are rebuilt when a take is played. Copy the database
+again. So can the `*.peaks.json` files, which are rebuilt when a take is played, and the
+`*.vocals.flac` beside recordings, which are separated again the next time lyrics are extracted. Copy the database
 while the app is stopped, or with `sqlite3 data/yue2.sqlite ".backup backup.sqlite"`, so the copy
 is consistent.
 

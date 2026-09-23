@@ -16,7 +16,7 @@ from pathlib import Path
 from . import config, identities, instrumental, llm, loras, lyrics, score, stems
 from .db import bump_average, execute, get_setting, one, rows
 from .engine import Engine, load_template
-from .library import audio_duration, ensure_peaks, inside, remove_tree, take_audio_path, write_take_note
+from .library import audio_duration, ensure_peaks, inside, remove_tree, take_audio_path, vocal_path, write_take_note
 
 personas = identities
 
@@ -1336,14 +1336,24 @@ async def run_cover_lyrics(source_id: str) -> None:
             " lyrics_stage = 'Starting', lyrics_progress = 0 WHERE id = ?", (source_id,))
 
     work = config.WORK_DIR / f"lyrics-{source_id}"
-    # Separation is most of the wait, so it owns most of the bar.
-    await stems.separate(path, work, "htdemucs", ["vocals"], "wav",
-                         lambda frac, stage: progress(0.02 + 0.58 * frac, "Separating the vocal"),
-                         work_root=config.WORK_DIR)
-    vocal = next(iter(work.glob("vocals.*")), None)
-    if not vocal:
-        fail_cover_lyrics(source_id, "the vocal could not be separated")
-        return
+    vocal = vocal_path(path)
+    if vocal.exists():
+        # Separated on an earlier run: the same recording and model give the same
+        # vocal, and separating is most of the job's time.
+        log.info("Lyrics for '%s': reusing the vocal separated earlier", source_title)
+        progress(0.60, "Using the vocal separated earlier")
+    else:
+        # Separation is most of the wait, so it owns most of the bar.
+        await stems.separate(path, work, "htdemucs", ["vocals"], "flac",
+                             lambda frac, stage: progress(0.02 + 0.58 * frac, "Separating the vocal"),
+                             work_root=config.WORK_DIR)
+        separated = next(iter(work.glob("vocals.*")), None)
+        if not separated:
+            fail_cover_lyrics(source_id, "the vocal could not be separated")
+            return
+        # Moved in only once it is whole, so a run stopped halfway never leaves a
+        # partial file to be reused as if it were the vocal.
+        os.replace(separated, vocal)
 
     try:
         seconds = await asyncio.to_thread(instrumental.duration_of, vocal)

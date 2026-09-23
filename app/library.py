@@ -184,6 +184,21 @@ def peaks_path(audio: Path) -> Path:
     return audio.with_name(audio.stem + ".peaks.json")
 
 
+def vocal_path(recording: Path) -> Path:
+    """A recording's separated vocal, kept beside it once lyrics have been heard.
+
+    The vocal depends only on the recording, which never changes, and the
+    separation model, which the lyrics job fixes, so separating it a second time
+    gives the same file and costs most of the job's time.  FLAC: lossless, as the
+    listening needs, and about half the size of the WAV the separator writes."""
+    return recording.with_name(recording.stem + ".vocals.flac")
+
+
+def kept_beside(recording: Path) -> list[Path]:
+    """What the app keeps beside a recording, to go when the recording does."""
+    return [peaks_path(recording), vocal_path(recording)]
+
+
 def compute_peaks(audio: Path) -> dict:
     import numpy as np
 

@@ -40,7 +40,7 @@ personas = identities
 from .engine import stage_label
 from .jobs import (CURRENT, CURRENT_STEMS, ENGINE, HARMONY_STEPS, INTERPRETATION_NAMES, INTERPRETATIONS, LYRICS,
                    PLAN_VARIETY, QUEUE, STEM_QUEUE)
-from .library import (audio_duration, ensure_peaks, inside, relayout, remove_tree, slugify,
+from .library import (audio_duration, ensure_peaks, inside, kept_beside, relayout, remove_tree, slugify,
                       source_path, take_folder)
 
 logging_setup.setup_logging(config.DATA_DIR / "logs")
@@ -898,6 +898,8 @@ async def delete_source(source_id: str) -> dict:
     execute("DELETE FROM sources WHERE id = ?", (source_id,))
     log.info("Deleted source recording '%s' (%s)", source.get("title") or source_id, source_id)
     folders = [(Path(source["stored_path"]), config.SOURCES_DIR)]
+    # Its waveform cache and separated vocal sit beside it and would outlive it.
+    folders += [(kept, config.SOURCES_DIR) for kept in kept_beside(Path(source["stored_path"]))]
     folders += [(Path(item["folder"]), config.DATA_DIR) for item in sets if item["folder"]]
     await asyncio.to_thread(remove_folders, folders)
     if source.get("engine_file") and config.ENGINE_INPUT_DIR:
