@@ -4,7 +4,8 @@ A web interface for [YuE2](https://github.com/multimodal-art-projection/YuE), th
 model. Write a song from a prompt, or cover your own recording. Edit the score either way,
 then pull the stems out of the result.
 
-Everything runs in two containers on one machine. No cloud, no API keys, no accounts.
+Everything runs in two containers on one machine. No cloud and no accounts; an external LLM for
+lyrics is optional.
 
     browser  ->  app  (this project)                 http://localhost:8090
                    |
@@ -30,10 +31,6 @@ Writing an instrumental, with the structure built section by section:
 
 [![Instrumental](docs/screenshots/instrumental.png)](https://raw.githubusercontent.com/dynamohum/YuE2gen-studio/master/docs/screenshots/full/instrumental.png)
 
-An identity: one singer's songs, analysed and ready to train a voice on:
-
-[![Identities](docs/screenshots/identities.png)](https://raw.githubusercontent.com/dynamohum/YuE2gen-studio/master/docs/screenshots/full/identities.png)
-
 ## What it does
 
 - **Cover a recording.** Upload a song, transcribe it once, edit the melody and chords, render.
@@ -53,7 +50,8 @@ An identity: one singer's songs, analysed and ready to train a voice on:
 - **Instrumentals.** A third mode: style and structure in, a song with no vocal out. Build the
   structure section by section, time each section, or let YuE2 decide.
 - **Draft lyrics from a sentence.** Say what the song is about and pick a structure. Gemma 4
-  writes a first draft in YuE2's section layout, on the same engine.
+  writes a first draft in YuE2's section layout, on the same engine, or an external LLM if you
+  set one up in Settings.
 - **Choose the interpretation.** Six ways to render the same score, from Tight to Wide, and
   **Variations** renders one take in the others, so you can compare them by ear.
 - **Choose the voice.** Chips set female, male or duet and a voice character. YuE2 has no vocal
@@ -99,8 +97,6 @@ the app's job is to make them usable without knowing how they are put together:
   author's own description and suggested strengths, on the option and in a tooltip. A LoRA of your
   own gets the same by writing a `.txt` beside it: first line the name, a `Trigger:` line, then the
   description.
-- **It stacks with an Identity.** The Identity supplies the voice, the style LoRA the writing and
-  the production. Both have planner strengths and they add up, so ease one down when using both.
 
 The [user guide](app/static/guide.md#style-loras) has the detail, including what to do when a song
 will not end.
@@ -218,7 +214,7 @@ hand, such as a new setting in `compose.yml`.
 ## Using it
 
 The **[user guide](app/static/guide.md)** covers everything the app does, organised by what you are
-trying to do: writing a song, covering a recording, instrumentals, voices and Identities, style
+trying to do: writing a song, covering a recording, instrumentals, voices, style
 LoRAs, stems, the library and what to do when something is wrong.
 
 It is also in the app itself, under the menu in the top left, or at
