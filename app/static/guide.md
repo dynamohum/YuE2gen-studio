@@ -207,6 +207,14 @@ Expect a good draft rather than a transcript. Measured against a song whose real
 dropped article, a repeated line collapsed onto one. Nothing was invented. So read it and put back
 what it did not hear.
 
+**Letting an external LLM listen.** If an external LLM is your provider, Settings has a choice under
+*Lyrics from a recording*. Set it to **External LLM** and the separated vocal is sent to the model to
+hear the words, while Whisper still works out when each line is sung. On the same song this got
+**under 2% of words wrong**, and it found the lines Whisper missed. It needs a model that accepts
+audio, such as Gemini. If the model refuses the audio, or writes words that don't match the
+recording, you get Whisper's version instead. The message when it finishes names which one heard the
+words. The vocal leaves your machine for this; Whisper keeps it here.
+
 ---
 
 ## Instrumentals

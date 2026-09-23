@@ -1699,14 +1699,39 @@ function paintSettings() {
     } else {
       control = '<input type="text" spellcheck="false" data-key="' + esc(item.key) + '" value="' + esc(item.value) + '">';
     }
+    // A setting that only means something when another one has a given value, such
+    // as the lyrics method with an external LLM, carries a note saying what it needs.
+    var needs = item.requires
+      ? '<div class="setting-help hidden" data-needs="' + esc(item.key) + '">' + esc(item.requires_note || '') + '</div>'
+      : '';
     return '<div class="setting-row">' +
       '<div class="setting-text">' +
         '<div class="setting-label">' + esc(item.label) + '</div>' +
         '<div class="setting-help">' + esc(item.help || '') + '</div>' +
+        needs +
       '</div>' +
       '<div class="setting-control">' + control + '<span class="saved" data-saved="' + esc(item.key) + '"></span></div>' +
     '</div>';
   }).join('');
+  paintSettingRequirements();
+}
+
+/* Grey out a setting whose requirement is not met, and say why.  Separate from
+   paintSettings because a save updates the values without redrawing the sheet,
+   which would take the cursor out of a field being typed in. */
+function paintSettingRequirements() {
+  var list = $('settings-list');
+  if (!list) { return; }
+  (State.settingSpec || []).forEach(function (item) {
+    if (!item.requires) { return; }
+    var met = Object.keys(item.requires).every(function (key) {
+      return setting(key, '') === item.requires[key];
+    });
+    var control = list.querySelector('[data-key="' + item.key + '"]');
+    if (control) { control.disabled = !met; }
+    var note = list.querySelector('[data-needs="' + item.key + '"]');
+    if (note) { note.classList.toggle('hidden', met); }
+  });
 }
 
 async function fetchLLMModels(isBackground) {
@@ -1815,6 +1840,7 @@ async function saveSetting(input) {
       body: JSON.stringify({ key: key, value: input.value })
     });
     adoptSettings(data.settings);
+    paintSettingRequirements();
     if (key === 'llm.model') {
       var sel = $('select-llm-model');
       if (sel) { sel.value = input.value; }
@@ -1983,7 +2009,8 @@ async function pollHear(id) {
   if (state.state === 'done') {
     stopHearPoll();
     if (state.lyrics) { useHeardLyrics(state.lyrics); }
-    statusLine('Wrote down what the recording sings. Read it before you plan.', 'good');
+    statusLine('Wrote down what the recording sings' + (state.method ? ', heard by ' + state.method : '') +
+      '. Read it before you plan.', 'good');
     loadSources();
   } else if (state.state === 'failed') {
     showHearError(state.error === 'cancelled' ? 'Stopped.' : 'Could not hear the words: ' + (state.error || 'unknown'));

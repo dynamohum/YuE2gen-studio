@@ -351,6 +351,15 @@ def _lora_runs() -> None:
     execute("CREATE INDEX IF NOT EXISTS lora_runs_state ON lora_runs(state)")
 
 
+def _lyrics_method() -> None:
+    """Which method heard a recording's lyrics: Whisper on this machine, or an
+    external LLM listening with Whisper keeping the time.  Recorded because the
+    LLM route falls back to Whisper when the model will not take audio, and the
+    words alone do not say which happened."""
+    if "lyrics_method" not in _columns("sources"):
+        execute("ALTER TABLE sources ADD COLUMN lyrics_method TEXT")
+
+
 def _source_duration() -> None:
     """How long a recording is, so a score transcribed from it can be checked
     against it: a plan whose tempo is wrong describes more music than the
@@ -388,6 +397,7 @@ MIGRATIONS = [
     _cover_lyrics,                                                   # -> 15
     _source_duration,                                                # -> 16
     _lora_runs,                                                      # -> 17
+    _lyrics_method,                                                  # -> 18
 ]
 
 

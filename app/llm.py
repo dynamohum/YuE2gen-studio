@@ -72,11 +72,12 @@ def _endpoint_url(base_url: str) -> str:
 
 
 async def chat_complete(
-    messages: list[dict[str, str]],
+    messages: list[dict[str, Any]],
     *,
     temperature: float = 0.7,
     max_tokens: int | None = None,
     config_override: dict[str, str] | None = None,
+    timeout: float | None = None,
 ) -> str:
     """Call the OpenAI-compatible chat completions endpoint and return the text reply."""
     cfg = get_config()
@@ -108,7 +109,7 @@ async def chat_complete(
     log.info("Sending chat completion to %s (model: %s, messages: %d)", endpoint, model, len(messages))
     t0 = time.perf_counter()
 
-    async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
+    async with httpx.AsyncClient(timeout=timeout or REQUEST_TIMEOUT) as client:
         try:
             resp = await client.post(endpoint, json=payload, headers=headers)
         except httpx.TimeoutException as exc:
@@ -379,3 +380,69 @@ async def fetch_models(config_override: dict[str, str] | None = None) -> list[di
     results.sort(key=sort_key)
     log.info("Discovered %d models from %s in %.2fs", len(results), models_url, elapsed)
     return results
+
+
+# ------------------------------------------------------- hearing sung lyrics
+HEAR_PROMPT = (
+    "This is an isolated vocal track from a song. Transcribe the sung lyrics exactly as they "
+    "are sung, one line per sung phrase, in order. Write a line out again every time it is "
+    "sung, including repeated choruses. Do not add section labels, notes or commentary, and "
+    "do not add words you cannot hear. If a word is unclear, write your best guess."
+)
+# An upload of a few megabytes and a reply of a few hundred words: measured at 7-13 s
+# for a 3.5 minute song, so a minute is not enough headroom for a long one.
+HEAR_TIMEOUT = 300.0
+
+
+def _hear_lines(reply: str) -> list[str]:
+    """The sung lines from a reply, without the section labels, fences and notes a
+    model adds despite being asked not to.  The app lays out its own sections."""
+    lines = []
+    for raw in (reply or "").splitlines():
+        line = raw.strip().strip("*").strip()
+        if not line or line.startswith("```"):
+            continue
+        if re.fullmatch(r"[\[(].*[\])]", line):            # [Chorus], (instrumental)
+            continue
+        lines.append(line)
+    return lines
+
+
+async def hear_lyrics(vocal: "Path") -> list[str]:
+    """Send a separated vocal to the external LLM and return the lines it hears.
+
+    Works only with a model that accepts audio, such as Gemini through its
+    OpenAI-compatible endpoint.  Nothing in the API says in advance whether a
+    model does, so this simply asks: a model that refuses raises, and the caller
+    falls back to Whisper.  Measured on one song against its real lyrics, Gemini
+    got 1.5% of words wrong where Whisper got 8.8%, nearly all of Whisper's being
+    lines it missed; three runs gave the same answer and added no words.
+
+    The vocal goes out as mono 128 kbps MP3: about 1 MB a minute, which keeps the
+    request well inside what providers accept inline."""
+    import asyncio
+    import base64
+    import subprocess
+    import tempfile
+    from pathlib import Path as _Path
+
+    with tempfile.TemporaryDirectory() as tmp:
+        mp3 = _Path(tmp) / "vocal.mp3"
+        done = await asyncio.to_thread(
+            subprocess.run,
+            ["ffmpeg", "-v", "error", "-y", "-i", str(vocal), "-ac", "1", "-b:a", "128k", str(mp3)],
+            capture_output=True,
+        )
+        if done.returncode != 0 or not mp3.exists():
+            raise RuntimeError("the vocal could not be encoded for upload")
+        audio = base64.b64encode(mp3.read_bytes()).decode()
+    messages = [{"role": "user", "content": [
+        {"type": "text", "text": HEAR_PROMPT},
+        {"type": "input_audio", "input_audio": {"data": audio, "format": "mp3"}},
+    ]}]
+    log.info("Asking the external LLM to hear a vocal (%.1f MB encoded)", len(audio) * 3 / 4 / 1e6)
+    reply = await chat_complete(messages, temperature=0.0, timeout=HEAR_TIMEOUT)
+    lines = _hear_lines(reply)
+    if not lines:
+        raise RuntimeError("the model returned no lyrics")
+    return lines

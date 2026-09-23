@@ -126,6 +126,21 @@ SETTINGS_SPEC: list[dict] = [
         "default": "gpt-4o-mini",
         "help": "Model identifier to query (e.g. gpt-4o-mini, claude-3-5-sonnet-20241022, gemini-1.5-flash, llama3.2, mistral-large).",
     },
+    {
+        "key": "lyrics.transcriber",
+        "label": "Lyrics from a recording",
+        "type": "select",
+        "default": "whisper",
+        "options": [
+            {"value": "whisper", "label": "Whisper, on this machine"},
+            {"value": "llm", "label": "External LLM"},
+        ],
+        # Only meaningful with an external provider.  The sheet greys it out
+        # otherwise, and the job ignores it, so a stale "llm" can do no harm.
+        "requires": {"llm.provider": "external"},
+        "requires_note": "Choose External LLM as the provider to use this.",
+        "help": "The LLM must accept audio, as Gemini does. Whisper still times the lines, and is used instead if the LLM can't hear it.",
+    },
 ]
 
 SETTINGS_BY_KEY = {item["key"]: item for item in SETTINGS_SPEC}
@@ -2074,6 +2089,9 @@ def source_lyrics_state(source_id: str) -> dict:
         "stage": source["lyrics_stage"],
         "error": source["lyrics_error"],
         "lyrics": source["lyrics"],
+        # Whisper, or the external LLM timed by Whisper, or Whisper with the reason
+        # the LLM was not used.  None for lyrics heard before this was recorded.
+        "method": source["lyrics_method"],
     }
 
 

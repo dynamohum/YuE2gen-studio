@@ -727,7 +727,8 @@ async def prepare_song(song_id: str) -> None:
     if not (folder / "whisper.json").exists():
         set_song(song_id, lyrics_state="running")
         try:
-            lines = await asyncio.to_thread(identities.transcribe, folder / "vocals.wav")
+            lines, method = await hear(folder / "vocals.wav")
+            log.info("Corpus song '%s': lyrics heard by %s", song_title, method)
         except Exception as exc:  # noqa: BLE001
             set_song(song_id, lyrics_state="failed", error=f"lyrics: {exc}"[:400])
             return
@@ -1259,6 +1260,34 @@ def fail_cover_lyrics(source_id: str, message: str) -> None:
             (message, source_id))
 
 
+async def hear(vocal: Path, seconds: float = 0.0, on_progress=None, on_stage=None) -> tuple[list[dict], str]:
+    """The sung lines of a separated vocal, with times, and which method heard them.
+
+    Whisper always runs: it is the default method, and in the other it keeps the
+    time.  When Settings asks for the external LLM to listen, and an external LLM is
+    the provider, the vocal is sent to it and its words are laid over Whisper's
+    times.  Every way that can fail comes back to Whisper's lines, with the reason
+    in the method, so the lyrics always arrive and it is always clear who heard them.
+    """
+    lines = await asyncio.to_thread(identities.transcribe, vocal, on_progress, seconds)
+    if get_setting("lyrics.transcriber", "whisper") != "llm" or not llm.is_external_enabled():
+        return lines, "Whisper"
+    model = llm.get_config().get("model") or "the external LLM"
+    if on_stage:
+        on_stage(f"Listening with {model}")
+    try:
+        heard = await llm.hear_lyrics(vocal)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("External LLM could not hear %s, keeping Whisper's lines: %s", vocal.name, exc)
+        return lines, f"Whisper ({model} could not take the audio: {str(exc)[:160]})"
+    timed = identities.time_lines(lines, heard)
+    if timed is None:
+        log.warning("External LLM's words for %s did not match Whisper's, keeping Whisper's", vocal.name)
+        return lines, f"Whisper ({model}'s words did not match the recording)"
+    log.info("External LLM heard %d lines for %s, where Whisper heard %d", len(timed), vocal.name, len(lines))
+    return timed, f"{model}, timed by Whisper"
+
+
 async def run_cover_lyrics(source_id: str) -> None:
     """Hear the words in a recording: separate its vocal, transcribe it, and lay
     the lines under the sections of the score already transcribed from it."""
@@ -1299,9 +1328,10 @@ async def run_cover_lyrics(source_id: str) -> None:
     try:
         seconds = await asyncio.to_thread(instrumental.duration_of, vocal)
         progress(0.62, "Listening for words")
-        lines = await asyncio.to_thread(
-            identities.transcribe, vocal,
-            lambda frac: progress(0.62 + 0.33 * frac, "Listening for words"), seconds)
+        lines, method = await hear(
+            vocal, seconds,
+            lambda frac: progress(0.62 + 0.30 * frac, "Listening for words"),
+            lambda stage: progress(0.93, stage))
         if not lines:
             fail_cover_lyrics(source_id, "no words were heard in this recording")
             return
@@ -1309,9 +1339,9 @@ async def run_cover_lyrics(source_id: str) -> None:
         sections = identities.score_sections(source["abc"] or "")
         text = await asyncio.to_thread(identities.tag_lyrics, lines, sections, seconds)
         execute("UPDATE sources SET lyrics = ?, lyrics_state = 'done', lyrics_stage = NULL,"
-                " lyrics_progress = 1 WHERE id = ?", (text, source_id))
-        log.info("Lyrics extraction finished for source '%s' in %.1fs (%d lines heard)",
-                 source_title, time.time() - started, len(lines))
+                " lyrics_progress = 1, lyrics_method = ? WHERE id = ?", (text, method, source_id))
+        log.info("Lyrics extraction finished for source '%s' in %.1fs (%d lines, heard by %s)",
+                 source_title, time.time() - started, len(lines), method)
     finally:
         shutil.rmtree(work, ignore_errors=True)
 

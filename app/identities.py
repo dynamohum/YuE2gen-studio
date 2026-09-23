@@ -194,8 +194,12 @@ _whisper = None
 
 def transcribe(vocals: Path, on_progress=None, duration: float = 0.0) -> list[dict]:
     """The sung lines of a separated vocal, with their times, from Whisper on the CPU.
-    Measured on one song against its real lyrics: 16% of words wrong, where Gemma
-    listening to the same vocal got 43% wrong."""
+
+    Measured on Modern Girl against its real lyrics: 8.8% of words wrong, nearly all
+    of them lines it did not hear at all.  Gemini listening to the same vocal got
+    1.5% (see time_lines and llm.hear_lyrics); the local Gemma got 43% on an earlier test.  Whisper
+    stays the default because it runs here and keeps the recording here, and it
+    supplies the timing either way."""
     global _whisper
     from faster_whisper import WhisperModel
     if _whisper is None:
@@ -224,6 +228,71 @@ def transcribe(vocals: Path, on_progress=None, duration: float = 0.0) -> list[di
             lines.append({"start": round(at, 2), "end": round(at + share, 2), "text": part.rstrip(".")})
             at += share
     return lines
+
+
+def _word(token: str) -> str:
+    return re.sub(r"[^a-z']", "", token.lower().replace("\u2019", "'"))
+
+
+# Below this share of its words agreeing with what Whisper heard, a reply is taken to
+# be something other than this recording: a famous song's published lyrics written
+# out from memory, say.  On Modern Girl the two agreed on nearly every word.
+AGREEMENT_FLOOR = 0.3
+
+
+def time_lines(timed: list[dict], lines: list[str]) -> list[dict] | None:
+    """Give lines heard by another model the times Whisper found.
+
+    Whisper's lines carry times; an LLM's carry none, and its timestamps are not to
+    be trusted.  So each Whisper line's time is shared across its words, the two
+    word sequences are matched, and each LLM line takes the times of its matched
+    words.  A line Whisper missed entirely, which is the error an LLM fixes, has no
+    matched words: it is placed between the lines either side of it, in order.
+
+    None when the two barely agree, so the caller keeps Whisper's own lines rather
+    than laying out words that are not this recording's."""
+    import difflib
+
+    ww, wt = [], []
+    for line in timed:
+        tokens = [w for w in (_word(t) for t in line["text"].split()) if w]
+        span = line["end"] - line["start"]
+        for k, w in enumerate(tokens):
+            ww.append(w)
+            wt.append(line["start"] + span * (k + 0.5) / len(tokens))
+    lw, li = [], []
+    for i, line in enumerate(lines):
+        for t in line.split():
+            w = _word(t)
+            if w:
+                lw.append(w)
+                li.append(i)
+    if not ww or not lw:
+        return None
+    matched = {}
+    for a, b, size in difflib.SequenceMatcher(None, ww, lw, autojunk=False).get_matching_blocks():
+        for k in range(size):
+            matched[b + k] = wt[a + k]
+    if len(matched) < AGREEMENT_FLOOR * len(lw):
+        return None
+    times: list[list[float]] = [[] for _ in lines]
+    for j, t in matched.items():
+        times[li[j]].append(t)
+    starts = [min(ts) if ts else None for ts in times]
+    ends = [max(ts) if ts else None for ts in times]
+    known = [i for i, t in enumerate(starts) if t is not None]
+    for i in range(len(lines)):
+        if starts[i] is not None:
+            continue
+        before = max((k for k in known if k < i), default=None)
+        after = min((k for k in known if k > i), default=None)
+        if before is not None and after is not None:
+            at = ends[before] + (starts[after] - ends[before]) * (i - before) / (after - before)
+        else:
+            at = ends[before] if before is not None else starts[after]
+        starts[i] = ends[i] = at
+    return [{"start": round(a, 2), "end": round(b, 2), "text": text.strip()}
+            for a, b, text in zip(starts, ends, lines)]
 
 
 SECTION_TAGS = {"intro": "Intro", "verse": "Verse", "pre-chorus": "Pre-Chorus", "prechorus": "Pre-Chorus",
