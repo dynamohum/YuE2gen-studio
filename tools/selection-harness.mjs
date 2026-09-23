@@ -25,7 +25,8 @@ function makeEl(id) {
     closest() { return null; }, scrollIntoView() {}, focus() {}, setAttribute() {},
     getContext() { return { clearRect() {}, fillRect() {}, fillStyle: '', measureText: () => ({ width: 10 }) }; },
     getBoundingClientRect() { return { left: 0, width: 600, top: 0, height: 44 }; },
-    clientWidth: 600, width: 600, height: 44, _h: {}, querySelectorAll() { return []; } };
+    clientWidth: 600, width: 600, height: 44, _h: {}, querySelectorAll() { return []; },
+    querySelector() { return null; } };
   return el;
 }
 const els = new Map();

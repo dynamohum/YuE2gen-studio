@@ -9,6 +9,7 @@ export default [
       sourceType: 'script',
       globals: {
         window: 'readonly', document: 'readonly', navigator: 'readonly', localStorage: 'readonly',
+        sessionStorage: 'readonly',
         fetch: 'readonly', setTimeout: 'readonly', setInterval: 'readonly', clearTimeout: 'readonly',
         clearInterval: 'readonly',
         requestAnimationFrame: 'readonly', cancelAnimationFrame: 'readonly', confirm: 'readonly', prompt: 'readonly',

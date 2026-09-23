@@ -3427,16 +3427,19 @@ async function identityClick(event) {
   }
   var restyle = target.closest('[data-restyle]');
   if (restyle) {
-    var sid = restyle.dataset.restyle;
+    var restyleId = restyle.dataset.restyle;
+    var label = restyle.textContent;
     restyle.disabled = true;
     restyle.textContent = 'Queueing\u2026';
     try {
-      await api('/api/identities/' + IDENTITY.id + '/songs/' + sid + '/style', { method: 'POST' });
+      await api('/api/identities/' + IDENTITY.id + '/songs/' + restyleId + '/style', { method: 'POST' });
       pollIdentity();
     } catch (err) {
-      alert(err.message);
+      // In the screen's status line, like its other failures, not a modal.
+      var failed = $('identity-status') || $('persona-status');
+      if (failed) { failed.textContent = err.message; failed.className = 'status bad'; }
       restyle.disabled = false;
-      restyle.textContent = 'Re-analyse';
+      restyle.textContent = label;
     }
     return;
   }

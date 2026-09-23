@@ -19,6 +19,7 @@ function makeEl(id) {
     classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
     addEventListener(t, fn) { (el._h[t] = el._h[t] || []).push(fn); }, dispatchEvent() { return true; },
     closest() { return null; }, scrollIntoView() {}, focus() {}, setAttribute() {}, removeAttribute() {},
+    querySelector() { return null; }, querySelectorAll() { return []; },
     getContext() { return { clearRect() {}, fillRect() {}, fillStyle: '' }; },
     getBoundingClientRect() { return { left: 0, width: 600 }; }, clientWidth: 600, width: 600, height: 44, _h: {} };
   return el;
