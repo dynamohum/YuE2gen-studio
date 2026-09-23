@@ -379,6 +379,14 @@ def _cover_lyrics() -> None:
             execute(f"ALTER TABLE sources ADD COLUMN {name} {spec}")
 
 
+def _loudness() -> None:
+    """A finished take keeps how loud it came out, in dB.  A render that loses its
+    footing comes out quiet all the way through, thin and noisy, so a take far
+    below the rest is flagged as probably spoiled."""
+    if "loudness" not in _columns("takes"):
+        execute("ALTER TABLE takes ADD COLUMN loudness REAL")
+
+
 MIGRATIONS = [
     lambda: (conn().executescript(BASE_SCHEMA), _legacy_takes()),   # -> 1
     _indexes,                                                        # -> 2
@@ -398,6 +406,7 @@ MIGRATIONS = [
     _source_duration,                                                # -> 16
     _lora_runs,                                                      # -> 17
     _lyrics_method,                                                  # -> 18
+    _loudness,                                                       # -> 19
 ]
 
 

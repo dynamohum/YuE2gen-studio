@@ -148,6 +148,33 @@ def relayout() -> None:
 
 
 # ------------------------------------------------------------------- audio info
+def loudness(path: Path) -> float | None:
+    """The average level of a file in dB, from ffmpeg's volumedetect.  A fifth of a
+    second for a two minute take."""
+    try:
+        out = subprocess.run(["ffmpeg", "-v", "info", "-nostats", "-i", str(path), "-af", "volumedetect",
+                              "-f", "null", "-"], capture_output=True, text=True, timeout=120).stderr
+    except (subprocess.SubprocessError, OSError) as exc:
+        log.warning("could not read the level of %s: %s", path.name, exc)
+        return None
+    found = re.search(r"mean_volume:\s*(-?[\d.]+|-inf) dB", out)
+    if not found:
+        return None
+    return -120.0 if found.group(1) == "-inf" else round(float(found.group(1)), 1)
+
+
+def fill_loudness() -> int:
+    """Read the level of finished takes made before it was recorded."""
+    done = 0
+    for row in rows("SELECT id, audio_path FROM takes WHERE status = 'done' AND loudness IS NULL AND audio_path IS NOT NULL"):
+        path = Path(row["audio_path"])
+        level = loudness(path) if path.exists() else None
+        if level is not None:
+            execute("UPDATE takes SET loudness = ? WHERE id = ?", (level, row["id"]))
+            done += 1
+    return done
+
+
 def audio_duration(path: Path) -> float | None:
     """FLAC carries its length in the header, which is instant.  Anything else, or a
     FLAC that does not say, goes to ffprobe."""

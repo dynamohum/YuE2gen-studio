@@ -40,8 +40,8 @@ personas = identities
 from .engine import stage_label
 from .jobs import (CURRENT, CURRENT_STEMS, ENGINE, HARMONY_STEPS, INTERPRETATION_NAMES, INTERPRETATIONS, LYRICS,
                    PLAN_VARIETY, QUEUE, STEM_QUEUE)
-from .library import (audio_duration, ensure_peaks, inside, kept_beside, relayout, remove_tree, slugify,
-                      source_path, take_folder)
+from .library import (audio_duration, ensure_peaks, fill_loudness, inside, kept_beside, relayout, remove_tree,
+                      slugify, source_path, take_folder)
 
 logging_setup.setup_logging(config.DATA_DIR / "logs")
 log = logging.getLogger("yue2")
@@ -223,7 +223,9 @@ async def lifespan(app: FastAPI):
     for field in ("score_state", "lyrics_state", "style_state"):
         execute(f"UPDATE identity_songs SET {field} = 'none' WHERE {field} IN ('queued', 'running')")
     tasks = [asyncio.create_task(jobs.worker()), asyncio.create_task(jobs.stems_worker()), asyncio.create_task(jobs.keeper()),
-             asyncio.create_task(jobs.identity_worker())]
+             asyncio.create_task(jobs.identity_worker()),
+             # A fifth of a second a take, so off the start path.
+             asyncio.create_task(asyncio.to_thread(fill_loudness))]
     log.info("YuE2 Studio %s up. engine=%s (%s) data=%s", config.VERSION, config.ENGINE_URL,
              "online" if ENGINE.online else "offline", config.DATA_DIR)
     try:
@@ -759,6 +761,7 @@ def state() -> dict:
             # EXPERIMENTAL: off unless built in, so the corpus screen hides the button
             # rather than offering something that answers 501.  See config.TRAINING_ENABLED.
             "training_available": config.TRAINING_ENABLED and ENGINE.options.get("trainer", False),
+            "weak_render_db": config.WEAK_RENDER_DB,
         },
     }
 
@@ -1272,7 +1275,7 @@ async def render_take(take_id: str, body: RenderIn | None = None) -> dict:
         seed = int.from_bytes(os.urandom(4), "big")
     else:
         seed = take["seed"]
-    execute("UPDATE takes SET status = 'queued', error = NULL, stage = NULL, checkpoint = ?, interpretation = ?, realaudio = ?, identity_id = ?, persona_id = ?, voice_lora = ?, voice_lora_strength = ?, style_lora = ?, style_lora_model = ?, style_lora_clip = ?, seed = ?, vocal_check = NULL WHERE id = ?",
+    execute("UPDATE takes SET status = 'queued', error = NULL, stage = NULL, checkpoint = ?, interpretation = ?, realaudio = ?, identity_id = ?, persona_id = ?, voice_lora = ?, voice_lora_strength = ?, style_lora = ?, style_lora_model = ?, style_lora_clip = ?, seed = ?, vocal_check = NULL, loudness = NULL WHERE id = ?",
             (config.CHECKPOINT, interpretation, realaudio, identity_val, identity_val, voice_lora, voice_lora_strength, sl["style_lora"], sl["style_lora_model"], sl["style_lora_clip"], seed, take_id))
     await QUEUE.put({"kind": "render", "id": take_id})
     log.info("Queued audio render for take '%s' (%s, seed=%d)", take.get("title") or take_id, take_id, seed)

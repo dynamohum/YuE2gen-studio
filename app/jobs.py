@@ -17,7 +17,7 @@ from pathlib import Path
 from . import config, identities, instrumental, llm, loras, lyrics, score, stems
 from .db import bump_average, execute, get_setting, one, rows
 from .engine import Engine, load_template
-from .library import audio_duration, ensure_peaks, inside, remove_tree, take_audio_path, vocal_path, write_take_note
+from .library import audio_duration, ensure_peaks, loudness, inside, remove_tree, take_audio_path, vocal_path, write_take_note
 
 personas = identities
 
@@ -590,13 +590,14 @@ async def _finish(kind: str, ref_id: str, record: dict, job: dict, started: floa
         remove_tree(dest.parent)
         return
     duration = await asyncio.to_thread(audio_duration, dest)
+    level = await asyncio.to_thread(loudness, dest)
     # An instrumental is checked for singing before it is called finished, so no
     # one is told it is ready and left to discover otherwise.
     sung = await asyncio.to_thread(singing_share, dest) if record.get("kind") == "instrumental" else None
     elapsed = time.time() - started
     execute(
-        "UPDATE takes SET status = 'done', stage = NULL, audio_path = ?, duration = ?, finished_at = ?, elapsed = ?, error = NULL, vocal_check = ? WHERE id = ?",
-        (str(dest), duration, time.time(), elapsed, sung, ref_id),
+        "UPDATE takes SET status = 'done', stage = NULL, audio_path = ?, duration = ?, finished_at = ?, elapsed = ?, error = NULL, vocal_check = ?, loudness = ? WHERE id = ?",
+        (str(dest), duration, time.time(), elapsed, sung, level, ref_id),
     )
     fresh = one("SELECT * FROM takes WHERE id = ?", (ref_id,))
     if fresh:

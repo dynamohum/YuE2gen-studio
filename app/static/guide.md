@@ -449,6 +449,10 @@ length cap will stop it regardless.
 **A LoRA seems to do nothing.** Check the trigger word is in the Style, and that the strength you
 raised is one the file actually holds — the picker greys out the other.
 
+**A take says *Weak render*.** It came out far quieter than usual all the way through, and takes
+like that sound thin or distorted. It happens most in covers through a style LoRA trained here. Try
+another seed, and keep that LoRA's Sound at 0.5 or below.
+
 **An instrumental sang.** See *When an instrumental sings* above. It is a model failure; a new seed
 usually fixes it.
 

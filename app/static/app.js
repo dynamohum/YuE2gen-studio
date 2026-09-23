@@ -1075,6 +1075,11 @@ function lockGpuControls() {
   });
 }
 
+function weakRender(take) {
+  var limit = State.options && typeof State.options.weak_render_db === 'number' ? State.options.weak_render_db : -24;
+  return typeof take.loudness === 'number' && take.loudness < limit;
+}
+
 function queueWhat(item) {
   var kind = '<span class="q-kind">' + esc(JOB_KINDS[item.kind] || 'Engine job') + '</span>';
   if (item.outside) {
@@ -3999,6 +4004,11 @@ function paintTakes() {
       // audio is checked, so a spoiled take says so rather than puzzling you.
       live = '<button class="take-status sung" data-act="sung" data-id="' + take.id + '">singing in ' +
         Math.round(take.vocal_check * 100) + '% of this instrumental</button>';
+    } else if (weakRender(take)) {
+      // A render that loses its footing comes out quiet from end to end, and
+      // sounds thin or distorted. Another seed usually fixes it.
+      live = '<div class="take-status weak" title="Came out at ' + take.loudness.toFixed(1) +
+        ' dB, far below the usual level. Takes like this usually sound thin or distorted.">Weak render: try another seed</div>';
     }
     var id = ' data-id="' + take.id + '"';
     var actions = '';

@@ -102,6 +102,11 @@ TRAINING_ENABLED = os.environ.get("TRAINING_ENABLED", "").strip().lower() in ("1
 # Planner steps come from the corpus size: TRAIN_PASSES over each song, the rule of
 # thumb in the trainer (steps x batch_songs x artist_fraction / songs), rounded up to
 # a checkpoint.  TRAIN_STEPS, when set, overrides it for every run.
+# A take whose average level is below this is flagged as probably spoiled. Across the
+# library the median is about -18 dB; the three renders heard as badly distorted
+# came out at -28 to -34, all of them covers through a corpus LoRA.
+WEAK_RENDER_DB = float(os.environ.get("WEAK_RENDER_DB", "-24"))
+
 TRAIN_PASSES = float(os.environ.get("TRAIN_PASSES", "10"))
 TRAIN_STEPS = int(os.environ["TRAIN_STEPS"]) if os.environ.get("TRAIN_STEPS") else None
 TRAIN_BATCH_SONGS = int(os.environ.get("TRAIN_BATCH_SONGS", "2"))
