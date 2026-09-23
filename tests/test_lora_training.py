@@ -67,9 +67,9 @@ def test_a_running_loRA_keeps_the_engine_to_itself(client, monkeypatch, tmp_path
     assert again.status_code == 409
 
 
-def test_a_finished_run_leaves_one_file_named_after_the_corpus(client, monkeypatch, tmp_path):
-    """The trainer writes a snapshot every hundred steps and a copy of the best. Only
-    the best is wanted, under the plain name, with the corpus as the name people see."""
+def test_a_finished_run_is_named_after_the_corpus_and_keeps_its_snapshots(client, monkeypatch, tmp_path):
+    """The best goes under the plain name and its copy is dropped.  The snapshots stay,
+    each named for its step, because a published LoRA is a checkpoint picked by ear."""
     import asyncio
     from app import jobs, loras
 
@@ -79,22 +79,46 @@ def test_a_finished_run_leaves_one_file_named_after_the_corpus(client, monkeypat
     monkeypatch.setattr(loras, "folder", lambda: root)
 
     async def trained(kind, run_id, graph):
-        for name in ("alicia_lora_best", "alicia_lora_step100", "alicia_lora_step200"):
+        for name in ("alicia_lora_best", "alicia_lora_step50", "alicia_lora_step100"):
             (root / f"{name}.safetensors").write_bytes(name.encode())
         (root / "alicia_lora_log.json").write_text("[]", encoding="utf-8")
     monkeypatch.setattr(jobs, "_run_graph", trained)
 
     a_corpus()
     execute("""INSERT INTO lora_runs(id, identity_id, lora_name, steps, rank, state)
-               VALUES('run1', 'corpus1', 'alicia_lora', 200, 16, 'queued')""")
+               VALUES('run1', 'corpus1', 'alicia_lora', 100, 16, 'queued')""")
     asyncio.run(jobs.run_lora_train("run1"))
 
     assert one("SELECT state FROM lora_runs WHERE id = 'run1'")["state"] == "done"
-    assert sorted(path.name for path in root.glob("*.safetensors")) == ["alicia_lora.safetensors"]
+    assert sorted(path.name for path in root.glob("*.safetensors")) == [
+        "alicia_lora.safetensors", "alicia_lora_step100.safetensors", "alicia_lora_step50.safetensors"]
     assert (root / "alicia_lora.safetensors").read_bytes() == b"alicia_lora_best"
-    assert (root / "alicia_lora_log.json").exists(), "the log is kept"
     assert (root / "alicia_lora.txt").read_text(encoding="utf-8").split("\n")[0] == "Alicia"
+    assert (root / "alicia_lora_step50.txt").read_text(encoding="utf-8").split("\n")[0] == "Alicia · step 50"
     assert one("SELECT lora FROM identities WHERE id = 'corpus1'")["lora"] == "alicia_lora.safetensors"
+
+
+def test_steps_follow_the_size_of_the_corpus(monkeypatch):
+    """About ten passes over each song, the trainer's rule of thumb, rounded up to a
+    checkpoint.  600 for every corpus was 18 passes for 17 songs and 30 for 10."""
+    monkeypatch.setattr(config, "TRAIN_STEPS", None)
+    assert config.train_steps(17) == 200
+    assert config.train_steps(10) == 100
+    assert config.train_steps(1) == 100, "never fewer than two checkpoints"
+    assert config.train_steps(40) == 400
+    monkeypatch.setattr(config, "TRAIN_STEPS", 600)
+    assert config.train_steps(17) == 600, "an explicit setting wins"
+
+
+def test_the_trainer_gets_the_published_recipe():
+    from app import jobs
+
+    inputs = jobs.train_graph("in", "set", "alicia_lora", 200)["5"]["inputs"]
+    assert inputs["steps"] == 200
+    assert inputs["batch_songs"] == 2
+    assert inputs["decoder_steps"] == 1000
+    assert inputs["score_first_fraction"] == 0
+    assert inputs["checkpoint_every"] == 50
 
 
 def test_a_queued_run_can_be_cancelled(client):

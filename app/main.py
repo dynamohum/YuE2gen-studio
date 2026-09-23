@@ -1706,7 +1706,7 @@ async def train_identity(identity_id: str, body: TrainIn | None = None) -> dict:
         "id": run_id,
         "identity_id": identity_id,
         "lora_name": f"{name}_lora",
-        "steps": (body.steps if body and body.steps else config.TRAIN_STEPS),
+        "steps": (body.steps if body and body.steps else config.train_steps(len(songs))),
         "rank": (body.rank if body and body.rank else config.TRAIN_RANK),
     }
     execute(

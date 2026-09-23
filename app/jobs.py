@@ -7,6 +7,7 @@ import contextlib
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -953,23 +954,23 @@ def train_graph(audio_folder: str, dataset_name: str, lora_name: str, steps: int
                 "regularizer": ["4", 0],
                 "lora_name": lora_name,
                 "steps": max(50, steps),
-                "decoder_steps": max(50, steps),
+                "decoder_steps": config.TRAIN_DECODER_STEPS,
                 "rank_planner": rank_planner,
                 "rank_decoder": rank_decoder,
                 "planner_lr": 3e-5,
                 "decoder_lr": 4e-5,
                 "io_lr": 2e-5,
-                "artist_fraction": 0.5,
-                "batch_songs": 1,
+                "artist_fraction": config.TRAIN_ARTIST_FRACTION,
+                "batch_songs": config.TRAIN_BATCH_SONGS,
                 "kl_weight": 0.1,
-                "score_first_fraction": 0.5,
+                "score_first_fraction": config.TRAIN_SCORE_FIRST,
                 "end_token_weight": config.TRAIN_END_TOKEN_WEIGHT,
                 "max_tokens": 8192,
                 "window_seconds": 30.0,
                 "ema_decay": 0.99,
                 "eval_every": 25,
-                "checkpoint_from": 100,
-                "checkpoint_every": 100,
+                "checkpoint_from": config.TRAIN_CHECKPOINT_EVERY,
+                "checkpoint_every": config.TRAIN_CHECKPOINT_EVERY,
                 "seed": 0,
                 "strength_model": 1.0,
                 "strength_clip": 1.0,
@@ -1049,15 +1050,14 @@ async def run_lora_train(run_id: str) -> None:
                 with contextlib.suppress(OSError):
                     os.chmod(canonical, 0o644)
                 produced = canonical
-        # The trainer also leaves a snapshot every hundred steps and a copy of the
-        # best one.  The best is now the file above, and nothing offers the
-        # snapshots, so they would only fill the picker with names like step300.
+        # The best is now the file above, so its copy goes.  The snapshots stay: the
+        # published LoRAs were each a checkpoint picked by ear, often well before the
+        # last, and the trainer's own "best" only follows the planner's loss.
         if produced == canonical:
-            spare = [root / f"{run['lora_name']}_best.safetensors",
-                     *root.glob(f"{run['lora_name']}_step*.safetensors")]
-            for path in spare:
-                with contextlib.suppress(OSError):
-                    path.unlink(missing_ok=True)
+            with contextlib.suppress(OSError):
+                (root / f"{run['lora_name']}_best.safetensors").unlink(missing_ok=True)
+        snapshots = sorted(root.glob(f"{run['lora_name']}_step*.safetensors"),
+                           key=lambda path: int(re.sub(r"\D", "", path.stem.rsplit("_step", 1)[1]) or 0))
 
         # Parse training log if present to check loss progression against reference targets
         # (blgr_rhodope: artist ~4.635, regularizer ~3.576, decoder ~1.069).
@@ -1076,6 +1076,10 @@ async def run_lora_train(run_id: str) -> None:
         # Name it, group it, and remember it on the corpus.
         await asyncio.to_thread(loras.write_note, produced, identity["trigger_word"], identity["name"],
                                 title=identity["name"])
+        for snapshot in snapshots:
+            step = snapshot.stem.rsplit("_step", 1)[1].lstrip("0") or "0"
+            await asyncio.to_thread(loras.write_note, snapshot, identity["trigger_word"], identity["name"],
+                                    title=f"{identity['name']} · step {step}")
         execute("UPDATE identities SET lora = ? WHERE id = ?", (produced.name, identity["id"]))
         with contextlib.suppress(Exception):
             await ENGINE.refresh_options()

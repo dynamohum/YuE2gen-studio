@@ -90,9 +90,39 @@ TIMEOUTS = {"transcribe": 12 * 60, "plan": 10 * 60, "render": 25 * 60, "lyrics":
 # regularizer loss ~3.576, decoder flow loss ~1.069.
 TRAINING_ENABLED = os.environ.get("TRAINING_ENABLED", "").strip().lower() in ("1", "true", "yes", "on")
 
-# Dual-branch training parameters.
-# Rule of thumb: ~10 passes over the artist songs (steps x batch_songs x artist_fraction / songs).
-TRAIN_STEPS = int(os.environ.get("TRAIN_STEPS", "600"))
+# Dual-branch training parameters, following the trainer's own guidance and the
+# published LoRAs made with it (blgr, mltnt, cnzn, chnsn, qwwl, drksf).  Those ran
+# 300-500 planner steps over two songs a step, with the score never put in front,
+# and their authors picked a checkpoint by ear.  The first runs here used 600 steps
+# of one song whatever the corpus: 18 passes over each McCartney song and 30 over
+# each Lennon one.  The planner memorised, the decoder -- conditioned on that
+# drifting planner, with one update a step -- got worse throughout, and the LoRA
+# barely showed at low strength and dragged in the records' own sound at high.
+#
+# Planner steps come from the corpus size: TRAIN_PASSES over each song, the rule of
+# thumb in the trainer (steps x batch_songs x artist_fraction / songs), rounded up to
+# a checkpoint.  TRAIN_STEPS, when set, overrides it for every run.
+TRAIN_PASSES = float(os.environ.get("TRAIN_PASSES", "10"))
+TRAIN_STEPS = int(os.environ["TRAIN_STEPS"]) if os.environ.get("TRAIN_STEPS") else None
+TRAIN_BATCH_SONGS = int(os.environ.get("TRAIN_BATCH_SONGS", "2"))
+TRAIN_ARTIST_FRACTION = float(os.environ.get("TRAIN_ARTIST_FRACTION", "0.5"))
+# Spread across the planner steps; the trainer says it converges in about 1000.
+TRAIN_DECODER_STEPS = int(os.environ.get("TRAIN_DECODER_STEPS", "1000"))
+# How often the score is put in front of the music.  None of the published files
+# did; the planner still learns to write a score either way.
+TRAIN_SCORE_FIRST = float(os.environ.get("TRAIN_SCORE_FIRST", "0"))
+TRAIN_CHECKPOINT_EVERY = int(os.environ.get("TRAIN_CHECKPOINT_EVERY", "50"))
+
+
+def train_steps(songs: int) -> int:
+    """Planner steps for a corpus of this many songs."""
+    if TRAIN_STEPS:
+        return TRAIN_STEPS
+    raw = TRAIN_PASSES * max(1, songs) / (TRAIN_BATCH_SONGS * TRAIN_ARTIST_FRACTION)
+    every = TRAIN_CHECKPOINT_EVERY
+    return max(2 * every, int(-(-raw // every)) * every)
+
+
 TRAIN_RANK_PLANNER = int(os.environ.get("TRAIN_RANK_PLANNER", "64"))
 TRAIN_RANK_DECODER = int(os.environ.get("TRAIN_RANK_DECODER", "32"))
 TRAIN_RANK = TRAIN_RANK_PLANNER

@@ -50,6 +50,6 @@ def test_train_graph():
     assert g["5"]["inputs"]["rank_planner"] == 64
     assert g["5"]["inputs"]["rank_decoder"] == 32
     assert g["5"]["inputs"]["artist_fraction"] == 0.5
-    assert g["5"]["inputs"]["batch_songs"] == 1
+    assert g["5"]["inputs"]["batch_songs"] == 2
     assert g["7"]["class_type"] == "PreviewAny"
 
