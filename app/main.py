@@ -96,7 +96,7 @@ SETTINGS_SPEC: list[dict] = [
     },
     {
         "key": "llm.provider",
-        "label": "LLM provider for lyrics & style tags",
+        "label": "LLM for writing lyrics & style tags",
         "type": "select",
         "default": "local",
         "options": [

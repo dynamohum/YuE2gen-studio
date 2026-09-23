@@ -55,7 +55,7 @@ def whisper(monkeypatch):
 
 
 def hear():
-    return asyncio.run(jobs.hear(Path("/nowhere/vocals.wav"), 40.0))
+    return asyncio.run(jobs.hear(Path("/nowhere/vocals.wav"), 40.0, title="Silly Love Songs"))
 
 
 def refuse(*args, **kwargs):
@@ -136,3 +136,42 @@ def test_the_lyrics_endpoint_says_who_heard_them(client):
                '0', ?, '[Verse]\nModern girl', 'done', 'gemini-3.8-flash, timed by Whisper')""", (time.time(),))
     got = client.get("/api/sources/s1/lyrics").json()
     assert got["method"] == "gemini-3.8-flash, timed by Whisper"
+
+
+# ------------------------------------------------------------ what the log says
+
+def first_line(caplog):
+    return next(r.getMessage() for r in caplog.records if r.getMessage().startswith("Lyrics for"))
+
+
+def test_the_log_says_up_front_when_the_llm_will_listen(whisper, monkeypatch, caplog):
+    """Whisper's own lines appear either way, so the method is stated before them."""
+    async def heard(vocal):
+        return list(HEARD)
+    monkeypatch.setattr(llm, "hear_lyrics", heard)
+    external()
+    set_setting("lyrics.transcriber", "llm")
+    caplog.set_level("INFO")
+    hear()
+    assert first_line(caplog) == ("Lyrics for 'Silly Love Songs': the external LLM (gemini-3.8-flash) "
+                                  "will hear the words; Whisper runs first to time the lines")
+    said = " ".join(r.getMessage() for r in caplog.records)
+    assert "sending the vocal to gemini-3.8-flash" in said
+    assert "gemini-3.8-flash heard 3 lines, where Whisper heard 2" in said
+
+
+def test_the_log_says_when_whisper_is_the_setting(whisper, monkeypatch, caplog):
+    monkeypatch.setattr(llm, "hear_lyrics", refuse)
+    external()
+    caplog.set_level("INFO")
+    hear()
+    assert first_line(caplog) == "Lyrics for 'Silly Love Songs': Whisper, as set in Settings"
+
+
+def test_the_log_says_why_the_llm_setting_was_not_used(whisper, monkeypatch, caplog):
+    monkeypatch.setattr(llm, "hear_lyrics", refuse)
+    set_setting("llm.provider", "local")
+    set_setting("lyrics.transcriber", "llm")
+    caplog.set_level("INFO")
+    hear()
+    assert "provider is not External LLM" in first_line(caplog)

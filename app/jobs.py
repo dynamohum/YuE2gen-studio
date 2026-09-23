@@ -727,7 +727,7 @@ async def prepare_song(song_id: str) -> None:
     if not (folder / "whisper.json").exists():
         set_song(song_id, lyrics_state="running")
         try:
-            lines, method = await hear(folder / "vocals.wav")
+            lines, method = await hear(folder / "vocals.wav", title=song_title)
             log.info("Corpus song '%s': lyrics heard by %s", song_title, method)
         except Exception as exc:  # noqa: BLE001
             set_song(song_id, lyrics_state="failed", error=f"lyrics: {exc}"[:400])
@@ -1260,7 +1260,8 @@ def fail_cover_lyrics(source_id: str, message: str) -> None:
             (message, source_id))
 
 
-async def hear(vocal: Path, seconds: float = 0.0, on_progress=None, on_stage=None) -> tuple[list[dict], str]:
+async def hear(vocal: Path, seconds: float = 0.0, on_progress=None, on_stage=None,
+               title: str = "") -> tuple[list[dict], str]:
     """The sung lines of a separated vocal, with times, and which method heard them.
 
     Whisper always runs: it is the default method, and in the other it keeps the
@@ -1268,23 +1269,42 @@ async def hear(vocal: Path, seconds: float = 0.0, on_progress=None, on_stage=Non
     the provider, the vocal is sent to it and its words are laid over Whisper's
     times.  Every way that can fail comes back to Whisper's lines, with the reason
     in the method, so the lyrics always arrive and it is always clear who heard them.
+
+    The method is decided, and logged, before anything runs.  Whisper's own log
+    lines appear in both methods, so without this a reader of the log cannot tell
+    whether the external LLM is in use until the job has finished.
     """
-    lines = await asyncio.to_thread(identities.transcribe, vocal, on_progress, seconds)
-    if get_setting("lyrics.transcriber", "whisper") != "llm" or not llm.is_external_enabled():
-        return lines, "Whisper"
+    name = title or vocal.name
+    wanted = get_setting("lyrics.transcriber", "whisper") == "llm"
+    external = llm.is_external_enabled()
     model = llm.get_config().get("model") or "the external LLM"
+    if wanted and external:
+        log.info("Lyrics for '%s': the external LLM (%s) will hear the words; Whisper runs first "
+                 "to time the lines", name, model)
+    elif wanted:
+        log.info("Lyrics for '%s': Whisper. The setting asks for the external LLM, but the "
+                 "provider is not External LLM", name)
+    else:
+        log.info("Lyrics for '%s': Whisper, as set in Settings", name)
+
+    lines = await asyncio.to_thread(identities.transcribe, vocal, on_progress, seconds)
+    if not (wanted and external):
+        return lines, "Whisper"
     if on_stage:
         on_stage(f"Listening with {model}")
+    log.info("Lyrics for '%s': Whisper timed %d lines; sending the vocal to %s", name, len(lines), model)
     try:
         heard = await llm.hear_lyrics(vocal)
     except Exception as exc:  # noqa: BLE001
-        log.warning("External LLM could not hear %s, keeping Whisper's lines: %s", vocal.name, exc)
+        log.warning("Lyrics for '%s': %s could not hear the vocal, keeping Whisper's lines: %s",
+                    name, model, exc)
         return lines, f"Whisper ({model} could not take the audio: {str(exc)[:160]})"
     timed = identities.time_lines(lines, heard)
     if timed is None:
-        log.warning("External LLM's words for %s did not match Whisper's, keeping Whisper's", vocal.name)
+        log.warning("Lyrics for '%s': %s's words did not match what Whisper heard, keeping "
+                    "Whisper's lines", name, model)
         return lines, f"Whisper ({model}'s words did not match the recording)"
-    log.info("External LLM heard %d lines for %s, where Whisper heard %d", len(timed), vocal.name, len(lines))
+    log.info("Lyrics for '%s': %s heard %d lines, where Whisper heard %d", name, model, len(timed), len(lines))
     return timed, f"{model}, timed by Whisper"
 
 
@@ -1331,7 +1351,7 @@ async def run_cover_lyrics(source_id: str) -> None:
         lines, method = await hear(
             vocal, seconds,
             lambda frac: progress(0.62 + 0.30 * frac, "Listening for words"),
-            lambda stage: progress(0.93, stage))
+            lambda stage: progress(0.93, stage), title=source_title)
         if not lines:
             fail_cover_lyrics(source_id, "no words were heard in this recording")
             return
