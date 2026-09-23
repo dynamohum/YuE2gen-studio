@@ -66,7 +66,7 @@ An identity: one singer's songs, analysed and ready to train a voice on:
 - **Read the score three ways.** Expand opens a full size editor, with the chord find and replace
   beside it, and three views below: a chord chart, real staff notation, and the lyrics with each
   section's chords. Chord symbols sit in double quotes. Fix one everywhere with find and
-  replace, or vary the harmony of a single section.
+  replace, or edit any single chord by hand in the score.
 - **Stems.** Extract vocals, drums, bass, other, and optionally guitar and piano, on CPU, while
   the GPU stays free. Download them singly or as a zip.
 - **Spaces.** Keep takes apart by project: a space per song, per album, or for sketches. Create,
