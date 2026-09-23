@@ -40,20 +40,17 @@ def test_the_guide_does_not_promise_what_is_not_built():
         assert unbuilt not in text, f"the guide describes {unbuilt}, which is not in the app"
 
 
-def test_the_guide_says_training_is_not_shipped():
-    """It is off, and the guide has to say so rather than describe a button that is
-    not there.  A guide that offered it as finished would waste an hour of somebody's
-    GPU on a file that does not sound like their corpus."""
+def test_the_guide_says_training_is_experimental():
+    """It is off in the standard build, so the guide has to say so and say how to
+    turn it on, rather than describe a menu that is not there."""
     text = GUIDE.read_text(encoding="utf-8")
-    assert "not shipped" in text, "the guide says training is off, not merely shaky"
-    assert "WITH_TRAINER=1" in text, "and how to turn it on anyway"
-    assert "TRAINING_ENABLED=1" in text, "both halves, or it stays hidden"
+    assert "experimental" in text
+    assert "WITH_TRAINER=1" in text, "the engine half"
+    assert "TRAINING_ENABLED=1" in text, "and the app half, or it stays hidden"
 
 
-def test_the_guide_points_at_what_does_work():
-    """Turning the button off is only half the message: exporting a set and installing
-    a LoRA trained elsewhere is the route that produces something usable, and it is
-    unaffected."""
+def test_the_guide_names_the_corpus_buttons():
+    """The walkthrough follows the buttons, so it has to use their names."""
     text = GUIDE.read_text(encoding="utf-8")
-    assert "Install a LoRA" in text
-    assert "Export the training set" in text
+    for button in ("Scan the folder", "Analyse", "Export training set", "Train a LoRA", "Install a LoRA"):
+        assert button in text, f"the guide does not name {button}"

@@ -3115,8 +3115,7 @@ async function showIdentityList() {
     'Point at a folder: the app separates each vocal, finds its key and tempo, and drafts its lyrics for you ' +
     'to check. Then export the set and train it' + (trainingAvailable() ? ' — here, or anywhere else' : ' with the trainer of your choice') + '.</p>' +
     (trainingAvailable()
-      ? '<p class="hint"><b>Training here is experimental.</b> It runs, and the LoRA it makes may change the ' +
-        'sound very little, or break it up at high strength. The guide has the measurements.</p>'
+      ? '<p class="hint"><b>Training here is experimental.</b></p>'
       : '') +
     '<button id="identity-new" class="ghost">New corpus</button>' +
     '<div class="identity-cards persona-cards">' + list.map(function (item) {

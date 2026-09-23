@@ -255,57 +255,33 @@ per check and holds nothing, or turns the check off.
 
 The **Vocal** chips set the singer's sex and character by writing into the style.
 
-## Corpora — not in this build
+## Corpora and training a LoRA (experimental)
 
-Corpora and training a LoRA from one are **switched off**, so there is no **Corpora** in the menu and
-no badge for it. The section below describes what they do when they are built in; skip it unless you
-mean to turn them on.
+A **corpus** is a folder of one artist's songs, prepared as a training set for a style LoRA.
+It is experimental and not in the standard build: build the engine with
+`--build-arg WITH_TRAINER=1` and run the app with `TRAINING_ENABLED=1`, and **Corpora** appears
+in the menu.
 
-A **corpus** is a folder of recordings prepared as a training set. Open **Corpora** from the menu,
-make one, and point it at the folder. The app separates each song's vocal, reads its key, tempo and
-sections, and drafts its lyrics tagged by section.
+1. **New corpus.** Give it a name and a **trigger word**, say whether the voice is male or female,
+   describe the sound shared by every song, and open the folder that holds the songs. Confirm you
+   have the right to train on them, then press **Scan the folder**. The folder is only read.
+2. **Choose the songs.** Untick any you want left out.
+3. **Analyse.** Each song's vocal is separated, its key, tempo and sections are found, and its
+   lyrics are drafted, tagged by section.
+4. **Review.** Open a song to check its lyrics and tick **checked**, and to describe its sound
+   where it differs from the rest. The style caption shows what the trainer will read.
+5. **Export training set.** Writes the audio, lyrics and caption for each song.
+6. **Train a LoRA.** This takes a long time, and the GPU is not available to the app until it
+   finishes. Progress shows on the main screen, where you can stop it.
 
-Every song needs *some* lyrics, because one without any is left out of the training set — but the
-words are not what the trainer learns from. It takes the audio and the caption beside it. Checking
-the drafts is about catching a song that would otherwise be dropped, not about getting every word
-right.
+When training finishes, the LoRA appears in the **Style LoRA** list with its trigger word. See
+**Balancing Planner and Sound** below for starting strengths.
 
-The export is one audio file per song with a caption beside it, and every caption begins with the
-corpus's **trigger word**. That is the layout a trainer reads, including the ComfyUI YuE2 trainer.
+To use a LoRA trained elsewhere from the exported set, press **Install a LoRA** and choose the
+file. It is added to the Style LoRA list with this corpus's trigger word.
 
 **Deleting a corpus** removes the app's copies of its songs, the separated vocals, the lyrics and
-the scores. The folder you pointed it at is never touched.
-
-### Training a LoRA here is not shipped
-
-The app can train a LoRA from a corpus, and it is **switched off**, because what it
-produces does not sound like the corpus. That is not a setting anyone can find: the trainer
-adapts only the half of YuE2 that renders audio, and it fits that half against an empty
-score, while a real render hands it the score the planner just wrote. It is tuned for one
-situation and used in another, so it behaves as a tint that gets worse the longer it trains,
-and the trigger word does nothing at all.
-
-Measured on two corpora of eleven and nine songs:
-
-| | |
-|---|---|
-| the trigger word | changes the sound by the same amount whether or not it is in the style |
-| more training | step 2000 was a better file than step 5000; it gets noisier, not closer |
-| against a LoRA that works | that one gets warmer and more tonal — ours goes the other way |
-
-So the button is not there. If you want it anyway, build the engine with
-`--build-arg WITH_TRAINER=1` and run the app with `TRAINING_ENABLED=1`; it will hold the GPU
-for about 45 minutes and you will get the file described above.
-
-**What to do instead.** Export the training set and train it with a trainer that reaches
-both halves of the model — the style LoRAs that work best in this app were made that way,
-and their own files record the recipe. Then bring the result back with **Install a LoRA**.
-Preparing a corpus, analysing it and exporting the set are all unaffected by any of this.
-
-**Installing one from elsewhere** is the other half, and it works: press **Install a LoRA** and choose
-the file. The app puts it in `models/loras`, writes a note beside it naming it and giving the corpus
-trigger word, and asks the engine to look at the folder again, so it appears in the Style LoRA list at
-once. The corpus remembers the file, so deleting the corpus can say what it left behind.
+the scores. The folder you pointed it at, and any LoRA made from it, are not touched.
 
 ---
 
@@ -372,9 +348,8 @@ folder gives the groups their headings, one `prefix = label` per line.
 A LoRA trained from one of your corpora is an ordinary style LoRA: it appears in this list with the
 rest, its trigger word beside it, and the same two strengths apply.
 
-Corpora are not in this build, so no new one can be made here — but a file trained before they were
-switched off is still in `models/loras` and still in this list, marked **experimental**, because the
-list shows whatever the engine can load. If you would rather not be offered them, delete the files.
+In a build without Corpora, a file trained earlier still appears in this list, marked
+**experimental**. If you would rather not be offered it, delete the file from `models/loras`.
 
 New files appear once the engine has looked at `models/loras/` again, which it does when the
 options are reloaded.
