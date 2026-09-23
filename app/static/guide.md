@@ -200,7 +200,9 @@ than done with every transcription, because it takes a couple of minutes where t
 takes seconds. It runs on the CPU, so a render is never held up by it, and the bar says which of the
 two stages it is on.
 
-The words are kept with the recording, so asking again is instant.
+The words are kept with the recording. Press **Extract lyrics** again and they go straight back in
+the box, and you're asked whether to extract them again, which is worth doing after changing the
+method in Settings.
 
 Expect a good draft rather than a transcript. Measured against a song whose real words were known,
 **9% of words were wrong** — and the errors were almost all *omissions*: quiet lines missed, a

@@ -1917,7 +1917,7 @@ function paintHearButton() {
   // The label stays an instruction. "Lyrics heard" read as a status, and a
   // status is not something anyone thinks to press.
   button.title = !source ? 'Choose a recording first'
-    : source.has_lyrics ? 'These words were heard in this recording earlier: put them in the box'
+    : source.has_lyrics ? 'Put the words heard earlier in the box, and offer to hear them again'
     : 'Separate the vocal from this recording and write down what it sings. English recordings only: '
       + 'Whisper hears nothing else, and would write down nonsense.';
 }
@@ -2026,15 +2026,31 @@ function stopHearPoll() {
   paintAudition();
 }
 
+/* Which method a new extraction would use, as the server decides it: the external
+   LLM only when Settings asks for it and an external LLM is the provider. */
+function hearMethodNow() {
+  var wanted = setting('lyrics.transcriber', 'whisper') === 'llm';
+  var external = setting('llm.provider', 'local') === 'external';
+  return wanted && external ? setting('llm.model', 'the external LLM') + ', timed by Whisper' : 'Whisper';
+}
+
 async function hearLyrics() {
   var source = currentSource();
   if (!source) { return; }
-  // Already written down: nothing to run.
+  // Words heard before go straight back in the box, which is often all that was
+  // wanted.  But there are two ways to hear them now, so a second try is offered
+  // rather than refused: the button used to stop here, and so looked dead.
+  // By the words, not the state: a second try that failed or was stopped leaves the
+  // first try's words in place, and they should still come back first.
   var state = await api('/api/sources/' + source.id + '/lyrics');
-  if (state.state === 'done' && state.lyrics) {
+  var busy = state.state === 'queued' || state.state === 'running';
+  if (state.lyrics && !busy) {
     useHeardLyrics(state.lyrics);
-    statusLine('These words were heard in the recording earlier.', 'good');
-    return;
+    var before = state.method ? ' (heard by ' + state.method + ')' : '';
+    if (!confirm('Lyrics already present' + before + '. Extract again with ' + hearMethodNow() + '?')) {
+      statusLine('These words were heard in the recording earlier.', 'good');
+      return;
+    }
   }
   await api('/api/sources/' + source.id + '/lyrics', { method: 'POST' });
   HEAR.id = source.id;
