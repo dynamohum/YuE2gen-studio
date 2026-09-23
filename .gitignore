@@ -1,22 +1,74 @@
+# Python bytecode & environments
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
 .venv/
+venv/
+env/
+
+# Application storage & user data
 data/
+data-*/
 models/
 engine-state/
 *.log
+*.log.*
+logs/
+
+# Databases & local backups
+*.sqlite
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
+*.bak
+
+# Secrets, environment variables & credentials
+.env
+.env.*
+*.env
+*.key
+*.pem
+*.cert
+*.crt
+credentials.json
+secrets.json
+
+# Audio and model binaries
+*.wav
+*.mp3
+*.flac
+*.ogg
+*.m4a
+*.safetensors
+*.pt
+*.pth
+*.bin
+*.onnx
+
+# Testing & coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editor & OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
 # Release notes belong in CHANGELOG.md and on the GitHub release, not in the tree.
 RELEASE-NOTES-*.md
 .kuma-insert.sql
+
 # Reports such as the audit PDFs live beside the repo, not in it.
 /*.pdf
-# Working notes, kept on this machine and out of the published repository:
-# The refresh-test-instance script stamps this into whichever code folder it runs,
-# a worktree included, so it turns up untracked in every branch.
-.version-test
 
-# IDEAS.md is research and designs not yet built, HANDOVER.md is the internal
-# tour of the codebase.
+# Working notes, kept on this machine and out of the published repository:
+.version-test
 IDEAS.md
 HANDOVER.md
 TODO.md

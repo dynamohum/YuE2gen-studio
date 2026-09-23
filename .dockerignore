@@ -1,8 +1,35 @@
-# Never send the library, the weights or the engine's scratch state to the daemon.
+# Never send the library, weights, secrets, or the engine's scratch state to the daemon.
 data/
+data-*/
 models/
 engine-state/
 .git/
 *.log
+*.log.*
+logs/
 __pycache__/
 **/__pycache__/
+.venv/
+venv/
+.env
+.env.*
+*.env
+*.sqlite
+*.sqlite3
+*.db
+*.bak
+*.key
+*.pem
+*.cert
+*.crt
+credentials.json
+secrets.json
+*.wav
+*.mp3
+*.flac
+*.safetensors
+*.pt
+*.pth
+.pytest_cache/
+compose.override.yml
+docker-compose.override.yml
