@@ -12,6 +12,22 @@
      awaiting    a take whose plan is being written; it owns nothing until it lands */
 var Selection = { formTakeId: null, boxKind: 'none', boxId: null, awaiting: null };
 
+function paintTakeHighlights() {
+  if (typeof selectedTakeId !== 'function' || !document.getElementById('takes')) { return; }
+  var activeId = selectedTakeId() || (typeof takeIdInEditor === 'function' ? takeIdInEditor() : '');
+  var activeTake = typeof takeById === 'function' ? takeById(activeId) : null;
+  var tone = activeTake ? ({ song: 'tone-song', instrumental: 'tone-inst' }[activeTake.kind] || 'tone-cover') : '';
+  var cards = document.querySelectorAll('#takes .take');
+  Array.prototype.forEach.call(cards, function (card) {
+    var isCur = card.dataset.id === activeId;
+    card.classList.toggle('editing', isCur);
+    card.classList.remove('tone-song', 'tone-inst', 'tone-cover');
+    if (isCur && tone) {
+      card.classList.add(tone);
+    }
+  });
+}
+
 function setSelection(next) {
   Selection = {
     formTakeId: next.formTakeId || null,
@@ -20,7 +36,7 @@ function setSelection(next) {
     awaiting: next.awaiting || null
   };
   syncEditor();
-  paintTakes();          // the highlight follows the form
+  paintTakeHighlights(); // the highlight follows the form without re-rendering card DOM
   setScoreActions();     // so do Render and Replan
   saveForm();
 }
@@ -518,8 +534,7 @@ function paintStyleLoraStrengths() {
   var hasSound = kind === 'both' || kind === 'decoder' || kind === 'unknown';
   $('style-lora-clip').disabled = !hasPlanner;
   $('style-lora-model').disabled = !hasSound;
-  // The number beside each slider is editable: a slider with a 0.05 step is a poor way
-  // to reach 2.35.  Typing sets the slider; the slider updates the number.
+  // The number beside each slider is editable: typing sets the slider; the slider updates the number.
   paintStrengthValue('style-lora-clip', hasPlanner);
   paintStrengthValue('style-lora-model', hasSound);
 }
@@ -1107,11 +1122,69 @@ async function loadSources() {
   // A first visit has nothing to remember, and the newest recording is the one
   // most likely wanted.
   if (!select.value && State.sources.length) { select.value = State.sources[0].id; }
+  paintSourcePickerMenu();
   paintSource();
 }
 
+function paintSourcePickerMenu() {
+  var menu = $('source-picker-menu');
+  if (!menu) { return; }
+  var currentId = $('source-select') ? $('source-select').value : '';
+  var itemsHtml = '<div class="source-picker-item' + (!currentId ? ' selected' : '') + '" data-id="" role="option">' +
+    '<div class="source-item-main"><span class="source-item-title muted">Choose a recording\u2026</span></div>' +
+    '</div>';
+  itemsHtml += State.sources.map(function (source) {
+    var scoreBadge = source.has_score ? '<span class="source-item-score">\u2713 score</span>' : '';
+    var isSel = source.id === currentId ? ' selected' : '';
+    return '<div class="source-picker-item' + isSel + '" data-id="' + esc(source.id) + '" role="option">' +
+      '<div class="source-item-main">' +
+        '<span class="source-item-title">' + esc(source.title) + '</span>' +
+        scoreBadge +
+      '</div>' +
+      '<button type="button" class="source-item-del" data-del="' + esc(source.id) + '" title="Delete this recording" aria-label="Delete ' + esc(source.title) + '">' +
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+          '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>' +
+          '<line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/>' +
+        '</svg>' +
+      '</button>' +
+    '</div>';
+  }).join('');
+  menu.innerHTML = itemsHtml;
+}
+
+function openSourcePicker() {
+  var menu = $('source-picker-menu');
+  var btn = $('source-picker-btn');
+  if (!menu || !btn) { return; }
+  menu.classList.remove('hidden');
+  btn.setAttribute('aria-expanded', 'true');
+}
+
+function closeSourcePicker() {
+  var menu = $('source-picker-menu');
+  var btn = $('source-picker-btn');
+  if (!menu || !btn) { return; }
+  menu.classList.add('hidden');
+  btn.setAttribute('aria-expanded', 'false');
+}
+
+function toggleSourcePicker() {
+  var menu = $('source-picker-menu');
+  if (!menu) { return; }
+  if (menu.classList.contains('hidden')) {
+    openSourcePicker();
+  } else {
+    closeSourcePicker();
+  }
+}
+
 function currentSource() {
-  var id = $('source-select').value;
+  var id = $('source-select') ? $('source-select').value : '';
+  for (var i = 0; i < State.sources.length; i++) { if (State.sources[i].id === id) { return State.sources[i]; } }
+  return null;
+}
+
+function sourceById(id) {
   for (var i = 0; i < State.sources.length; i++) { if (State.sources[i].id === id) { return State.sources[i]; } }
   return null;
 }
@@ -1122,6 +1195,22 @@ function paintSource() {
   var badge = $('score-badge');
   paintHearButton();
   paintAudition();
+
+  var pickerLabel = $('source-picker-label');
+  if (pickerLabel) {
+    pickerLabel.textContent = source
+      ? source.title + (source.has_score ? ' \u2713 score' : '')
+      : 'Choose a recording\u2026';
+  }
+  var items = document.querySelectorAll('.source-picker-item');
+  items.forEach(function (el) {
+    el.classList.toggle('selected', el.dataset.id === (source ? source.id : ''));
+  });
+  if ($('transcribe')) { $('transcribe').disabled = !source; }
+  if ($('source-lyrics')) { $('source-lyrics').disabled = !source; }
+  if ($('audition')) { $('audition').disabled = !source; }
+  if ($('source-delete')) { $('source-delete').disabled = !source; }
+
   if (!source) {
     status.textContent = '';
     status.className = 'status';
@@ -1176,23 +1265,31 @@ function paintSourceTempo(source) {
 async function deleteSource() {
   var source = currentSource();
   if (!source) { return; }
+  await deleteSourceById(source.id);
+}
+
+async function deleteSourceById(id) {
+  var source = sourceById(id);
+  if (!source) { return; }
   var covers = source.take_count ? ' Its ' + source.take_count + ' cover take(s) keep their audio and score, but cannot be rendered again from it.' : '';
   if (!confirm('Delete the recording \u201c' + source.title + '\u201d and its stems?' + covers)) { return; }
   try {
-    await api('/api/sources/' + source.id, { method: 'DELETE' });
+    await api('/api/sources/' + id, { method: 'DELETE' });
   } catch (err) {
     $('source-status').textContent = 'Could not delete: ' + err.message;
     $('source-status').className = 'status bad';
     return;
   }
-  $('source-select').value = '';
-  // The box held this recording's score, or a cover take's copy of it.
-  if (boxShowsSource(source.id)) {
-    $('abc').value = '';
-    scoreBaseline('');
-    setChart('');
+  if ($('source-select').value === id) {
+    $('source-select').value = '';
+    // The box held this recording's score, or a cover take's copy of it.
+    if (boxShowsSource(id)) {
+      $('abc').value = '';
+      scoreBaseline('');
+      setChart('');
+    }
+    claimEditorFor(null);
   }
-  claimEditorFor(null);
   await loadSources();
 }
 
@@ -2204,14 +2301,41 @@ async function loadTakes() {
    render has just been paid for, and the answer is a click away. Only for one
    that finished a moment ago, only once per take, and never over another open
    window. Anything older is left to say so on its card. */
+function getSungSeen() {
+  try {
+    return JSON.parse(sessionStorage.getItem('yue2.sungSeen') || '{}');
+  } catch (e) {
+    return {};
+  }
+}
+
+function markSungSeen(id) {
+  try {
+    var seen = getSungSeen();
+    seen[id] = true;
+    sessionStorage.setItem('yue2.sungSeen', JSON.stringify(seen));
+  } catch (e) {}
+}
+
 function noticeSinging() {
-  if (!State.sungSeen) { State.sungSeen = {}; }
+  var seen = getSungSeen();
+  // On the first load of the page, treat all existing takes as already seen so a
+  // page refresh never throws an unexpected popup over the library.
+  if (!State.initialLoadDone) {
+    State.initialLoadDone = true;
+    for (var j = 0; j < State.takes.length; j++) {
+      seen[State.takes[j].id] = true;
+      markSungSeen(State.takes[j].id);
+    }
+    return;
+  }
   var now = Date.now() / 1000;
   for (var i = 0; i < State.takes.length; i++) {
     var take = State.takes[i];
     if (take.kind !== 'instrumental' || take.status !== 'done') { continue; }
-    if (!(take.vocal_check >= 0.1) || State.sungSeen[take.id]) { continue; }
-    State.sungSeen[take.id] = true;
+    if (!(take.vocal_check >= 0.1) || seen[take.id]) { continue; }
+    seen[take.id] = true;
+    markSungSeen(take.id);
     if (now - (take.finished_at || 0) > 300) { continue; }        // not fresh
     if (document.querySelector('.modal:not(.hidden)')) { continue; }
     openSungWarning(take);
@@ -3363,7 +3487,7 @@ function selectTake(take) {
   paintSource();
   State.formEdited = false;
   saveForm();
-  paintTakes();
+  paintTakeHighlights();
 }
 
 /* One click on a card replaces the form.  If the form holds words that are not
@@ -3476,13 +3600,59 @@ function pickedIds() {
   return Object.keys(State.picked).filter(function (id) { return State.picked[id]; });
 }
 
+function visibleTakes() {
+  return State.takes.filter(function (take) {
+    return State.filter === 'all' || (State.filter === 'favourite' && take.favourite);
+  });
+}
+
 function paintBulk() {
-  var button = $('bulk-delete');
-  if (!button) { return; }
   var count = pickedIds().length;
-  button.classList.toggle('hidden', !count);
-  button.textContent = count ? 'Delete ' + count : 'Delete';
-  button.disabled = !count;
+  var button = $('bulk-delete');
+  if (button) {
+    button.classList.toggle('hidden', !count);
+    button.textContent = count ? 'Delete ' + count : 'Delete';
+    button.disabled = !count;
+  }
+  var selAll = $('select-all');
+  if (selAll) {
+    var visible = visibleTakes();
+    var allPicked = visible.length > 0 && visible.every(function (take) {
+      return !!State.picked[take.id];
+    });
+    selAll.disabled = visible.length === 0;
+    selAll.textContent = allPicked ? 'Deselect all' : 'Select all';
+    selAll.classList.toggle('active', allPicked);
+    selAll.title = allPicked
+      ? 'Deselect all takes in this space'
+      : (visible.length === 0 ? 'No takes to select' : 'Select all ' + visible.length + ' takes in this space');
+  }
+}
+
+function toggleSelectAll() {
+  var visible = visibleTakes();
+  if (!visible.length) { return; }
+  var allPicked = visible.every(function (take) {
+    return !!State.picked[take.id];
+  });
+  if (allPicked) {
+    visible.forEach(function (take) {
+      delete State.picked[take.id];
+    });
+  } else {
+    visible.forEach(function (take) {
+      State.picked[take.id] = true;
+    });
+  }
+  var cards = document.querySelectorAll('#takes .take');
+  Array.prototype.forEach.call(cards, function (card) {
+    var id = card.dataset.id;
+    var box = card.querySelector('input[data-act="pick"]');
+    var isPicked = !!State.picked[id];
+    if (box) { box.checked = isPicked; }
+    card.classList.toggle('picked', isPicked);
+  });
+  paintBulk();
 }
 
 function clearPicked() {
@@ -3503,6 +3673,12 @@ async function bulkDelete() {
       + '\n\nTheir audio and stems go with them. This cannot be undone.')) {
     return;
   }
+  if (State.playing && ids.indexOf(State.playing) !== -1) {
+    var audio = $('audio');
+    if (audio) { audio.pause(); }
+    State.playing = null;
+    paintTransport();
+  }
   var done = 0;
   for (var i = 0; i < ids.length; i++) {
     statusLine('Deleting ' + (done + 1) + ' of ' + ids.length + '…');
@@ -3520,9 +3696,8 @@ async function bulkDelete() {
 }
 
 function paintTakes() {
-  var list = State.takes.filter(function (take) {
-    return State.filter === 'all' || (State.filter === 'favourite' && take.favourite);
-  });
+  if (document.querySelector('.take-title-input')) { return; }
+  var list = visibleTakes();
   State.paintedAt = Date.now();
   $('empty').style.display = list.length ? 'none' : 'block';
   var others = State.spaces.some(function (space) { return space.id !== State.spaceId && space.takes; });
@@ -3636,7 +3811,7 @@ function paintTakes() {
           '</label>' +
         '</div>' +
         '<div class="take-headtext">' +
-          '<div class="take-title" data-act="rename" data-id="' + take.id + '" title="Click to rename this take">' + esc(take.title) + '</div>' +
+          '<div class="take-title" data-act="rename" data-id="' + take.id + '" title="Double-click to rename this take">' + esc(take.title) + '</div>' +
           '<div class="take-meta" title="' + esc(meta.join(' \u00b7 ')) + '">' + esc(meta.join(' \u00b7 ')) + '</div>' +
         '</div>' +
         // Occasional, so small corner buttons rather than tiles in an already full row.
@@ -3655,6 +3830,83 @@ function paintTakes() {
       stemsBlock(take) +
     '</article>';
   }).join('');
+  paintBulk();
+}
+
+function startRenameTake(titleEl, takeId) {
+  var take = takeById(takeId);
+  if (!take) { return; }
+  if (titleEl.querySelector('input')) { return; }
+
+  var currentTitle = take.title;
+  var input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'take-title-input';
+  input.value = currentTitle;
+  input.maxLength = 200;
+  input.title = 'Press Enter to save, Esc to cancel';
+
+  titleEl.textContent = '';
+  titleEl.appendChild(input);
+  if (window.getSelection) {
+    var sel = window.getSelection();
+    if (sel && sel.removeAllRanges) { sel.removeAllRanges(); }
+  }
+  input.focus();
+  input.select();
+
+  var finished = false;
+
+  async function finish(save) {
+    if (finished) { return; }
+    finished = true;
+    var newTitle = input.value.trim();
+    if (save && newTitle && newTitle !== currentTitle) {
+      try {
+        var updated = await api('/api/takes/' + takeId + '/rename', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: newTitle })
+        });
+        take.title = updated.title;
+        if ((selectedTakeId() || takeIdInEditor()) === takeId) {
+          $('title').value = updated.title;
+          saveForm();
+        }
+        var card = titleEl.closest('.take');
+        if (card) {
+          var cover = card.querySelector('.cover');
+          if (cover) { cover.textContent = initials(updated.title); }
+        }
+        statusLine('Renamed take to \u201c' + updated.title + '\u201d.', 'good');
+      } catch (err) {
+        statusLine('Could not rename take: ' + err.message, 'bad');
+      }
+    }
+    titleEl.textContent = take.title;
+  }
+
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      finish(true);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      finish(false);
+    }
+  });
+
+  input.addEventListener('blur', function () {
+    finish(true);
+  });
+
+  input.addEventListener('click', function (e) {
+    e.stopPropagation();
+  });
+  input.addEventListener('dblclick', function (e) {
+    e.stopPropagation();
+  });
 }
 
 /* The play tile is a toggle. The active one pulses, shows a pause icon, and stops
@@ -4365,7 +4617,15 @@ var LogsState = {
 function openLogsModal() {
   LogsState.open = true;
   var panel = $('logs-panel');
-  if (panel) { panel.classList.remove('hidden'); }
+  if (panel) {
+    panel.style.left = '';
+    panel.style.right = '';
+    panel.style.top = '';
+    panel.style.bottom = '';
+    panel.style.width = '';
+    panel.classList.remove('hidden');
+  }
+  if ($('open-logs')) { $('open-logs').classList.add('active'); }
   var consoleEl = $('logs-console');
   if (consoleEl && !consoleEl.children.length) { consoleEl.innerHTML = '<div class="logs-empty">Loading logs\u2026</div>'; }
   fetchLogs();
@@ -4377,6 +4637,7 @@ function closeLogsModal() {
   LogsState.open = false;
   var panel = $('logs-panel');
   if (panel) { panel.classList.add('hidden'); }
+  if ($('open-logs')) { $('open-logs').classList.remove('active'); }
   if (LogsState.timer) {
     clearInterval(LogsState.timer);
     LogsState.timer = null;
@@ -4500,6 +4761,7 @@ function wireLogs() {
       startLeft = rect.left;
       startTop = rect.top;
       box.style.position = 'fixed';
+      box.style.width = rect.width + 'px';
       box.style.left = startLeft + 'px';
       box.style.top = startTop + 'px';
       box.style.right = 'auto';
@@ -4672,11 +4934,15 @@ function wire() {
     var button = event.target.closest('[data-filter]');
     if (!button) { return; }
     State.filter = button.dataset.filter;
-    Array.prototype.forEach.call(document.querySelectorAll('.filters .chip'), function (chip) { chip.classList.remove('active'); });
+    Array.prototype.forEach.call(document.querySelectorAll('.filters [data-filter]'), function (chip) { chip.classList.remove('active'); });
     button.classList.add('active');
     State.takesRaw = '';
+    clearPicked();
     loadTakes();
   });
+  if ($('select-all')) {
+    $('select-all').addEventListener('click', toggleSelectAll);
+  }
   $('takes-more').addEventListener('click', function () {
     State.takeLimit += 300;
     loadTakes();
@@ -4700,12 +4966,38 @@ function wire() {
     if (link) { selectTake(takeById(link.getAttribute('href').split('/')[3])); }
   });
 
+  var lastTitleClick = { time: 0, id: null };
   $('takes').addEventListener('click', function (event) {
+    var titleEl = event.target.closest('.take-title');
+    if (titleEl && !titleEl.querySelector('input')) {
+      var id = titleEl.dataset.id || (titleEl.closest('.take') && titleEl.closest('.take').dataset.id);
+      var now = Date.now();
+      if (id && (event.detail >= 2 || (lastTitleClick.id === id && now - lastTitleClick.time < 500))) {
+        event.preventDefault();
+        event.stopPropagation();
+        lastTitleClick = { time: 0, id: null };
+        startRenameTake(titleEl, id);
+        return;
+      }
+      lastTitleClick = { time: now, id: id };
+    }
+
     // Clicking anywhere on the card, except on a control inside it, makes that
     // take the one the left column describes.
-    if (event.target.closest('button, a, input, select, textarea, label')) { return; }
+    if (event.target.closest('button, a, input, select, textarea, label, .take-title-input')) { return; }
     var card = event.target.closest('.take');
     if (card && card.dataset.id) { selectTake(takeById(card.dataset.id)); }
+  });
+
+  $('takes').addEventListener('dblclick', function (event) {
+    var titleEl = event.target.closest('.take-title');
+    if (!titleEl) { return; }
+    var id = titleEl.dataset.id || (titleEl.closest('.take') && titleEl.closest('.take').dataset.id);
+    if (id) {
+      event.preventDefault();
+      event.stopPropagation();
+      startRenameTake(titleEl, id);
+    }
   });
 
   $('takes').addEventListener('click', function (event) {
@@ -4717,6 +5009,34 @@ function wire() {
     });
   });
   $('source-delete').addEventListener('click', deleteSource);
+  if ($('source-picker-btn')) {
+    $('source-picker-btn').addEventListener('click', function (event) {
+      event.stopPropagation();
+      toggleSourcePicker();
+    });
+  }
+  if ($('source-picker-menu')) {
+    $('source-picker-menu').addEventListener('click', function (event) {
+      var delBtn = event.target.closest('[data-del]');
+      if (delBtn) {
+        event.stopPropagation();
+        deleteSourceById(delBtn.dataset.del);
+        return;
+      }
+      var item = event.target.closest('[data-id]');
+      if (item) {
+        var id = item.dataset.id;
+        $('source-select').value = id;
+        closeSourcePicker();
+        $('source-select').dispatchEvent(new Event('change'));
+      }
+    });
+  }
+  document.addEventListener('click', function (event) {
+    if (!event.target.closest('#source-picker')) {
+      closeSourcePicker();
+    }
+  });
   $('start-fresh').addEventListener('click', startFresh);
   wireCorporaBadge(corporaBadge());
   pollCorpora();
@@ -4813,6 +5133,7 @@ function wire() {
     if (act === 'del') {
       if (confirm('Delete this take and its audio?')) {
         await api('/api/takes/' + id, { method: 'DELETE' });
+        delete State.picked[id];
         loadTakes();
       }
     }
@@ -5078,6 +5399,7 @@ function wire() {
     if (button) { insertTag(button.dataset.tag); }
   });
   document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape' && $('source-picker-menu') && !$('source-picker-menu').classList.contains('hidden')) { closeSourcePicker(); return; }
     if (event.key === 'Escape' && $('brand-menu') && !$('brand-menu').classList.contains('hidden')) { closeBrandMenu(); return; }
     if (event.key === 'Escape' && !$('sung-modal').classList.contains('hidden')) { closeSungWarning(); return; }
     if (event.key === 'Escape' && !$('move-modal').classList.contains('hidden')) { closeMoveModal(); return; }

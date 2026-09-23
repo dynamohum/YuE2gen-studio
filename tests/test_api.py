@@ -162,6 +162,18 @@ def test_delete_source(client, data_dir):
     assert one("SELECT id FROM sources WHERE id = ?", (source["id"],)) is None
 
 
+def test_delete_source_cleans_engine_file(client, tmp_path, monkeypatch):
+    source = client.post("/api/sources", files={"file": ("gone2.wav", b"xyz")}).json()
+    eng_input = tmp_path / "engine_input"
+    eng_input.mkdir()
+    ef_file = eng_input / f"{source['id']}.wav"
+    ef_file.write_bytes(b"engine audio")
+    execute("UPDATE sources SET engine_file = ? WHERE id = ?", (f"{source['id']}.wav", source["id"]))
+    monkeypatch.setattr(config, "ENGINE_INPUT_DIR", eng_input)
+    assert client.delete(f"/api/sources/{source['id']}").status_code == 200
+    assert not ef_file.exists()
+
+
 def test_waiting_jobs_are_queued_again_on_start(data_dir):
     from fastapi.testclient import TestClient
     from app import jobs

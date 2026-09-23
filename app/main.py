@@ -832,6 +832,10 @@ async def delete_source(source_id: str) -> dict:
     folders = [(Path(source["stored_path"]), config.SOURCES_DIR)]
     folders += [(Path(item["folder"]), config.DATA_DIR) for item in sets if item["folder"]]
     await asyncio.to_thread(remove_folders, folders)
+    if source.get("engine_file") and config.ENGINE_INPUT_DIR:
+        ef = config.ENGINE_INPUT_DIR / source["engine_file"]
+        if inside(ef, config.ENGINE_INPUT_DIR):
+            ef.unlink(missing_ok=True)
     return {"deleted": True}
 
 

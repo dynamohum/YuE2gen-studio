@@ -77,7 +77,14 @@
         </div>
       </div>
       <div class="source-row">
-        <select id="source-select"></select>
+        <div class="source-picker" id="source-picker">
+          <select id="source-select" class="hidden"></select>
+          <button type="button" class="source-picker-btn" id="source-picker-btn" aria-haspopup="listbox" aria-expanded="false" title="Choose a recording">
+            <span id="source-picker-label" class="source-picker-label">Choose a recording…</span>
+            <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+          <div id="source-picker-menu" class="source-picker-menu hidden" role="listbox"></div>
+        </div>
         <button id="transcribe" class="ghost">Transcribe</button>
         <button id="source-lyrics" class="ghost" title="Write down the words this recording sings">Extract lyrics</button>
         <button id="audition" class="ghost" title="Play this recording through the player">Audition</button>
@@ -231,17 +238,17 @@
       <div class="grid2 hidden" id="style-lora-strengths">
         <div class="field">
           <label for="style-lora-clip">Planner
-            <input id="style-lora-clip-value" class="lora-value" type="number" min="0" max="3" step="0.05"
+            <input id="style-lora-clip-value" class="lora-value" type="number" min="0" max="3" step="0.01"
                    inputmode="decimal" title="Type an exact strength">
           </label>
-          <input id="style-lora-clip" type="range" min="0" max="3" step="0.05" value="1">
+          <input id="style-lora-clip" type="range" min="0" max="3" step="0.01" value="1">
         </div>
         <div class="field">
           <label for="style-lora-model">Sound
-            <input id="style-lora-model-value" class="lora-value" type="number" min="0" max="3" step="0.05"
+            <input id="style-lora-model-value" class="lora-value" type="number" min="0" max="3" step="0.01"
                    inputmode="decimal" title="Type an exact strength">
           </label>
-          <input id="style-lora-model" type="range" min="0" max="3" step="0.05" value="1">
+          <input id="style-lora-model" type="range" min="0" max="3" step="0.01" value="1">
         </div>
       </div>
       <div class="hint" id="style-lora-hint">Planner shapes the score, Sound shapes the audio.</div>
@@ -276,6 +283,7 @@
     <div class="libhead">
       <h2 id="takes-heading">Your takes</h2>
       <div class="filters">
+        <button id="select-all" class="chip" title="Select all takes in this space">Select all</button>
         <button class="chip active" data-filter="all">All</button>
         <button class="chip" data-filter="favourite">Starred</button>
         <button id="layout-toggle" class="chip layout" title="Switch card size">Compact</button>
