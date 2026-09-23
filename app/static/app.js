@@ -354,7 +354,11 @@ function paintStyleLoras() {
   // time None was chosen.
   if (!chosen && select.dataset.wanted) { chosen = select.dataset.wanted; }
   delete select.dataset.wanted;
-  if (chosen) { select.value = chosen; }
+  if (chosen) {
+    select.value = chosen;
+    var item = loraChosen();
+    if (item && item.trigger) { State.loraTrigger = item.trigger; }
+  }
   paintStyleLoraStrengths();
 }
 
@@ -545,17 +549,64 @@ function paintStyleLoraStrengths() {
    without it, and the app knows which word it needs, so the app puts it there.
    Choosing a different LoRA takes the old word out again; one already typed is
    left where it is. */
+function removeStyleWord(text, word) {
+  if (!word || !text) { return text || ''; }
+  var w = word.trim().toLowerCase();
+  var tags = text.split(',').map(function (t) { return t.trim(); }).filter(Boolean);
+  var filtered = tags.filter(function (t) { return t.toLowerCase() !== w; });
+  var joined = filtered.join(', ');
+  if (styleHas(joined, w)) {
+    joined = joined.replace(new RegExp('\\b' + w + '\\b', 'gi'), '');
+  }
+  return tidyStyle(joined);
+}
+
+function allKnownLoraTriggers() {
+  var triggers = {};
+  if (State.loraTrigger) {
+    triggers[State.loraTrigger.trim().toLowerCase()] = true;
+  }
+  (loraCatalogue() || []).forEach(function (item) {
+    if (item && item.trigger) {
+      triggers[item.trigger.trim().toLowerCase()] = true;
+    }
+  });
+  (IDENTITIES_LIST || []).forEach(function (id) {
+    if (id && id.trigger_word) {
+      triggers[id.trigger_word.trim().toLowerCase()] = true;
+    }
+  });
+  return Object.keys(triggers);
+}
+
 function applyLoraTrigger(trigger) {
   var style = $('style');
-  var text = style.value;
-  var previous = State.loraTrigger;
-  if (previous && previous !== trigger && styleHas(text, previous)) {
-    text = tidyStyle(text.replace(new RegExp('\\s*,?\\s*' + previous + '\\b', 'i'), ''));
+  if (!style) { return; }
+  var text = style.value || '';
+  var newTrigger = (trigger || '').trim().toLowerCase();
+
+  // Strip any other known LoRA or identity trigger words currently in the style
+  var known = allKnownLoraTriggers();
+  known.forEach(function (t) {
+    if (t && t !== newTrigger) {
+      text = removeStyleWord(text, t);
+    }
+  });
+
+  if (State.loraTrigger) {
+    var prev = State.loraTrigger.trim().toLowerCase();
+    if (prev && prev !== newTrigger) {
+      text = removeStyleWord(text, prev);
+    }
   }
-  if (trigger && !styleHas(text, trigger)) {
-    text = tidyStyle(trigger + (text ? ', ' + text : ''));
+
+  // Prepend new trigger word to the style text if specified and not already present
+  if (newTrigger && !styleHas(text, newTrigger)) {
+    text = tidyStyle(newTrigger + (text ? ', ' + text : ''));
   }
-  State.loraTrigger = trigger || null;
+
+  text = tidyStyle(text);
+  State.loraTrigger = trigger ? trigger.trim() : null;
   if (text !== style.value) {
     style.value = text;
     style.dataset.touched = '1';
@@ -617,6 +668,7 @@ function saveForm() {
     data.style_lora = $('style-lora') ? $('style-lora').value : '';
     data.style_lora_model = $('style-lora-model') ? $('style-lora-model').value : '1';
     data.style_lora_clip = $('style-lora-clip') ? $('style-lora-clip').value : '1';
+    data.lora_trigger = State.loraTrigger || '';
     data.left_take = selectedTakeId() || '';
     data.box_kind = Selection.boxKind;
     data.box_id = Selection.boxId || '';
@@ -643,6 +695,7 @@ function loadForm() {
   else { $('realaudio').checked = true; }
   // The list arrives from the server, so the name is held until it exists.
   if (typeof data.source === 'string') { State.wantedSource = data.source; }
+  if (data.lora_trigger) { State.loraTrigger = data.lora_trigger; }
   if ($('style-lora')) {
     if (data.style_lora_model) { $('style-lora-model').value = data.style_lora_model; }
     if (data.style_lora_clip) { $('style-lora-clip').value = data.style_lora_clip; }
@@ -4948,8 +5001,10 @@ function wire() {
       var trigger = button.dataset.trigger;
       if (trigger) {
         $('style').value = trigger + ', ' + prompt;
+        State.loraTrigger = trigger;
       } else {
         $('style').value = prompt;
+        State.loraTrigger = null;
       }
       $('style').dataset.touched = '1';
       paintVocals();
@@ -4963,8 +5018,10 @@ function wire() {
       var item = loraChosen();
       if (item && item.trigger) {
         $('style').value = item.trigger + ', ' + button.dataset.preset;
+        State.loraTrigger = item.trigger;
       } else {
         $('style').value = button.dataset.preset;
+        State.loraTrigger = null;
       }
       $('style').dataset.touched = '1';
       paintVocals();
