@@ -33,7 +33,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 
-from . import config, identities, instrumental, jobs, logging_setup, loras, lyrics, score, stems
+from . import config, identities, instrumental, jobs, llm, logging_setup, loras, lyrics, score, stems
 from .db import DEFAULT_SPACE, execute, get_setting, migrate, one, rows, set_setting
 
 personas = identities
@@ -94,6 +94,38 @@ SETTINGS_SPEC: list[dict] = [
         "default": str(config.STEMS_DIR),
         "help": f"Where stems are written. It must sit inside {config.DATA_DIR}.",
     },
+    {
+        "key": "llm.provider",
+        "label": "LLM provider for lyrics & style tags",
+        "type": "select",
+        "default": "local",
+        "options": [
+            {"value": "local", "label": "Local Gemma (engine ComfyUI node)"},
+            {"value": "external", "label": "External LLM (OpenAI-compatible API)"},
+        ],
+        "help": "Choose whether to run local Gemma on GPU or connect to an external LLM (OpenAI, Anthropic, Gemini, Groq, OpenRouter, Ollama, LM Studio). Using external LLM avoids loading Gemma into GPU memory and produces significantly richer lyrics and style descriptions.",
+    },
+    {
+        "key": "llm.api_url",
+        "label": "External LLM API URL",
+        "type": "text",
+        "default": "https://api.openai.com/v1",
+        "help": "Base URL for OpenAI-compatible completions (e.g. https://api.openai.com/v1, http://localhost:11434/v1 for Ollama, https://openrouter.ai/api/v1, or https://generativelanguage.googleapis.com/v1beta/openai/ for Gemini).",
+    },
+    {
+        "key": "llm.api_key",
+        "label": "External LLM API Key",
+        "type": "password",
+        "default": "",
+        "help": "API authentication key (leave empty or use 'ollama' for local servers without authentication).",
+    },
+    {
+        "key": "llm.model",
+        "label": "External LLM Model",
+        "type": "text",
+        "default": "gpt-4o-mini",
+        "help": "Model identifier to query (e.g. gpt-4o-mini, claude-3-5-sonnet-20241022, gemini-1.5-flash, llama3.2, mistral-large).",
+    },
 ]
 
 SETTINGS_BY_KEY = {item["key"]: item for item in SETTINGS_SPEC}
@@ -122,6 +154,8 @@ def save_setting(key: str, value: str) -> None:
         if not inside(Path(value), config.DATA_DIR):
             raise HTTPException(400, f"the stem folder must be inside {config.DATA_DIR}")
     set_setting(key, value)
+    masked = "***" if any(w in key.lower() for w in ("key", "secret", "password", "token")) else value
+    log.info("Setting updated: %s = %s", key, masked)
 
 
 def guess_title(lyrics: str) -> str:
@@ -403,9 +437,16 @@ class IdentitySongEdit(BaseModel):
     description: str | None = Field(None, max_length=400)
     lyrics: str | None = Field(None, max_length=20_000)
     lyrics_checked: bool | None = None
+    style_hint: str | None = Field(None, max_length=500)
 
 
 PersonaSongEdit = IdentitySongEdit
+
+
+class LLMTestIn(BaseModel):
+    api_url: str | None = None
+    api_key: str | None = None
+    model: str | None = None
 
 
 class RenderIn(BaseModel):
@@ -562,6 +603,17 @@ def queue_view() -> list[dict]:
         elif entry["mine"] and not entry["client"].startswith(ENGINE.client_id):
             item["note"] = "sent before the app restarted"
         items.append(item)
+    if CURRENT.get("id") and not CURRENT.get("prompt_id"):
+        items.append({
+            "state": "running",
+            "kind": CURRENT["kind"],
+            "outside": False,
+            "client": None,
+            "since": CURRENT.get("started", now),
+            "id": CURRENT["id"],
+            "title": _job_title(CURRENT["kind"], CURRENT["id"]),
+            "label": "External LLM",
+        })
     for job in jobs.waiting_jobs():
         if job["kind"] in jobs.IDENTITY_FIELDS:
             song = one(f"SELECT {jobs.IDENTITY_FIELDS[job['kind']]} AS status FROM identity_songs WHERE id = ?", (job["id"],))
@@ -680,7 +732,8 @@ def state() -> dict:
             "avg_render_seconds": float(get_setting("avg_render_seconds", "0") or 0),
             "interpretations": [{"id": key, "name": INTERPRETATION_NAMES[key]} for key in INTERPRETATIONS],
             "lyric_structures": [{"id": key, "sections": value} for key, value in lyrics.STRUCTURES.items()],
-            "lyrics_available": ENGINE.options.get("lyrics", False),
+            "lyrics_available": bool(llm.is_external_enabled() or ENGINE.options.get("lyrics", False)),
+            "llm_provider": llm.get_config()["provider"],
             "instrumental_available": ENGINE.options.get("instrumental", False),
             "realaudio": ENGINE.options.get("realaudio", False),
             "loras": _catalogue_with_styles(),
@@ -1461,12 +1514,27 @@ def edit_identity_song(identity_id: str, song_id: str, body: IdentitySongEdit) -
         changes["lyrics_checked"] = 1 if body.lyrics_checked else 0
     if body.description is not None:
         changes["description"] = " ".join(body.description.split())
+    if body.style_hint is not None:
+        changes["style_hint"] = " ".join(body.style_hint.split())[:300]
     if changes:
         jobs.set_song(song_id, **changes)
     return one("SELECT * FROM identity_songs WHERE id = ?", (song_id,))
 
 
 edit_persona_song = edit_identity_song
+
+
+@app.post("/api/identities/{identity_id}/songs/{song_id}/style")
+@app.post("/api/personas/{identity_id}/songs/{song_id}/style", include_in_schema=False)
+async def regenerate_song_style(identity_id: str, song_id: str) -> dict:
+    """Queue or run style analysis for a single song."""
+    song = one("SELECT * FROM identity_songs WHERE id = ? AND identity_id = ?", (song_id, identity_id))
+    if not song:
+        raise HTTPException(404, "no such song")
+    jobs.set_song(song_id, style_state="queued", error=None)
+    await QUEUE.put({"kind": "identity_style", "id": song_id})
+    log.info("Queued style analysis for corpus song '%s' (%s)", song.get("title") or song_id, song_id)
+    return {"queued": True, "song_id": song_id}
 
 
 @app.post("/api/identities/{identity_id}/analyse")
@@ -1692,9 +1760,10 @@ def _host_path(path: Path) -> str:
 @app.post("/api/lyrics")
 async def write_lyrics(body: LyricsIn) -> dict:
     """Queue a lyric draft.  The page polls GET /api/lyrics/{id} for the words."""
-    if ENGINE.options_loaded and not ENGINE.options.get("lyrics"):
-        raise HTTPException(400, f"The engine cannot write lyrics: it needs {config.LYRICS_MODEL} "
-                                 "in models/text_encoders. Run scripts/fetch-models.sh.")
+    if not llm.is_external_enabled():
+        if ENGINE.options_loaded and not ENGINE.options.get("lyrics"):
+            raise HTTPException(400, f"The engine cannot write lyrics: it needs {config.LYRICS_MODEL} "
+                                     "in models/text_encoders. Run scripts/fetch-models.sh.")
     if body.structure not in lyrics.STRUCTURES:
         raise HTTPException(400, f"unknown structure: {body.structure}")
     jobs.forget_old_lyrics()
@@ -1846,8 +1915,32 @@ def get_settings() -> dict:
 @app.put("/api/settings")
 def put_setting(body: SettingIn) -> dict:
     save_setting(body.key, body.value)
-    log.info("setting %s = %s", body.key, body.value)
     return {"settings": settings_payload()}
+
+
+@app.post("/api/settings/test-llm")
+async def test_llm_settings(body: LLMTestIn | None = None) -> dict:
+    """Test connection to the external LLM provider using current or provided settings."""
+    override = None
+    if body:
+        override = {}
+        if body.api_url is not None:
+            override["api_url"] = body.api_url
+        if body.api_key is not None:
+            override["api_key"] = body.api_key
+        if body.model is not None:
+            override["model"] = body.model
+        if override:
+            current = llm.get_config()
+            current.update(override)
+            override = current
+    log.info("Testing external LLM connection via settings")
+    try:
+        res = await llm.test_connection(config_override=override)
+        return res
+    except Exception as exc:
+        log.warning("External LLM connection test failed: %s", exc)
+        raise HTTPException(400, f"Connection test failed: {exc}")
 
 
 # ----------------------------------------------------------------------- stems

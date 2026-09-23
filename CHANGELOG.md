@@ -23,6 +23,23 @@ Release notes live in two places and neither is a file in this repository: this 
 history, and each GitHub release holds its published notes. `RELEASE-NOTES-*.md` is ignored so it
 cannot creep back in.
 
+## 0.0.16 - 2026-09-23
+
+- **Custom External LLM Provider Integration.** Users can now configure an external LLM provider
+  (e.g. OpenAI, Anthropic, Google Gemini, Groq, OpenRouter, Ollama, LM Studio) in Settings to take
+  over all text tasks from local Gemma:
+  - **Lyric Generation:** Drafts structured, rhyming song lyrics with verses, choruses, and titles
+    without needing `gemma4_e4b_it_int8_convrot.safetensors` on the engine.
+  - **Corpus Musical Style Tagging:** Generates accurate, evocative comma-separated musical style
+    tags (genres, instruments, drums, moods) from song title, artist, and lyrics metadata.
+  - **VRAM & Performance Optimization:** Completely bypasses loading Gemma into GPU memory (~8 GB VRAM),
+    freeing up GPU resources for faster audio generation and training.
+  - **Comprehensive Action Logging:** Every LLM request, completion, token metric, configuration
+    update, and connection test is logged directly to the centralized logging system and web UI
+    with sensitive API keys securely masked.
+  - **Connection Testing:** Includes a "Test LLM Connection" tool directly in Settings to instantly
+    verify connectivity, latency, and model responsiveness.
+
 ## 0.0.8 - 2026-09-21
 
 - **The takes scroll in their own pane.** The window no longer scrolls: the form and the takes each

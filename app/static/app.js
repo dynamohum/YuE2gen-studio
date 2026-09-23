@@ -1614,6 +1614,8 @@ function paintSettings() {
         return '<option value="' + esc(option.value) + '"' +
           (option.value === item.value ? ' selected' : '') + '>' + esc(option.label) + '</option>';
       }).join('') + '</select>';
+    } else if (item.type === 'password') {
+      control = '<input type="password" autocomplete="off" spellcheck="false" data-key="' + esc(item.key) + '" value="' + esc(item.value) + '">';
     } else {
       control = '<input type="text" spellcheck="false" data-key="' + esc(item.key) + '" value="' + esc(item.value) + '">';
     }
@@ -1625,6 +1627,25 @@ function paintSettings() {
       '<div class="setting-control">' + control + '<span class="saved" data-saved="' + esc(item.key) + '"></span></div>' +
     '</div>';
   }).join('');
+}
+
+async function testLLMConnection() {
+  var btn = $('btn-test-llm');
+  var status = $('test-llm-status');
+  if (!btn || !status) { return; }
+  btn.disabled = true;
+  status.style.color = 'var(--muted)';
+  status.textContent = 'Testing connection\u2026';
+  try {
+    var res = await api('/api/settings/test-llm', { method: 'POST' });
+    status.style.color = 'var(--good, #4ade80)';
+    status.textContent = '\u2713 Connected! (' + (res.model || '') + ', ' + (res.latency_ms || 0) + 'ms)';
+  } catch (err) {
+    status.style.color = 'var(--bad, #f87171)';
+    status.textContent = '\u2717 ' + (err.message || 'Connection failed');
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 async function saveSetting(input) {
@@ -3022,7 +3043,7 @@ function songDetail(song) {
       'placeholder="' + esc((IDENTITY.data && IDENTITY.data.description) || 'the identity\u2019s description') + '">' +
       '<div class="hint">Only where it differs from the rest, say stripped back or acoustic. Blank uses the identity\u2019s. Saved with Save.</div></div>' +
       '<div class="muted" style="margin-top:8px">Style caption</div><div class="caption" data-caption="' + song.id + '">' + esc(song.caption) + '</div>' +
-      (song.style_hint ? '<div class="muted" style="margin-top:8px">What Gemma heard (a suggestion only)</div><div class="caption">' + esc(song.style_hint) + '</div>' : '') +
+      (song.style_hint ? '<div class="muted" style="margin-top:8px; display:flex; justify-content:space-between; align-items:center"><span>Style suggestion</span><button class="ghost small" data-restyle="' + song.id + '" style="font-size:11px; padding:2px 6px">Re-analyse</button></div><div class="caption">' + esc(song.style_hint) + '</div>' : '<div style="margin-top:8px"><button class="ghost small" data-restyle="' + song.id + '" style="font-size:11px; padding:2px 6px">Analyse style</button></div>') +
       (song.error ? '<div class="status bad" style="margin-top:8px">' + esc(song.error) + '</div>' : '') +
     '</div></div>';
 }
@@ -3236,6 +3257,21 @@ async function identityClick(event) {
       pollIdentity();
       note.className = 'status good';
     } catch (err) { note.textContent = err.message; note.className = 'status bad'; }
+    return;
+  }
+  var restyle = target.closest('[data-restyle]');
+  if (restyle) {
+    var sid = restyle.dataset.restyle;
+    restyle.disabled = true;
+    restyle.textContent = 'Queueing\u2026';
+    try {
+      await api('/api/identities/' + IDENTITY.id + '/songs/' + sid + '/style', { method: 'POST' });
+      pollIdentity();
+    } catch (err) {
+      alert(err.message);
+      restyle.disabled = false;
+      restyle.textContent = 'Re-analyse';
+    }
     return;
   }
   if (target.closest('#identity-edit-open') || target.closest('#persona-edit-open')) { openIdentityEdit(); return; }
@@ -5344,6 +5380,8 @@ function wire() {
   $('settings-list').addEventListener('blur', function (event) {
     if (event.target.dataset && event.target.dataset.key && event.target.tagName === 'INPUT') { saveSetting(event.target); }
   }, true);
+  var btnTestLLM = $('btn-test-llm');
+  if (btnTestLLM) { btnTestLLM.addEventListener('click', testLLMConnection); }
   $('stems-close').addEventListener('click', closeStemsModal);
   $('stems-run').addEventListener('click', runStems);
   $('stems-model').addEventListener('change', paintStemChoices);

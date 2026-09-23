@@ -13,7 +13,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from . import config, identities, instrumental, loras, lyrics, score, stems
+from . import config, identities, instrumental, llm, loras, lyrics, score, stems
 from .db import bump_average, execute, get_setting, one, rows
 from .engine import Engine, load_template
 from .library import audio_duration, ensure_peaks, inside, remove_tree, take_audio_path, write_take_note
@@ -389,6 +389,34 @@ async def run_job(kind: str, ref_id: str) -> None:
         if not record or record["status"] != "queued":
             return   # cancelled while it waited
         record["status"] = "running"
+        if llm.is_external_enabled():
+            log.info("Starting external LLM lyrics generation for draft %s (structure=%s, brief='%s')",
+                     ref_id, record.get("structure"), (record.get("brief") or "")[:40])
+            CURRENT.clear()
+            CURRENT.update({"kind": kind, "id": ref_id, "prompt_id": None, "started": started})
+            try:
+                result = await llm.generate_lyrics(
+                    brief=record["brief"],
+                    style=record["style"],
+                    structure=record["structure"],
+                )
+                if ref_id in CANCELLED:
+                    fail(kind, ref_id, "cancelled")
+                    return
+                record["title"] = result["title"]
+                record["lyrics"] = result["lyrics"]
+                record["status"] = "done"
+                record["error"] = None
+                log.info("Finished external LLM lyrics generation for draft %s ('%s', %d chars)",
+                         ref_id, record["title"], len(record["lyrics"]))
+                return
+            except Exception as exc:
+                log.exception("External LLM lyrics generation failed for draft %s: %s", ref_id, exc)
+                fail(kind, ref_id, f"external LLM failed: {exc}")
+                return
+            finally:
+                CURRENT.clear()
+                CANCELLED.discard(ref_id)
         log.info("Starting lyrics generation for draft %s (structure=%s)", ref_id, record.get("structure"))
         graph = build_lyrics_graph(record)
     elif kind == "transcribe":
@@ -794,7 +822,7 @@ async def run_identity_job(kind: str, song_id: str) -> None:
         set_song(song_id, **{field: "none"})
         return
     set_song(song_id, **{field: "running"})
-    folder = Path(song["stored_path"]).parent
+    folder = Path(song["stored_path"]).parent if song.get("stored_path") else None
     song_title = song.get("title") or song.get("file")
     log.info("Starting %s for corpus song '%s'", kind, song_title)
     try:
@@ -810,14 +838,25 @@ async def run_identity_job(kind: str, song_id: str) -> None:
             log.info("Finished score analysis for corpus song '%s' (key=%s, tempo=%s)", song_title, key or "unknown", tempo or "unknown")
             maybe_draft(song_id)
         elif kind in ("identity_style", "persona_style"):
-            samples = await asyncio.to_thread(identities.read_mono, Path(song["stored_path"]))
-            middle = len(samples) / identities.CHUNK_RATE * 0.4
-            clip = identities.write_chunk(samples, (middle, middle + 30), folder / "style-clip.wav")
-            name = await _upload(clip, f"identity-{song_id}-style.wav")
-            job = await _run_graph(kind, song_id, _gemma_graph(identities.DESCRIBE, [name], 120))
-            hint = " ".join((_texts_in_order(job) or [""])[0].split())[:300]
-            set_song(song_id, style_hint=hint, style_state="done")
-            log.info("Finished style analysis for corpus song '%s': %s", song_title, hint[:60] + "..." if len(hint) > 60 else hint)
+            if llm.is_external_enabled():
+                identity = one("SELECT * FROM identities WHERE id = ?", (song.get("identity_id"),)) if song.get("identity_id") else None
+                artist = (identity.get("name") if identity else None) or song.get("artist") or ""
+                title = song.get("title") or song_title
+                lyrics_text = song.get("lyrics") or ""
+                log.info("Starting external LLM style analysis for corpus song '%s' by '%s' (%s)",
+                         title, artist, song_id)
+                hint = await llm.describe_song_style(title=title, artist=artist, lyrics_text=lyrics_text)
+                set_song(song_id, style_hint=hint, style_state="done")
+                log.info("Finished external LLM style analysis for corpus song '%s': %s", song_title, hint[:60] + "..." if len(hint) > 60 else hint)
+            else:
+                samples = await asyncio.to_thread(identities.read_mono, Path(song["stored_path"]))
+                middle = len(samples) / identities.CHUNK_RATE * 0.4
+                clip = identities.write_chunk(samples, (middle, middle + 30), folder / "style-clip.wav")
+                name = await _upload(clip, f"identity-{song_id}-style.wav")
+                job = await _run_graph(kind, song_id, _gemma_graph(identities.DESCRIBE, [name], 120))
+                hint = " ".join((_texts_in_order(job) or [""])[0].split())[:300]
+                set_song(song_id, style_hint=hint, style_state="done")
+                log.info("Finished style analysis for corpus song '%s': %s", song_title, hint[:60] + "..." if len(hint) > 60 else hint)
     except Exception as exc:  # noqa: BLE001
         log.warning("%s for '%s' (%s) failed: %s", kind, song_title, song_id, exc)
         set_song(song_id, **{field: "failed"}, error=f"{kind.split('_')[1]}: {exc}"[:400])
