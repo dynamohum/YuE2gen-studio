@@ -319,7 +319,8 @@ engine, and it appears in the **Style LoRA** list.
 
 A style LoRA can hold two halves, and the picker shows which ones a file holds:
 
-- **Planner** shapes the score plan — form, harmony, phrasing. Applied when the plan is written.
+- **Planner** shapes what is played — the score plan (form, harmony, phrasing), and then the music
+  the render writes from that score. It applies at both steps.
 - **Sound** shapes the audio — timbre and production.
 
 A strength the file cannot use is greyed out, and a file this engine cannot load at all is named as

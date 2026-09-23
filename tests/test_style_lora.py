@@ -77,6 +77,37 @@ def test_a_style_lora_uses_both_strengths_in_the_render():
     assert node["inputs"]["strength_model"] == 1.0
     assert node["inputs"]["strength_clip"] == 0.5
     assert graph["14"]["inputs"]["model"] == ["27", 0]
+    # Setting strength_clip is not the same as using it. This test once passed
+    # while the planner half never reached the render: the value was set on the
+    # loader and its output was connected to nothing.
+    assert graph["11"]["inputs"]["clip"] == ["27", 1], "the planner half must write the music tokens"
+    assert node["inputs"]["clip"] == ["10", 1]
+
+
+def test_a_planner_strength_of_0_leaves_the_render_text_side_alone():
+    """A decoder-only file, or Planner at 0: nothing about the text side changes,
+    so the graph is the one the app has always sent."""
+    graph = {
+        "10": {"class_type": "CheckpointLoaderSimple", "inputs": {}},
+        "11": {"class_type": "YuE2GenerateMusic", "inputs": {"clip": ["10", 1]}},
+        "14": {"class_type": "KSampler", "inputs": {"model": ["10", 0]}},
+    }
+    with_style_lora(graph, "reggae.safetensors", strength_model=1.0, strength_clip=0.0)
+    assert graph["11"]["inputs"]["clip"] == ["10", 1]
+    assert graph["14"]["inputs"]["model"] == ["27", 0]
+
+
+def test_an_instrumental_keeps_its_lora_and_gains_the_style_planner_at_render():
+    """The instrumental LoRA takes the text side straight from the checkpoint, so
+    whatever goes in after it must chain onto it. Added last, as it once was, it
+    replaced the style LoRA's planner half without a word."""
+    take = dict(make_take(kind="instrumental", abc="X:1\n", status="planned"))
+    take.update(style_lora="reggae.safetensors", style_lora_model=0.9, style_lora_clip=0.8)
+    graph = build_render_graph(take)
+    assert graph["20"]["inputs"]["clip"] == ["10", 1], "the instrumental LoRA sits first"
+    assert graph["27"]["inputs"]["clip"] == ["20", 1], "the style LoRA chains onto it"
+    assert graph["11"]["inputs"]["clip"] == ["27", 1], "and the render reads the end of the chain"
+    assert graph["14"]["inputs"]["model"] == ["27", 0]
 
 
 def test_the_planner_half_reaches_the_run_that_writes_the_plan():

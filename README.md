@@ -86,8 +86,8 @@ bottom of the form, in all three modes.
 Nothing is trained here. These are files other people have published, mostly on Hugging Face, and
 the app's job is to make them usable without knowing how they are put together:
 
-- **Two strengths, because a LoRA has two halves.** *Planner* shapes the score plan — form,
-  harmony, phrasing — and applies when the plan is written. *Sound* shapes the audio. A file that
+- **Two strengths, because a LoRA has two halves.** *Planner* shapes what is played: the score
+  plan — form, harmony, phrasing — and then the music a render writes from it. *Sound* shapes the audio. A file that
   holds only one half has the other strength greyed out, and a file this engine cannot load is
   named as such in the list rather than failing quietly inside a render.
 - **The trigger word is handled for you.** Most of these files do very little unless the style text

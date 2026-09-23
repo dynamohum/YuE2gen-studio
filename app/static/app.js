@@ -414,7 +414,7 @@ function paintStyleLoraNote() {
   // looks again every five minutes; this is for when five minutes is too long.
   var hint = $('style-lora-hint');
   if (!item) {
-    hint.innerHTML = 'Planner shapes the score, Sound shapes the audio.';
+    hint.innerHTML = 'Planner shapes what is played, Sound how it sounds.';
     return;
   }
   var parts = [];

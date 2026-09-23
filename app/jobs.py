@@ -160,20 +160,35 @@ def with_plan_lora(graph: dict, loader: str, lora: str, text_nodes: tuple[str, .
 
 
 def with_render_lora(graph: dict, node_id: str, lora: str, loader: str = "10", strength_model: float = 1.0, strength_clip: float = 0.0) -> dict:
-    """Put a LoRA between the current model upstream and KSampler. The text/CLIP
-    side is left alone (default 0.0), so the ABC planner and language model are untouched."""
+    """Put a LoRA into the render: its sound half before KSampler, and, when
+    strength_clip is above 0, its planner half before YuE2GenerateMusic.
+
+    A render has two language-model steps, not one.  The plan writes the score;
+    then YuE2GenerateMusic reads that score and writes the music tokens the
+    decoder turns into audio.  A LoRA's planner half belongs in both.  It used to
+    reach only the first, because strength_clip was set here and its output was
+    never connected, so the render wrote its music tokens without it.  Measured on
+    one take, same score and seed: adding it changed the render almost entirely
+    (correlation 0.145, against 1.000 for the same render run twice).
+
+    Both halves chain onto what is already there, as the model side always has,
+    so an instrumental keeps its own LoRA and gains this one.  At strength_clip 0
+    the text side is left exactly as it was."""
     current_model = graph["14"]["inputs"]["model"]
+    wire_clip = strength_clip > 0
     graph[node_id] = {
         "class_type": "LoraLoader",
         "inputs": {
             "model": current_model,
-            "clip": [loader, 1],
+            "clip": (graph["11"]["inputs"].get("clip") or [loader, 1]) if wire_clip else [loader, 1],
             "lora_name": lora,
             "strength_model": strength_model,
             "strength_clip": strength_clip,
         },
     }
     graph["14"]["inputs"]["model"] = [node_id, 0]
+    if wire_clip:
+        graph["11"]["inputs"]["clip"] = [node_id, 1]
     return graph
 
 
@@ -226,6 +241,12 @@ def build_render_graph(take: dict) -> dict:
     # not changed and answers with the file it saved last time, which the app has
     # already taken and deleted.  With a new prefix only the save runs again.
     graph["16"]["inputs"]["filename_prefix"] = f"yue2studio/{take['id']}-{int(time.time() * 1000)}"
+    # First, because it takes the text side straight from the checkpoint rather than
+    # chaining.  Anything added after it chains onto it, the same order the plan
+    # graph uses; added last, it silently dropped a style LoRA's planner half.
+    if take.get("kind") == "instrumental":
+        node["mode"] = "full"
+        instrumental.with_lora(graph, "10", config.INSTRUMENTAL_LORA, ("11",), feel_strength(take))
     if take.get("realaudio"):
         with_realaudio_lora(graph, "10", config.REAL_AUDIO_LORA)
     voice_lora = take.get("voice_lora")
@@ -242,9 +263,6 @@ def build_render_graph(take: dict) -> dict:
         with_style_lora(graph, style_lora, loader="10",
                         strength_model=float(take.get("style_lora_model") or 0.0),
                         strength_clip=float(take.get("style_lora_clip") or 0.0))
-    if take.get("kind") == "instrumental":
-        node["mode"] = "full"
-        instrumental.with_lora(graph, "10", config.INSTRUMENTAL_LORA, ("11",), feel_strength(take))
     return graph
 
 

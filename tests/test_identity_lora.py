@@ -180,6 +180,7 @@ def test_an_identity_lora_can_write_as_well_as_sing():
     with_identity_lora(graph, lora="paulshields_best.safetensors", strength=1.0, strength_clip=0.7)
     assert graph["26"]["inputs"]["strength_model"] == 1.0
     assert graph["26"]["inputs"]["strength_clip"] == 0.7
+    assert graph["11"]["inputs"]["clip"] == ["26", 1], "asked for, it reaches the render too"
 
 
 def test_the_planner_half_is_off_by_default():
