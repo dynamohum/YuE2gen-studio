@@ -23,6 +23,38 @@ Release notes live in two places and neither is a file in this repository: this 
 history, and each GitHub release holds its published notes. `RELEASE-NOTES-*.md` is ignored so it
 cannot creep back in.
 
+## 0.0.23 - 2026-09-23
+
+- **Style LoRAs trained from your own songs (experimental, off by default).** Prepare a corpus from
+  a folder of one artist's songs: the app separates each vocal, finds key, tempo and sections,
+  drafts the lyrics and writes a caption per song. Export the set, or build the engine with
+  `WITH_TRAINER=1` and the app with `TRAINING_ENABLED=1` to train a dual-branch LoRA from it here.
+  Training follows the trainer's own recipe, with the number of steps set from the size of the
+  corpus, and keeps a snapshot every 50 steps, named for its step, so one can be chosen by ear.
+  **Install a LoRA** takes a file trained elsewhere. LoRAs made from a corpus share one group in
+  the Style LoRA list, each named after its corpus.
+- **Learned styles.** A LoRA made from a corpus offers one chip per song under the Style box, and
+  each writes the caption that song was trained with, trigger word first.
+- **Style LoRAs reach the render as well as the plan.** The Planner half now shapes the music a
+  render writes from the score, not only the score. Strengths go to 3 and can be typed. Changing
+  the LoRA swaps its trigger word in the Style, and the note under the picker says what the file
+  holds and suggests strengths.
+- **Lyrics heard by an external LLM.** With an external LLM that accepts audio, such as Gemini,
+  Extract lyrics can have it hear the words while Whisper keeps the timing. A reply that is not
+  the whole song falls back to Whisper, and the log says which method ran.
+- **Whisper hears the whole vocal.** Its voice detector is off, since it discarded most singing, and
+  text it invents over instrumental stretches is dropped. A recording's separated vocal is kept, so
+  extracting its lyrics again skips the separation, and a recording that already has lyrics offers
+  to extract them again.
+- **Weak renders are flagged.** A take that comes out far quieter than usual all the way through
+  usually sounds thin or distorted; its card says *Weak render: try another seed*.
+- **Take cards always name Harmony, Interpretation and Plan**, defaults included.
+- **Layout.** A width control beside the card size, and the takes keep their first row clear of the
+  header. The new song button takes the colour of its mode.
+- **Settings.** The external LLM key box starts empty and says whether a key is saved; a new key
+  replaces it, and Remove clears it.
+- **The guide** opens in its own tab and scrolls at desktop widths.
+
 ## 0.0.16 - 2026-09-23
 
 - **Custom External LLM Provider Integration.** Users can now configure an external LLM provider
