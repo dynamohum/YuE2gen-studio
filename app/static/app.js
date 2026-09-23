@@ -1615,7 +1615,12 @@ function paintSettings() {
           (option.value === item.value ? ' selected' : '') + '>' + esc(option.label) + '</option>';
       }).join('') + '</select>';
     } else if (item.type === 'password') {
-      control = '<input type="password" autocomplete="off" spellcheck="false" data-key="' + esc(item.key) + '" value="' + esc(item.value) + '">';
+      control = '<div class="api-key-control">' +
+        '<input type="text" class="setting-masked-input" autocomplete="off" spellcheck="false" ' +
+        'data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other" ' +
+        'data-key="' + esc(item.key) + '" value="' + esc(item.value) + '">' +
+        '<button type="button" class="ghost small btn-toggle-mask" title="Reveal or hide key">Show</button>' +
+      '</div>';
     } else if (item.key === 'llm.model') {
       var models = State.llmModels || [];
       var hasModels = models.length > 0;
@@ -1814,6 +1819,8 @@ function openSettings() {
 
 function closeSettings() {
   $('settings-modal').classList.add('hidden');
+  var list = $('settings-list');
+  if (list) { list.innerHTML = ''; }
   document.body.style.overflow = '';
 }
 
@@ -5498,6 +5505,19 @@ function wire() {
     if (event.target && event.target.id === 'btn-fetch-models') {
       event.preventDefault();
       fetchLLMModels(false);
+      return;
+    }
+    if (event.target && event.target.classList.contains('btn-toggle-mask')) {
+      event.preventDefault();
+      var wrap = event.target.closest('.api-key-control');
+      if (wrap) {
+        var inp = wrap.querySelector('input');
+        if (inp) {
+          var isMasked = inp.classList.toggle('setting-masked-input');
+          event.target.textContent = isMasked ? 'Show' : 'Hide';
+        }
+      }
+      return;
     }
   });
   $('settings-list').addEventListener('blur', function (event) {
