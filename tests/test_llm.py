@@ -275,11 +275,13 @@ async def test_llm_http_error_handling():
 async def test_fetch_models_filters_and_formats():
     mock_payload = {
         "data": [
-            {"id": "models/gemini-2.5-flash", "display_name": "Gemini 2.5 Flash"},
+            {"id": "models/gemini-3.8-flash", "display_name": "Gemini 3.8 Flash"},
+            {"id": "models/gemini-3.8-live", "display_name": "Gemini 3.8 Live"},
             {"id": "models/text-embedding-004", "display_name": "Text Embedding 004"},
             {"id": "models/imagen-3.0-generate-002", "display_name": "Imagen 3"},
             {"id": "models/tts-1", "display_name": "TTS 1"},
-            {"id": "models/gemini-2.5-pro", "display_name": "Gemini 2.5 Pro"},
+            {"id": "models/gemini-2.5-computer-use-preview-10-2025", "display_name": "Gemini Computer Use"},
+            {"id": "models/gemini-3.1-pro-preview", "display_name": "Gemini 3.1 Pro Preview"},
             {"id": "models/gpt-4o-mini", "display_name": "GPT-4o Mini"},
         ]
     }
@@ -298,20 +300,24 @@ async def test_fetch_models_filters_and_formats():
         })
 
         ids = [m["id"] for m in models]
-        # Should exclude embedding, image, tts
-        assert "gemini-2.5-flash" in ids
-        assert "gemini-2.5-pro" in ids
+        # Should include valid text chat models
+        assert "gemini-3.8-flash" in ids
+        assert "gemini-3.1-pro-preview" in ids
         assert "gpt-4o-mini" in ids
+
+        # Should exclude embedding, image, tts, live websocket, and computer-use
+        assert "gemini-3.8-live" not in ids
+        assert "gemini-2.5-computer-use-preview-10-2025" not in ids
         assert "text-embedding-004" not in ids
         assert "imagen-3.0-generate-002" not in ids
         assert "tts-1" not in ids
 
         # Clean display names and labels
-        flash = next(m for m in models if m["id"] == "gemini-2.5-flash")
-        assert flash["label"] == "Gemini 2.5 Flash (gemini-2.5-flash)"
+        flash = next(m for m in models if m["id"] == "gemini-3.8-flash")
+        assert flash["label"] == "Gemini 3.8 Flash (gemini-3.8-flash)"
 
-        # Priority sorting: flash appears before pro
-        assert ids.index("gemini-2.5-flash") < ids.index("gemini-2.5-pro")
+        # Priority sorting: 3.8-flash appears before pro
+        assert ids.index("gemini-3.8-flash") < ids.index("gemini-3.1-pro-preview")
 
 
 def test_list_llm_models_endpoint(client):

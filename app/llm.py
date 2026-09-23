@@ -79,7 +79,9 @@ async def chat_complete(
     config_override: dict[str, str] | None = None,
 ) -> str:
     """Call the OpenAI-compatible chat completions endpoint and return the text reply."""
-    cfg = config_override or get_config()
+    cfg = get_config()
+    if config_override:
+        cfg.update(config_override)
     endpoint = _endpoint_url(cfg["api_url"])
     raw_model = cfg.get("model") or ""
     if not raw_model or (raw_model.lower().startswith("gpt-") and "generativelanguage.googleapis.com" in endpoint):
@@ -129,6 +131,9 @@ async def chat_complete(
                 err_msg = err_json["error"].get("message") or err_msg
         except Exception:
             pass
+        if "bidiGenerateContent" in err_msg or "-live" in model.lower():
+            flash_alt = model.replace("-live", "-flash")
+            err_msg = f"{err_msg} (Tip: '{model}' is a WebSocket streaming-only model. Use '{flash_alt}' for REST completions)."
         log.warning("External LLM error from %s: HTTP %d - %s", endpoint, resp.status_code, err_msg)
         raise RuntimeError(f"External LLM HTTP {resp.status_code}: {err_msg}")
 
@@ -152,7 +157,9 @@ async def chat_complete(
 
 async def test_connection(config_override: dict[str, str] | None = None) -> dict[str, Any]:
     """Send a minimal test message to verify the external LLM configuration."""
-    cfg = dict(config_override or get_config())
+    cfg = get_config()
+    if config_override:
+        cfg.update(config_override)
     raw_model = cfg.get("model") or ""
     if not raw_model or (raw_model.lower().startswith("gpt-") and "generativelanguage.googleapis.com" in cfg.get("api_url", "")):
         cfg["model"] = "gemini-flash-latest" if "generativelanguage.googleapis.com" in cfg.get("api_url", "") else DEFAULT_MODEL
@@ -286,7 +293,9 @@ def _models_url(base_url: str) -> str:
 
 async def fetch_models(config_override: dict[str, str] | None = None) -> list[dict[str, str]]:
     """Query the provider's /models endpoint to discover available text/chat models."""
-    cfg = config_override or get_config()
+    cfg = get_config()
+    if config_override:
+        cfg.update(config_override)
     models_url = _models_url(cfg["api_url"])
     api_key = cfg["api_key"]
     log.info("Fetching available models from %s...", models_url)
@@ -328,7 +337,9 @@ async def fetch_models(config_override: dict[str, str] | None = None) -> list[di
     excluded = (
         "embedding", "tts", "transcribe", "video", "veo", "audio", "lyria",
         "robotics", "image", "imagen", "dall-e", "whisper", "clip", "aqa",
-        "babbage", "davinci", "moderation", "similarity", "search"
+        "babbage", "davinci", "moderation", "similarity", "search",
+        "live", "bidi", "computer-use", "realtime", "omni", "deep-research",
+        "antigravity", "customtools", "gemini-2.5-flash", "gemini-2.5-pro",
     )
 
     results: list[dict[str, str]] = []
@@ -350,5 +361,21 @@ async def fetch_models(config_override: dict[str, str] | None = None) -> list[di
         label = f"{display_name} ({mid})" if display_name != mid else mid
         results.append({"id": mid, "name": display_name, "label": label})
 
+    # Sort models nicely: prioritize latest fast models, then flash, pro, mini, others
+    def sort_key(m: dict[str, str]) -> tuple[int, str]:
+        mid = m["id"].lower()
+        if "3.8-flash" in mid or "flash-latest" in mid:
+            priority = 0
+        elif "flash" in mid:
+            priority = 1
+        elif "pro" in mid or "gpt-4o" in mid:
+            priority = 2
+        elif "mini" in mid:
+            priority = 3
+        else:
+            priority = 4
+        return (priority, mid)
+
+    results.sort(key=sort_key)
     log.info("Discovered %d models from %s in %.2fs", len(results), models_url, elapsed)
     return results
