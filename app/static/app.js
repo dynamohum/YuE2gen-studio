@@ -4947,6 +4947,9 @@ function wireLogs() {
       openLogsModal();
     });
   }
+  // The guide opens in its own tab, so this page stays, and so would the menu.
+  var guideLink = $('menu-guide');
+  if (guideLink) { guideLink.addEventListener('click', closeBrandMenu); }
   var closeBtn = $('logs-close');
   if (closeBtn) { closeBtn.addEventListener('click', closeLogsModal); }
   var clearBtn = $('logs-clear');
