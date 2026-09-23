@@ -429,8 +429,9 @@ function paintStyleLoraNote() {
   if (item.note) { parts.push(esc(plainNote(item.note)).replace(/\n/g, '<br>')); }
   // What the file needs to do anything, and whether it currently is.
   var kind = loraKind(item.name);
-  var holds = { both: 'Holds both halves.', planner: 'Holds the score half only, so Planner has to be above 0.',
-                decoder: 'Holds the sound half only, so Sound has to be above 0.' }[kind];
+  // A file with both halves is the usual case and needs no remark.
+  var holds = { planner: 'Planner only: Sound has no effect with this file.',
+                decoder: 'Sound only: Planner has no effect with this file.' }[kind];
   if (holds) { parts.push(holds); }
   var asleep = [];
   if ((kind === 'both' || kind === 'planner') && Number($('style-lora-clip').value) === 0) { asleep.push('Planner'); }
