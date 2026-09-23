@@ -9,6 +9,11 @@
   /* The guide is a document, not an application: one column, wide margins, and
      text sized to be read rather than scanned. */
   body { background: var(--bg); color: var(--text); }
+  /* At desktop widths the app pins the page to the window and scrolls its panels
+     instead. A document scrolls the window, which the sticky bar and the contents
+     marker both rely on. */
+  html, body { height: auto; }
+  body { display: block; overflow: visible; }
   /* The app styles <main> as its two-panel grid. This page is a document, and
      borrows only the colours, so the layout has to be stated again. */
   main.guide-body {
