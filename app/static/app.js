@@ -3967,13 +3967,13 @@ function paintTakes() {
     meta.push(take.kind === 'song' ? 'from a prompt' : (take.kind === 'instrumental' ? 'instrumental' : 'cover'));
     if (take.duration) { meta.push(secs(take.duration)); }
     // The settings that shaped it come first, named, so a card can be read back
-    // as the recipe that made it. Each appears only when it was not the default.
+    // as the recipe that made it. Always shown, defaults included, so two cards
+    // can be compared at a glance. A cover's plan is its recording, so Harmony and
+    // Plan are only for takes whose plan was written.
     var written = take.kind === 'song' || take.kind === 'instrumental';
-    if (written && take.harmony) { meta.push('Harmony: ' + HARMONY_WORDS[take.harmony].toLowerCase()); }
-    if (take.interpretation && take.interpretation !== 'standard' && INTERPRETATIONS[take.interpretation]) {
-      meta.push('Interpretation: ' + INTERPRETATIONS[take.interpretation].name.toLowerCase());
-    }
-    if (written && take.variety && take.variety !== 'normal') { meta.push('Plan: ' + take.variety); }
+    if (written) { meta.push('Harmony: ' + (HARMONY_WORDS[take.harmony || 0] || HARMONY_WORDS[0]).toLowerCase()); }
+    meta.push('Interpretation: ' + (INTERPRETATIONS[take.interpretation] || INTERPRETATIONS.standard).name.toLowerCase());
+    if (written) { meta.push('Plan: ' + (take.variety || 'normal')); }
     if (take.style_lora) {
       var kind = loraKind(take.style_lora);
       var clip = Number(take.style_lora_clip != null ? take.style_lora_clip : 1).toFixed(2);
