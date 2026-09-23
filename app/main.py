@@ -652,33 +652,34 @@ def queue_view() -> list[dict]:
 
 
 def _lora_corpus_styles() -> dict[str, list[dict]]:
-    """Map each identity's LoRA filename to its included songs' learned styles."""
+    """Map each identity's LoRA filename to its included songs' learned styles.
+
+    Each one is the song's training caption, less the trigger word the page puts in
+    front and the tempo it puts after.  A LoRA learns the sound together with the
+    words it was captioned with, so a style that drops the corpus's description or
+    the voice asks it for something it never saw, and it falls back to stock."""
     try:
-        identity_rows = rows("SELECT id, lora FROM identities WHERE lora IS NOT NULL AND lora != ''")
+        identity_rows = rows("SELECT id, lora, description, voice FROM identities WHERE lora IS NOT NULL AND lora != ''")
         out: dict[str, list[dict]] = {}
         for iden in identity_rows:
             songs = rows(
-                "SELECT title, style_hint, tempo, key FROM identity_songs "
-                "WHERE identity_id = ? AND include = 1 AND style_hint IS NOT NULL AND style_hint != '' "
-                "ORDER BY position, id",
+                "SELECT title, style_hint, tempo, key, description FROM identity_songs "
+                "WHERE identity_id = ? AND include = 1 ORDER BY position, id",
                 (iden["id"],),
             )
-            if songs:
-                seen_hints = set()
-                song_list = []
-                for s in songs:
-                    hint = (s["style_hint"] or "").strip()
-                    if not hint or hint in seen_hints:
-                        continue
-                    seen_hints.add(hint)
-                    song_list.append({
-                        "title": s["title"],
-                        "prompt": hint,
-                        "tempo": s["tempo"],
-                        "key": s["key"],
-                    })
-                if song_list:
-                    out[iden["lora"]] = song_list
+            seen = set()
+            song_list = []
+            for s in songs:
+                # The same parts, and the same override, as the export in _identity_view.
+                prompt = identities.caption("", s["description"] or iden["description"] or "", iden["voice"] or "",
+                                            s["key"], None, s["style_hint"] or "")
+                if not prompt or (prompt, s["tempo"]) in seen:
+                    continue
+                seen.add((prompt, s["tempo"]))
+                song_list.append({"title": s["title"], "prompt": prompt, "hint": s["style_hint"] or "",
+                                  "tempo": s["tempo"], "key": s["key"]})
+            if song_list:
+                out[iden["lora"]] = song_list
         return out
     except Exception as err:
         log.warning("could not query corpus styles for loras: %s", err)

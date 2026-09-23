@@ -186,3 +186,32 @@ def test_the_rest_of_the_app_is_untouched(client, monkeypatch):
     monkeypatch.setattr(config, "TRAINING_ENABLED", False)
     for path in ("/api/state", "/api/takes", "/api/sources", "/api/spaces", "/api/settings"):
         assert client.get(path).status_code == 200, path
+
+
+def test_a_learned_style_is_the_caption_the_lora_was_trained_on(client):
+    """A LoRA learns a sound with the words it was captioned with.  A chip that left
+    out the corpus description asked it for something it never saw, and a Lennon
+    LoRA trained on "British accent, raspy baritone" sang like stock YuE2."""
+    from app import main
+
+    execute("""INSERT INTO identities(id, name, trigger_word, description, voice, folder, consent, created_at, lora)
+               VALUES('c1', 'John Lennon', 'johnlennon', 'British accent, raspy baritone', 'male', '/m', 1, ?,
+                      'john_lennon_lora.safetensors')""", (time.time(),))
+    for position, (title, hint, own) in enumerate((("It's So Hard", "blues rock", ""),
+                                                    ("Imagine", "", ""),
+                                                    ("Oh Yoko!", "folk rock", "bright piano"))):
+        execute("""INSERT INTO identity_songs(id, identity_id, file, title, sha256, include, key, tempo, style_hint,
+                                              description, position)
+                   VALUES(?, 'c1', ?, ?, ?, 1, 'A major', 86, ?, ?, ?)""",
+                (f"s{position}", f"{title}.flac", title, f"sha{position}", hint, own, position))
+
+    chips = main._lora_corpus_styles()["john_lennon_lora.safetensors"]
+    captions = {song["title"]: song["caption"] for song in main._identity_view(one("SELECT * FROM identities WHERE id = 'c1'"))["songs"]}
+
+    assert len(chips) == 3, "a song with no style suggestion still has a caption, so it gets a chip"
+    for chip in chips:
+        # The page puts the trigger in front and the tempo after, as the caption has them.
+        assert f"johnlennon, {chip['prompt']}, {chip['tempo']} BPM" == captions[chip["title"]]
+    assert "British accent" in chips[0]["prompt"] and "male vocal" in chips[0]["prompt"]
+    assert "bright piano" in chips[2]["prompt"] and "British accent" not in chips[2]["prompt"], \
+        "a song's own description replaces the corpus one, as it does in the export"

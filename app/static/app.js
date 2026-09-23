@@ -2723,14 +2723,16 @@ function paintPresets() {
   if (wrap && labelEl && loraBox) {
     if (lora && lora.styles && lora.styles.length) {
       wrap.classList.remove('hidden');
-      var artistName = lora.family || lora.title || lora.name.replace(/\.safetensors$/, '');
+      // Its own name: the group is shared by every corpus LoRA.
+      var artistName = lora.title || lora.family || lora.name.replace(/\.safetensors$/, '');
       labelEl.textContent = 'Learned styles for ' + artistName + ' (click to apply):';
       var loraHtml = lora.styles.map(function (s) {
         var prompt = s.prompt || '';
         if (s.tempo) { prompt += ', ' + s.tempo + ' BPM'; }
-        var genreHint = s.prompt ? s.prompt.split(',')[0].trim() : '';
+        // Labelled by the song's own style, not the corpus description every chip shares.
+        var genreHint = s.hint ? s.hint.split(',')[0].trim() : '';
         var chipLabel = s.title ? esc(s.title) + (genreHint ? ' <span class="muted">\u00b7 ' + esc(genreHint) + '</span>' : '') : esc(genreHint || s.prompt);
-        var fullTitle = (s.title ? s.title + ': ' : '') + s.prompt + (s.tempo ? ' (' + s.tempo + ' BPM' + (s.key ? ', ' + s.key : '') + ')' : '');
+        var fullTitle = (s.title ? s.title + ': ' : '') + prompt;
         return '<button type="button" class="chip lora-style-chip" data-lora-style="' + esc(prompt) + '" data-trigger="' + esc(lora.trigger || '') + '" title="' + esc(fullTitle) + '">' + chipLabel + '</button>';
       }).join('');
       if (loraBox.dataset.html !== loraHtml) {
