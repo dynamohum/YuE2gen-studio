@@ -41,10 +41,10 @@ An identity: one singer's songs, analysed and ready to train a voice on:
 - **Hear what the recording sings.** A cover needs lyrics. **Extract lyrics** separates the vocal,
   listens to it and lays the lines under the sections of the score. It is asked for rather than
   done every time, and it runs on the CPU, so a render is never held up by it. Expect a good draft
-  rather than a transcript: measured against a song whose real words were known, 9 per cent were
-  wrong, almost all of them lines it did not hear rather than words it invented. With an external
-  LLM that accepts audio, such as Gemini, a setting lets it hear the words instead, with Whisper
-  keeping the timing; on the same song that got under 2 per cent wrong.
+  rather than a transcript: against the real words of two songs, Whisper got 1.5 and 25 per cent
+  wrong, the second where lead and backing vocals overlap. With an external LLM that accepts audio,
+  such as Gemini, a setting lets it hear the words instead, with Whisper keeping the timing; on the
+  same two songs Gemini got 1.5 and 23 per cent.
 - **Song from a prompt.** Write a score plan from style and lyrics, read it, repair it, render it.
   A new plan costs seconds, so a bad melody is cheap to discard.
 - **Choose how adventurous the chords are.** YuE2 tends to write one four-chord loop for a whole

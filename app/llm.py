@@ -414,9 +414,11 @@ async def hear_lyrics(vocal: "Path") -> list[str]:
     Works only with a model that accepts audio, such as Gemini through its
     OpenAI-compatible endpoint.  Nothing in the API says in advance whether a
     model does, so this simply asks: a model that refuses raises, and the caller
-    falls back to Whisper.  Measured on one song against its real lyrics, Gemini
-    got 1.5% of words wrong where Whisper got 8.8%, nearly all of Whisper's being
-    lines it missed; three runs gave the same answer and added no words.
+    falls back to Whisper.  Measured against the real lyrics of two songs, Gemini got
+    1.5% and 23% of words wrong, three runs giving the same answer and adding no words.
+    Whisper, once it listened to the whole vocal, got 1.5% and 25%: most of the gap
+    this was built to close turned out to be Whisper's voice detector, since switched
+    off (see identities.transcribe).
 
     The vocal goes out as mono 128 kbps MP3: about 1 MB a minute, which keeps the
     request well inside what providers accept inline."""

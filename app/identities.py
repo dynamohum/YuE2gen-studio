@@ -192,14 +192,31 @@ WHISPER_MODEL = "large-v3-turbo"
 _whisper = None
 
 
+# Whisper's stock inventions: text it produces over music or silence, learned from
+# the endings of videos.  A whole line that is exactly one of these is dropped.  Its
+# own confidence scores cannot tell them from sung lines -- measured, "Thank you."
+# scored as well as real lyrics did -- so they are matched by what they say.
+STOCK_PHRASES = re.compile(
+    r"^(thank you( (so much|very much))?( for watching)?|thanks for watching|please subscribe"
+    r"|subscribe( to my channel)?|subtitles by .*|see you (next time|in the next video))[.!]*$",
+    re.IGNORECASE)
+
+
 def transcribe(vocals: Path, on_progress=None, duration: float = 0.0) -> list[dict]:
     """The sung lines of a separated vocal, with their times, from Whisper on the CPU.
 
-    Measured on Modern Girl against its real lyrics: 8.8% of words wrong, nearly all
-    of them lines it did not hear at all.  Gemini listening to the same vocal got
-    1.5% (see time_lines and llm.hear_lyrics); the local Gemma got 43% on an earlier test.  Whisper
-    stays the default because it runs here and keeps the recording here, and it
-    supplies the timing either way."""
+    Whisper hears the whole vocal.  Its voice detector is off: built for speech, it
+    judged most singing to be silence and threw it away before listening -- 4 min 21 s
+    of a 5 min 55 s vocal, 1 min 33 s of a 3.5 minute one -- and that, not Whisper's
+    ear, was most of its error.  Against real lyrics, with the detector on and then
+    off: Modern Girl 10.7% of words wrong, then 1.5%; Silly Love Songs, whose chorus
+    has lead and backing vocals over each other, 56% then 25%.  Gemini listening to
+    the same vocals got 1.5% and 23%.
+
+    Without the detector Whisper invents text over the instrumental stretches -- here
+    "Thank you." and a line of French.  hallucination_silence_threshold drops what it
+    writes over long silences, which needs word timestamps, and STOCK_PHRASES drops the
+    stock lines that survive it.  The cost is time: the whole track is listened to."""
     global _whisper
     from faster_whisper import WhisperModel
     if _whisper is None:
@@ -211,8 +228,9 @@ def transcribe(vocals: Path, on_progress=None, duration: float = 0.0) -> list[di
         except Exception:
             _whisper = WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8",
                                     download_root=str(root), local_files_only=False)
-    segments, _ = _whisper.transcribe(str(vocals), language="en", vad_filter=True, beam_size=5,
-                                      condition_on_previous_text=False)
+    segments, _ = _whisper.transcribe(str(vocals), language="en", vad_filter=False, beam_size=5,
+                                      condition_on_previous_text=False, word_timestamps=True,
+                                      hallucination_silence_threshold=2.0)
     lines = []
     for seg in segments:
         # Segments arrive as they are decoded, and each carries its time, so the
@@ -225,7 +243,8 @@ def transcribe(vocals: Path, on_progress=None, duration: float = 0.0) -> list[di
         at = seg.start
         for part in parts:
             share = (seg.end - seg.start) * len(part) / total
-            lines.append({"start": round(at, 2), "end": round(at + share, 2), "text": part.rstrip(".")})
+            if not STOCK_PHRASES.match(part):
+                lines.append({"start": round(at, 2), "end": round(at + share, 2), "text": part.rstrip(".")})
             at += share
     return lines
 
