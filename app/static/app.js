@@ -3343,7 +3343,7 @@ async function showIdentity(id, preloaded) {
     (data.lora ? '<p class="hint">LoRA installed from this corpus: <b>' + esc(data.lora) + '</b>. ' +
       'Choose it in the Style LoRA list to write with it.</p>' : '') +
     (trainingAvailable()
-      ? '<p class="hint"><b>Dual-branch LoRA training:</b> Trains a combined Planner LoRA (musical structure and chords) and Sound LoRA (audio timbre). For focused single-era corpora, strengths around Planner ~0.85 / Sound ~0.80 work well; for diverse multi-genre corpora, lower strengths like Planner ~0.60 / Sound ~0.50–0.55 keep the audio clean while preserving artist character.</p>'
+      ? '<p class="hint"><b>Dual-branch LoRA training:</b> Trains a combined Planner LoRA (musical structure and chords) and Sound LoRA (audio timbre). A single-era corpus can take Planner ~0.85 / Sound ~0.80; a mixed one up to about 0.70 / 0.70.</p>'
       : '') +
     '<p class="hint"><b>Export training set</b> writes the audio, lyrics, and style caption per song — the layout a trainer ' +
     'reads — and <b>Install a LoRA</b> takes a trained file back, naming it and giving it this corpus\u2019s ' +

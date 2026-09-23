@@ -318,7 +318,9 @@ such rather than failing quietly inside a render.
 ### Balancing Planner and Sound
 
 - **Cohesive corpora:** A LoRA trained on a single album or unified acoustic sound (e.g. 1960s folk rock) can run higher strengths, typically around **Planner ~0.85 / Sound ~0.80**.
-- **Diverse corpora:** If the training corpus spans multiple genres, production styles, or eras (e.g. acoustic folk, rock, and synth-pop), high Sound weights can cause acoustic clashing. Lower strengths like **Planner ~0.60 / Sound ~0.50–0.55** keep the audio clean and well-separated while retaining the artist's melodic phrasing and vocal character.
+- **Diverse corpora:** If the training corpus spans multiple genres, production styles, or eras (e.g. acoustic folk, rock, and synth-pop), high Sound weights can cause acoustic clashing. Up to about **Planner 0.70 / Sound 0.70** keeps the audio clean while retaining the artist's melodic phrasing and vocal character.
+- **Covers:** your recording sets the melody, so there is less for the LoRA to shape and the Sound half is pushed harder. Keep Sound near **0.50**.
+- **Plan variety:** with a LoRA trained from a corpus, **Calm** or **Normal** gives the most recognisable result.
 
 ### Trigger words
 
