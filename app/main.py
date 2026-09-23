@@ -151,7 +151,16 @@ def setting_value(key: str) -> str:
 
 
 def settings_payload() -> list[dict]:
-    return [{**spec, "value": setting_value(spec["key"])} for spec in SETTINGS_SPEC]
+    """Every setting with its value.  A key is reported only as saved or not: the
+    page never needs it back, since the server uses the one on file."""
+    out = []
+    for spec in SETTINGS_SPEC:
+        value = setting_value(spec["key"])
+        if spec["type"] == "password":
+            out.append({**spec, "value": "", "saved": bool(value)})
+        else:
+            out.append({**spec, "value": value})
+    return out
 
 
 def save_setting(key: str, value: str) -> None:
@@ -1947,7 +1956,7 @@ async def test_llm_settings(body: LLMTestIn | None = None) -> dict:
         override = {}
         if body.api_url is not None:
             override["api_url"] = body.api_url
-        if body.api_key is not None:
+        if body.api_key:   # empty means the saved key, which the page never sees
             override["api_key"] = body.api_key
         if body.model is not None:
             override["model"] = body.model
@@ -1978,7 +1987,7 @@ async def list_llm_models(body: LLMModelsIn | None = None) -> dict:
         override = {}
         if body.api_url is not None:
             override["api_url"] = body.api_url
-        if body.api_key is not None:
+        if body.api_key:   # empty means the saved key, which the page never sees
             override["api_key"] = body.api_key
         if override:
             current = llm.get_config()

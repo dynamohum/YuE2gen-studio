@@ -1674,11 +1674,15 @@ function paintSettings() {
           (option.value === item.value ? ' selected' : '') + '>' + esc(option.label) + '</option>';
       }).join('') + '</select>';
     } else if (item.type === 'password') {
+      // The saved key never comes back from the server, only whether there is one,
+      // so the box starts empty and a new key typed into it replaces the old.
       control = '<div class="api-key-control">' +
         '<input type="text" class="setting-masked-input" autocomplete="off" spellcheck="false" ' +
         'data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other" ' +
-        'data-key="' + esc(item.key) + '" value="' + esc(item.value) + '">' +
-        '<button type="button" class="ghost small btn-toggle-mask" title="Reveal or hide key">Show</button>' +
+        'data-secret="1" data-key="' + esc(item.key) + '" value="" placeholder="' +
+        (item.saved ? 'Saved. Type a new key to replace it' : 'Paste your key') + '">' +
+        '<button type="button" class="ghost small btn-toggle-mask" title="Reveal or hide what you type">Show</button>' +
+        (item.saved ? '<button type="button" class="ghost small btn-remove-secret" data-remove="' + esc(item.key) + '">Remove</button>' : '') +
       '</div>';
     } else if (item.key === 'llm.model') {
       var models = State.llmModels || [];
@@ -1838,6 +1842,9 @@ async function testLLMConnection() {
 
 async function saveSetting(input) {
   var key = input.dataset.key;
+  // An empty secret box means "keep the saved one": it starts empty, so leaving it
+  // must not wipe the key. Remove is the way to clear it.
+  if (input.dataset.secret && !input.value.trim()) { return; }
   var mark = $('settings-list').querySelector('[data-saved="' + key + '"]');
   try {
     var data = await api('/api/settings', {
@@ -1847,6 +1854,11 @@ async function saveSetting(input) {
     });
     adoptSettings(data.settings);
     paintSettingRequirements();
+    if (input.dataset.secret) {
+      // Saved, so it leaves the page: the box goes back to saying there is one.
+      input.value = '';
+      input.placeholder = 'Saved. Type a new key to replace it';
+    }
     if (key === 'llm.model') {
       var sel = $('select-llm-model');
       if (sel) { sel.value = input.value; }
@@ -5623,6 +5635,23 @@ function wire() {
     if (event.target && event.target.id === 'btn-fetch-models') {
       event.preventDefault();
       fetchLLMModels(false);
+      return;
+    }
+    if (event.target && event.target.dataset && event.target.dataset.remove) {
+      event.preventDefault();
+      if (!confirm('Remove the saved key?')) { return; }
+      var removeKey = event.target.dataset.remove;
+      api('/api/settings', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: removeKey, value: '' })
+      }).then(function (data) {
+        adoptSettings(data.settings);
+        paintSettings();
+        paintSettingRequirements();
+      }).catch(function (err) {
+        var mark = $('settings-list').querySelector('[data-saved="' + removeKey + '"]');
+        if (mark) { mark.textContent = err.message; mark.style.color = 'var(--bad)'; }
+      });
       return;
     }
     if (event.target && event.target.classList.contains('btn-toggle-mask')) {

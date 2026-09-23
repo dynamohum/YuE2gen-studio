@@ -334,3 +334,36 @@ def test_list_llm_models_endpoint(client):
         assert data["models"][0]["id"] == "gemini-2.5-flash"
 
 
+
+
+def test_a_saved_key_never_goes_back_to_the_page(client):
+    """A key is written and used, and reported only as saved or not."""
+    client.put("/api/settings", json={"key": "llm.api_key", "value": "sk-very-secret-key"})
+    assert get_setting("llm.api_key") == "sk-very-secret-key"
+    for answer in (client.get("/api/settings"), client.put("/api/settings", json={"key": "llm.model", "value": "m"})):
+        assert "sk-very-secret-key" not in answer.text
+        item = next(i for i in answer.json()["settings"] if i["key"] == "llm.api_key")
+        assert item["value"] == "" and item["saved"] is True
+    assert "sk-very-secret-key" not in client.get("/api/state").text
+
+    client.put("/api/settings", json={"key": "llm.api_key", "value": ""})
+    item = next(i for i in client.get("/api/settings").json()["settings"] if i["key"] == "llm.api_key")
+    assert item["saved"] is False, "Remove clears it"
+
+
+def test_an_empty_key_from_the_page_means_the_saved_one(client):
+    """The page never has the saved key to send, so a test or a model list asked for
+    with the box empty has to use the one on file, not try with none."""
+    client.put("/api/settings", json={"key": "llm.api_key", "value": "sk-on-file"})
+    seen = {}
+
+    async def fake_fetch(config_override=None):
+        seen["key"] = (config_override or {}).get("api_key")
+        return []
+
+    with patch("app.llm.fetch_models", side_effect=fake_fetch):
+        client.post("/api/settings/llm-models", json={"api_url": "https://api.test/v1", "api_key": ""})
+    assert seen["key"] == "sk-on-file"
+    with patch("app.llm.fetch_models", side_effect=fake_fetch):
+        client.post("/api/settings/llm-models", json={"api_url": "https://api.test/v1", "api_key": "sk-typed"})
+    assert seen["key"] == "sk-typed", "a key typed into the box is tried as typed"
