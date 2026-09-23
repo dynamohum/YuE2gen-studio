@@ -35,7 +35,14 @@ def get_config() -> dict[str, str]:
     provider = (get_setting("llm.provider", DEFAULT_PROVIDER) or DEFAULT_PROVIDER).strip().lower()
     api_url = (get_setting("llm.api_url", DEFAULT_API_URL) or DEFAULT_API_URL).strip().rstrip("/")
     api_key = (get_setting("llm.api_key", "") or "").strip()
-    model = (get_setting("llm.model", DEFAULT_MODEL) or DEFAULT_MODEL).strip()
+    raw_model = (get_setting("llm.model", "") or "").strip()
+    if not raw_model:
+        if "generativelanguage.googleapis.com" in api_url:
+            model = "gemini-flash-latest"
+        else:
+            model = DEFAULT_MODEL
+    else:
+        model = raw_model
     return {
         "provider": provider,
         "api_url": api_url,
@@ -52,6 +59,13 @@ def is_external_enabled() -> bool:
 def _endpoint_url(base_url: str) -> str:
     """Normalize the base URL to point to /chat/completions."""
     cleaned = base_url.strip().rstrip("/")
+    if "generativelanguage.googleapis.com" in cleaned:
+        if not cleaned.endswith("/chat/completions"):
+            if cleaned.endswith("/v1beta/openai") or cleaned.endswith("/v1/openai"):
+                return f"{cleaned}/chat/completions"
+            return "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+        return cleaned
+
     if cleaned.endswith("/chat/completions"):
         return cleaned
     return f"{cleaned}/chat/completions"
@@ -67,7 +81,7 @@ async def chat_complete(
     """Call the OpenAI-compatible chat completions endpoint and return the text reply."""
     cfg = config_override or get_config()
     endpoint = _endpoint_url(cfg["api_url"])
-    model = cfg["model"]
+    model = cfg.get("model") or ("gemini-flash-latest" if "generativelanguage.googleapis.com" in endpoint else DEFAULT_MODEL)
     api_key = cfg["api_key"]
 
     headers = {
@@ -103,12 +117,21 @@ async def chat_complete(
     elapsed = time.perf_counter() - t0
     if resp.status_code != 200:
         err_msg = resp.text[:400]
+        try:
+            err_json = resp.json()
+            if isinstance(err_json, list) and err_json and "error" in err_json[0]:
+                err_msg = err_json[0]["error"].get("message") or err_msg
+            elif isinstance(err_json, dict) and "error" in err_json:
+                err_msg = err_json["error"].get("message") or err_msg
+        except Exception:
+            pass
         log.warning("External LLM error from %s: HTTP %d - %s", endpoint, resp.status_code, err_msg)
         raise RuntimeError(f"External LLM HTTP {resp.status_code}: {err_msg}")
 
     try:
         data = resp.json()
-        content = data["choices"][0]["message"]["content"] or ""
+        choice = data["choices"][0]
+        content = choice.get("message", {}).get("content") or ""
     except Exception as exc:
         log.error("Failed to parse JSON response from %s: %s (body: %s)", endpoint, exc, resp.text[:300])
         raise RuntimeError(f"Invalid response from LLM provider: {exc}") from exc
@@ -125,18 +148,22 @@ async def chat_complete(
 
 async def test_connection(config_override: dict[str, str] | None = None) -> dict[str, Any]:
     """Send a minimal test message to verify the external LLM configuration."""
-    cfg = config_override or get_config()
+    cfg = dict(config_override or get_config())
+    if not cfg.get("model"):
+        if "generativelanguage.googleapis.com" in cfg.get("api_url", ""):
+            cfg["model"] = "gemini-flash-latest"
+        else:
+            cfg["model"] = DEFAULT_MODEL
     endpoint = _endpoint_url(cfg["api_url"])
     model = cfg["model"]
     log.info("Testing external LLM connection to %s (model: %s)...", endpoint, model)
     t0 = time.perf_counter()
     reply = await chat_complete(
         [
-            {"role": "system", "content": "You are a helpful assistant."},
             {"role": "user", "content": "Ping test. Reply with the single word 'OK'."},
         ],
         temperature=0.0,
-        max_tokens=20,
+        max_tokens=120,
         config_override=cfg,
     )
     latency_ms = int((time.perf_counter() - t0) * 1000)

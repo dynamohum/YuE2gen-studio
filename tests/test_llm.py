@@ -29,6 +29,19 @@ def test_llm_custom_config():
     assert llm.is_external_enabled()
 
 
+def test_gemini_url_normalization_and_default_model():
+    endpoint = llm._endpoint_url("https://generativelanguage.googleapis.com")
+    assert endpoint == "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+
+    endpoint2 = llm._endpoint_url("https://generativelanguage.googleapis.com/v1beta/openai")
+    assert endpoint2 == "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+
+    set_setting("llm.api_url", "https://generativelanguage.googleapis.com")
+    set_setting("llm.model", "")
+    cfg = llm.get_config()
+    assert cfg["model"] == "gemini-flash-latest"
+
+
 def test_clean_style_tags():
     # 1. Output prefixed with song title
     raw1 = "Like a Rolling Stone - folk rock, Hammond organ, electric guitar, piano, harmonica, loose driving backbeat, defiant"
