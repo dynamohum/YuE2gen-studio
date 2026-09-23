@@ -299,17 +299,34 @@ a.menu-item { text-decoration: none; box-sizing: border-box; }
 .setting-label { font-size: 13.5px; font-weight: 600; }
 .setting-help { font-size: 12px; color: var(--muted); margin-top: 2px; }
 .setting-control { flex: 0 0 auto; }
-.setting-control select, .setting-control input[type="text"] {
+.setting-control select, .setting-control input[type="text"], .setting-control input[type="password"] {
   font: inherit; font-size: 13px; color: var(--text); background: var(--card);
   border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; width: 250px;
 }
-.setting-control input[type="text"] { width: 250px; }
+.setting-control input[type="text"], .setting-control input[type="password"] { width: 250px; }
+.setting-control select:focus, .setting-control input[type="text"]:focus, .setting-control input[type="password"]:focus {
+  outline: none; border-color: rgba(123, 92, 255, 0.6);
+}
+.llm-model-control {
+  display: flex; flex-direction: column; gap: 6px; width: 250px;
+}
+.llm-model-input-group {
+  display: flex; gap: 6px; align-items: center; width: 100%;
+}
+.llm-model-input-group input[type="text"] {
+  flex: 1; min-width: 0; width: 0;
+}
+.llm-model-select {
+  width: 100%; font: inherit; font-size: 12px; color: var(--text); background: var(--card);
+  border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px;
+  cursor: pointer;
+}
+.llm-models-status {
+  font-size: 11px; line-height: 1.2;
+}
 @media (max-width: 620px) {
   .setting-row { flex-direction: column; gap: 8px; }
-  .setting-control select, .setting-control input[type="text"] { width: 100%; }
-}
-.setting-control select:focus, .setting-control input[type="text"]:focus {
-  outline: none; border-color: rgba(123, 92, 255, 0.6);
+  .setting-control select, .setting-control input[type="text"], .setting-control input[type="password"], .llm-model-control { width: 100%; }
 }
 .setting-control .saved { font-size: 11.5px; color: var(--good); margin-left: 8px; }
 

@@ -270,3 +270,61 @@ async def test_llm_http_error_handling():
         with pytest.raises(RuntimeError, match="HTTP 401"):
             await llm.chat_complete([{"role": "user", "content": "hello"}])
 
+
+@pytest.mark.anyio
+async def test_fetch_models_filters_and_formats():
+    mock_payload = {
+        "data": [
+            {"id": "models/gemini-2.5-flash", "display_name": "Gemini 2.5 Flash"},
+            {"id": "models/text-embedding-004", "display_name": "Text Embedding 004"},
+            {"id": "models/imagen-3.0-generate-002", "display_name": "Imagen 3"},
+            {"id": "models/tts-1", "display_name": "TTS 1"},
+            {"id": "models/gemini-2.5-pro", "display_name": "Gemini 2.5 Pro"},
+            {"id": "models/gpt-4o-mini", "display_name": "GPT-4o Mini"},
+        ]
+    }
+    mock_resp = httpx.Response(
+        200,
+        json=mock_payload,
+        request=httpx.Request("GET", "https://generativelanguage.googleapis.com/v1beta/openai/models"),
+    )
+
+    with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = mock_resp
+        models = await llm.fetch_models(config_override={
+            "api_url": "https://generativelanguage.googleapis.com",
+            "api_key": "test-key",
+            "provider": "external",
+        })
+
+        ids = [m["id"] for m in models]
+        # Should exclude embedding, image, tts
+        assert "gemini-2.5-flash" in ids
+        assert "gemini-2.5-pro" in ids
+        assert "gpt-4o-mini" in ids
+        assert "text-embedding-004" not in ids
+        assert "imagen-3.0-generate-002" not in ids
+        assert "tts-1" not in ids
+
+        # Clean display names and labels
+        flash = next(m for m in models if m["id"] == "gemini-2.5-flash")
+        assert flash["label"] == "Gemini 2.5 Flash (gemini-2.5-flash)"
+
+        # Priority sorting: flash appears before pro
+        assert ids.index("gemini-2.5-flash") < ids.index("gemini-2.5-pro")
+
+
+def test_list_llm_models_endpoint(client):
+    with patch("app.llm.fetch_models", new_callable=AsyncMock) as mock_fetch:
+        mock_fetch.return_value = [
+            {"id": "gemini-2.5-flash", "name": "Gemini 2.5 Flash", "label": "Gemini 2.5 Flash (gemini-2.5-flash)"},
+            {"id": "gpt-4o", "name": "GPT-4o", "label": "GPT-4o (gpt-4o)"},
+        ]
+        res = client.post("/api/settings/llm-models", json={"api_url": "https://api.openai.com/v1", "api_key": "sk-test"})
+        assert res.status_code == 200
+        data = res.json()
+        assert "models" in data
+        assert len(data["models"]) == 2
+        assert data["models"][0]["id"] == "gemini-2.5-flash"
+
+

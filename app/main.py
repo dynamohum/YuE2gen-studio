@@ -1943,6 +1943,34 @@ async def test_llm_settings(body: LLMTestIn | None = None) -> dict:
         raise HTTPException(400, f"Connection test failed: {exc}")
 
 
+class LLMModelsIn(BaseModel):
+    api_url: str | None = None
+    api_key: str | None = None
+
+
+@app.post("/api/settings/llm-models")
+@app.get("/api/settings/llm-models")
+async def list_llm_models(body: LLMModelsIn | None = None) -> dict:
+    """Fetch available models from the external LLM provider."""
+    override = None
+    if body:
+        override = {}
+        if body.api_url is not None:
+            override["api_url"] = body.api_url
+        if body.api_key is not None:
+            override["api_key"] = body.api_key
+        if override:
+            current = llm.get_config()
+            current.update(override)
+            override = current
+    try:
+        models = await llm.fetch_models(config_override=override)
+        return {"models": models}
+    except Exception as exc:
+        log.warning("Could not list LLM models: %s", exc)
+        raise HTTPException(400, f"Could not list models: {exc}")
+
+
 # ----------------------------------------------------------------------- stems
 @app.get("/api/stems/options")
 def stems_options() -> dict:

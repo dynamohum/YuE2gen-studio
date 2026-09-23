@@ -36,7 +36,7 @@ def get_config() -> dict[str, str]:
     api_url = (get_setting("llm.api_url", DEFAULT_API_URL) or DEFAULT_API_URL).strip().rstrip("/")
     api_key = (get_setting("llm.api_key", "") or "").strip()
     raw_model = (get_setting("llm.model", "") or "").strip()
-    if not raw_model:
+    if not raw_model or (raw_model.lower().startswith("gpt-") and "generativelanguage.googleapis.com" in api_url):
         if "generativelanguage.googleapis.com" in api_url:
             model = "gemini-flash-latest"
         else:
@@ -81,7 +81,11 @@ async def chat_complete(
     """Call the OpenAI-compatible chat completions endpoint and return the text reply."""
     cfg = config_override or get_config()
     endpoint = _endpoint_url(cfg["api_url"])
-    model = cfg.get("model") or ("gemini-flash-latest" if "generativelanguage.googleapis.com" in endpoint else DEFAULT_MODEL)
+    raw_model = cfg.get("model") or ""
+    if not raw_model or (raw_model.lower().startswith("gpt-") and "generativelanguage.googleapis.com" in endpoint):
+        model = "gemini-flash-latest" if "generativelanguage.googleapis.com" in endpoint else DEFAULT_MODEL
+    else:
+        model = raw_model
     api_key = cfg["api_key"]
 
     headers = {
@@ -149,11 +153,9 @@ async def chat_complete(
 async def test_connection(config_override: dict[str, str] | None = None) -> dict[str, Any]:
     """Send a minimal test message to verify the external LLM configuration."""
     cfg = dict(config_override or get_config())
-    if not cfg.get("model"):
-        if "generativelanguage.googleapis.com" in cfg.get("api_url", ""):
-            cfg["model"] = "gemini-flash-latest"
-        else:
-            cfg["model"] = DEFAULT_MODEL
+    raw_model = cfg.get("model") or ""
+    if not raw_model or (raw_model.lower().startswith("gpt-") and "generativelanguage.googleapis.com" in cfg.get("api_url", "")):
+        cfg["model"] = "gemini-flash-latest" if "generativelanguage.googleapis.com" in cfg.get("api_url", "") else DEFAULT_MODEL
     endpoint = _endpoint_url(cfg["api_url"])
     model = cfg["model"]
     log.info("Testing external LLM connection to %s (model: %s)...", endpoint, model)
@@ -268,3 +270,85 @@ async def describe_song_style(title: str, artist: str = "", lyrics_text: str = "
     tags = clean_style_tags(reply, title=title)
     log.info("Finished external LLM style description for '%s': %s", title, tags)
     return tags
+
+
+def _models_url(base_url: str) -> str:
+    """Normalize the base URL to point to /models endpoint."""
+    cleaned = base_url.strip().rstrip("/")
+    if "generativelanguage.googleapis.com" in cleaned:
+        return "https://generativelanguage.googleapis.com/v1beta/openai/models"
+    if cleaned.endswith("/chat/completions"):
+        cleaned = cleaned[:-17].rstrip("/")
+    if cleaned.endswith("/models"):
+        return cleaned
+    return f"{cleaned}/models"
+
+
+async def fetch_models(config_override: dict[str, str] | None = None) -> list[dict[str, str]]:
+    """Query the provider's /models endpoint to discover available text/chat models."""
+    cfg = config_override or get_config()
+    models_url = _models_url(cfg["api_url"])
+    api_key = cfg["api_key"]
+    log.info("Fetching available models from %s...", models_url)
+
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "YuE2Studio/0.0.16",
+    }
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    t0 = time.perf_counter()
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        try:
+            resp = await client.get(models_url, headers=headers)
+        except Exception as exc:
+            elapsed = time.perf_counter() - t0
+            log.warning("Failed to fetch models from %s after %.2fs: %s", models_url, elapsed, exc)
+            raise RuntimeError(f"Could not reach {models_url}: {exc}") from exc
+
+    elapsed = time.perf_counter() - t0
+    if resp.status_code != 200:
+        err_msg = resp.text[:300]
+        try:
+            err_json = resp.json()
+            if isinstance(err_json, dict) and "error" in err_json:
+                err_msg = err_json["error"].get("message") or err_msg
+        except Exception:
+            pass
+        log.warning("Models endpoint %s returned HTTP %d: %s", models_url, resp.status_code, err_msg)
+        raise RuntimeError(f"HTTP {resp.status_code}: {err_msg}")
+
+    try:
+        data = resp.json()
+    except Exception as exc:
+        raise RuntimeError(f"Invalid JSON from models endpoint: {exc}") from exc
+
+    raw_items = data.get("data") or data.get("models") or []
+    excluded = (
+        "embedding", "tts", "transcribe", "video", "veo", "audio", "lyria",
+        "robotics", "image", "imagen", "dall-e", "whisper", "clip", "aqa",
+        "babbage", "davinci", "moderation", "similarity", "search"
+    )
+
+    results: list[dict[str, str]] = []
+    seen = set()
+    for item in raw_items:
+        mid = str(item.get("id") or item.get("name") or "").strip()
+        if not mid:
+            continue
+        if mid.startswith("models/"):
+            mid = mid[7:]
+        if any(ex in mid.lower() for ex in excluded):
+            continue
+        if mid in seen:
+            continue
+        seen.add(mid)
+        display_name = item.get("display_name") or item.get("name") or mid
+        if display_name.startswith("models/"):
+            display_name = display_name[7:]
+        label = f"{display_name} ({mid})" if display_name != mid else mid
+        results.append({"id": mid, "name": display_name, "label": label})
+
+    log.info("Discovered %d models from %s in %.2fs", len(results), models_url, elapsed)
+    return results

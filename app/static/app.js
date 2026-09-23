@@ -1616,6 +1616,28 @@ function paintSettings() {
       }).join('') + '</select>';
     } else if (item.type === 'password') {
       control = '<input type="password" autocomplete="off" spellcheck="false" data-key="' + esc(item.key) + '" value="' + esc(item.value) + '">';
+    } else if (item.key === 'llm.model') {
+      var models = State.llmModels || [];
+      var hasModels = models.length > 0;
+      var curVal = item.value || '';
+      var selectHtml = '<select id="select-llm-model" class="llm-model-select' + (hasModels ? '' : ' hidden') + '" style="' + (hasModels ? 'display:block;' : 'display:none;') + '">' +
+        '<option value="">-- ' + (hasModels ? 'Select from ' + models.length + ' available models' : 'Select model') + ' --</option>' +
+        models.map(function (m) {
+          var isSel = (m.id === curVal);
+          return '<option value="' + esc(m.id) + '"' + (isSel ? ' selected' : '') + '>' + esc(m.label || m.name || m.id) + '</option>';
+        }).join('') +
+      '</select>';
+
+      control = '<div class="llm-model-control">' +
+        '<div class="llm-model-input-group">' +
+          '<input type="text" spellcheck="false" data-key="' + esc(item.key) + '" id="input-llm-model" value="' + esc(item.value) + '" placeholder="e.g. gemini-2.5-flash">' +
+          '<button type="button" id="btn-fetch-models" class="ghost small" title="Fetch available models from provider API">Fetch Models</button>' +
+        '</div>' +
+        selectHtml +
+        '<div id="fetch-models-status" class="hint llm-models-status">' +
+          (hasModels ? '\u2713 Loaded ' + models.length + ' models' : '') +
+        '</div>' +
+      '</div>';
     } else {
       control = '<input type="text" spellcheck="false" data-key="' + esc(item.key) + '" value="' + esc(item.value) + '">';
     }
@@ -1629,6 +1651,71 @@ function paintSettings() {
   }).join('');
 }
 
+async function fetchLLMModels(isBackground) {
+  var btn = $('btn-fetch-models');
+  var status = $('fetch-models-status');
+  var sel = $('select-llm-model');
+  var urlEl = $('settings-list') ? $('settings-list').querySelector('input[data-key="llm.api_url"]') : null;
+  var keyEl = $('settings-list') ? $('settings-list').querySelector('input[data-key="llm.api_key"]') : null;
+  var modelInput = $('input-llm-model');
+
+  var apiUrl = (urlEl ? urlEl.value.trim() : '') || setting('llm.api_url', '');
+  var apiKey = (keyEl ? keyEl.value.trim() : '') || setting('llm.api_key', '');
+
+  if (isBackground && !apiKey && apiUrl.indexOf('localhost') === -1 && apiUrl.indexOf('127.0.0.1') === -1) {
+    return;
+  }
+
+  if (btn) { btn.disabled = true; }
+  if (status) {
+    status.style.color = 'var(--muted)';
+    status.textContent = 'Fetching models\u2026';
+  }
+
+  try {
+    var body = {};
+    if (apiUrl) { body.api_url = apiUrl; }
+    if (apiKey) { body.api_key = apiKey; }
+
+    var res = await api('/api/settings/llm-models', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+
+    var models = (res && res.models) || [];
+    State.llmModels = models;
+
+    if (sel) {
+      var currentVal = (modelInput ? modelInput.value.trim() : '') || setting('llm.model', '');
+      var optionsHtml = '<option value="">-- Select from ' + models.length + ' available models --</option>';
+      models.forEach(function (m) {
+        var isSel = (m.id === currentVal);
+        optionsHtml += '<option value="' + esc(m.id) + '"' + (isSel ? ' selected' : '') + '>' + esc(m.label || m.name || m.id) + '</option>';
+      });
+      sel.innerHTML = optionsHtml;
+      sel.classList.remove('hidden');
+      sel.style.display = 'block';
+    }
+
+    if (status) {
+      status.style.color = 'var(--good, #4ade80)';
+      status.textContent = '\u2713 Found ' + models.length + ' models';
+    }
+  } catch (err) {
+    if (!isBackground) {
+      if (status) {
+        status.style.color = 'var(--bad, #f87171)';
+        status.textContent = '\u2717 ' + (err.message || 'Could not fetch models');
+      }
+    } else {
+      if (status) { status.textContent = ''; }
+    }
+  } finally {
+    if (btn) { btn.disabled = false; }
+  }
+}
+
 async function testLLMConnection() {
   var btn = $('btn-test-llm');
   var status = $('test-llm-status');
@@ -1637,7 +1724,19 @@ async function testLLMConnection() {
   status.style.color = 'var(--muted)';
   status.textContent = 'Testing connection\u2026';
   try {
-    var res = await api('/api/settings/test-llm', { method: 'POST' });
+    var body = {};
+    var urlEl = $('settings-list') ? $('settings-list').querySelector('input[data-key="llm.api_url"]') : null;
+    var keyEl = $('settings-list') ? $('settings-list').querySelector('input[data-key="llm.api_key"]') : null;
+    var modelEl = $('settings-list') ? $('settings-list').querySelector('input[data-key="llm.model"]') : null;
+    if (urlEl && urlEl.value) { body.api_url = urlEl.value.trim(); }
+    if (keyEl && keyEl.value) { body.api_key = keyEl.value.trim(); }
+    if (modelEl && modelEl.value) { body.model = modelEl.value.trim(); }
+
+    var res = await api('/api/settings/test-llm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
     status.style.color = 'var(--good, #4ade80)';
     status.textContent = '\u2713 Connected! (' + (res.model || '') + ', ' + (res.latency_ms || 0) + 'ms)';
   } catch (err) {
@@ -1658,6 +1757,10 @@ async function saveSetting(input) {
       body: JSON.stringify({ key: key, value: input.value })
     });
     adoptSettings(data.settings);
+    if (key === 'llm.model') {
+      var sel = $('select-llm-model');
+      if (sel) { sel.value = input.value; }
+    }
     if (mark) {
       mark.textContent = 'saved';
       setTimeout(function () { if (mark) { mark.textContent = ''; } }, 1800);
@@ -1704,6 +1807,9 @@ function openSettings() {
   $('settings-note').textContent = '';
   $('settings-modal').classList.remove('hidden');
   document.body.style.overflow = 'hidden';
+  if (setting('llm.provider') === 'external' && (!State.llmModels || !State.llmModels.length)) {
+    fetchLLMModels(true);
+  }
 }
 
 function closeSettings() {
@@ -5375,7 +5481,24 @@ function wire() {
     if (event.target === $('settings-modal')) { closeSettings(); }
   });
   $('settings-list').addEventListener('change', function (event) {
+    if (event.target && event.target.id === 'select-llm-model') {
+      var val = event.target.value;
+      if (val) {
+        var inp = $('input-llm-model');
+        if (inp) {
+          inp.value = val;
+          saveSetting(inp);
+        }
+      }
+      return;
+    }
     if (event.target.dataset && event.target.dataset.key) { saveSetting(event.target); }
+  });
+  $('settings-list').addEventListener('click', function (event) {
+    if (event.target && event.target.id === 'btn-fetch-models') {
+      event.preventDefault();
+      fetchLLMModels(false);
+    }
   });
   $('settings-list').addEventListener('blur', function (event) {
     if (event.target.dataset && event.target.dataset.key && event.target.tagName === 'INPUT') { saveSetting(event.target); }
