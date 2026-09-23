@@ -67,6 +67,36 @@ def test_a_running_loRA_keeps_the_engine_to_itself(client, monkeypatch, tmp_path
     assert again.status_code == 409
 
 
+def test_a_finished_run_leaves_one_file_named_after_the_corpus(client, monkeypatch, tmp_path):
+    """The trainer writes a snapshot every hundred steps and a copy of the best. Only
+    the best is wanted, under the plain name, with the corpus as the name people see."""
+    import asyncio
+    from app import jobs, loras
+
+    root = tmp_path / "loras"
+    root.mkdir()
+    monkeypatch.setattr(config, "ENGINE_INPUT_DIR", tmp_path / "engine-input")
+    monkeypatch.setattr(loras, "folder", lambda: root)
+
+    async def trained(kind, run_id, graph):
+        for name in ("alicia_lora_best", "alicia_lora_step100", "alicia_lora_step200"):
+            (root / f"{name}.safetensors").write_bytes(name.encode())
+        (root / "alicia_lora_log.json").write_text("[]", encoding="utf-8")
+    monkeypatch.setattr(jobs, "_run_graph", trained)
+
+    a_corpus()
+    execute("""INSERT INTO lora_runs(id, identity_id, lora_name, steps, rank, state)
+               VALUES('run1', 'corpus1', 'alicia_lora', 200, 16, 'queued')""")
+    asyncio.run(jobs.run_lora_train("run1"))
+
+    assert one("SELECT state FROM lora_runs WHERE id = 'run1'")["state"] == "done"
+    assert sorted(path.name for path in root.glob("*.safetensors")) == ["alicia_lora.safetensors"]
+    assert (root / "alicia_lora.safetensors").read_bytes() == b"alicia_lora_best"
+    assert (root / "alicia_lora_log.json").exists(), "the log is kept"
+    assert (root / "alicia_lora.txt").read_text(encoding="utf-8").split("\n")[0] == "Alicia"
+    assert one("SELECT lora FROM identities WHERE id = 'corpus1'")["lora"] == "alicia_lora.safetensors"
+
+
 def test_a_queued_run_can_be_cancelled(client):
     execute("""INSERT INTO lora_runs(id, identity_id, lora_name, steps, rank, state)
                VALUES('run2', 'corpus1', 'alicia_lora', 5000, 16, 'queued')""")

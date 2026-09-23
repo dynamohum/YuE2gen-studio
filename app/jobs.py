@@ -1049,6 +1049,15 @@ async def run_lora_train(run_id: str) -> None:
                 with contextlib.suppress(OSError):
                     os.chmod(canonical, 0o644)
                 produced = canonical
+        # The trainer also leaves a snapshot every hundred steps and a copy of the
+        # best one.  The best is now the file above, and nothing offers the
+        # snapshots, so they would only fill the picker with names like step300.
+        if produced == canonical:
+            spare = [root / f"{run['lora_name']}_best.safetensors",
+                     *root.glob(f"{run['lora_name']}_step*.safetensors")]
+            for path in spare:
+                with contextlib.suppress(OSError):
+                    path.unlink(missing_ok=True)
 
         # Parse training log if present to check loss progression against reference targets
         # (blgr_rhodope: artist ~4.635, regularizer ~3.576, decoder ~1.069).
@@ -1065,7 +1074,8 @@ async def run_lora_train(run_id: str) -> None:
                 log.debug("Could not parse training log %s: %s", log_file, e)
 
         # Name it, group it, and remember it on the corpus.
-        await asyncio.to_thread(loras.write_note, produced, identity["trigger_word"], identity["name"])
+        await asyncio.to_thread(loras.write_note, produced, identity["trigger_word"], identity["name"],
+                                title=identity["name"])
         execute("UPDATE identities SET lora = ? WHERE id = ?", (produced.name, identity["id"]))
         with contextlib.suppress(Exception):
             await ENGINE.refresh_options()

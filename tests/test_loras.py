@@ -38,7 +38,7 @@ def test_install_puts_the_file_and_a_note_beside_it(tmp_path):
     assert done["kind"] == "both", "what it holds is reported to the picker, which states it"
 
 
-def test_install_groups_it_under_the_corpus(tmp_path):
+def test_install_groups_it_with_the_other_corpora(tmp_path):
     root = tmp_path / "loras"
     root.mkdir()
     (root / "families.txt").write_text("chnsn = Chanson\n", encoding="utf-8")
@@ -46,9 +46,23 @@ def test_install_groups_it_under_the_corpus(tmp_path):
     loras.install(fake_lora(tmp_path / "a.safetensors"), "Alicia", "alicia", "Alicia", root=root)
 
     text = (root / "families.txt").read_text(encoding="utf-8")
-    assert "alicia = Alicia" in text
+    assert f"alicia = {loras.CORPUS_FAMILY}" in text
     assert "chnsn = Chanson" in text, "what was there stays"
-    assert loras.families(root)["alicia"] == "Alicia"
+
+
+def test_two_corpora_that_share_a_first_word_are_not_mixed_up(tmp_path, monkeypatch):
+    """The group is keyed on the whole file name. Keyed on the word in front of it,
+    paul_mccartney_lora would claim paul_shields_lora and anything else starting paul."""
+    root = tmp_path / "loras"
+    root.mkdir()
+    monkeypatch.setattr(loras, "folder", lambda: root)
+    loras.install(fake_lora(tmp_path / "a.safetensors"), "Paul McCartney", "paulmccartney", "Paul McCartney", root=root)
+    fake_lora(root / "paul_other.safetensors")
+
+    entries = {entry["name"]: entry for entry in loras.catalogue(["paul_mccartney.safetensors", "paul_other.safetensors"])}
+    assert entries["paul_mccartney.safetensors"]["family"] == loras.CORPUS_FAMILY
+    assert entries["paul_mccartney.safetensors"]["title"] == "Paul McCartney"
+    assert "family" not in entries["paul_other.safetensors"]
 
 
 def test_install_refuses_a_file_that_is_not_a_lora(tmp_path):

@@ -130,6 +130,11 @@ def install(source: Path, name: str, trigger: str, corpus: str, root: Path | Non
     return {"name": target.name, "kind": kind, "trigger": trigger.lower(), "tensors": len(names)}
 
 
+# The group every LoRA made from one of your corpora shares.  Its own note names it,
+# so a group per corpus would only repeat that name above it.
+CORPUS_FAMILY = "Your corpora"
+
+
 def write_note(path: Path, trigger: str, corpus: str, title: str = "", root: Path | None = None) -> Path:
     """The text file the picker reads: what the file is called, its trigger word, and
     where it came from.  Used for a LoRA installed by hand and for one trained here."""
@@ -145,12 +150,13 @@ def write_note(path: Path, trigger: str, corpus: str, title: str = "", root: Pat
     note_path = root / f"{stem}.txt"
     note_path.write_text("\n".join(note) + "\n", encoding="utf-8")
 
-    prefix = stem.split("_")[0]
-    if prefix not in families(root):
+    # Grouped by the whole file name, not the word in front of it: that word is a
+    # first name here, and paul_mccartney would take in paul_shields.
+    if stem.lower() not in families(root):
         path_families = root / "families.txt"
         header = "" if path_families.exists() else "# The picker groups LoRAs by the word in front of the file name.\n"
         with path_families.open("a", encoding="utf-8") as handle:
-            handle.write(header + f"\n{prefix} = {corpus}\n")
+            handle.write(header + f"\n{stem.lower()} = {CORPUS_FAMILY}\n")
     return note_path
 
 
@@ -203,9 +209,10 @@ def catalogue(listed: list[str]) -> list[dict]:
     entries = []
     for name in listed:
         entry = describe(name, root)
-        family = name.replace(".safetensors", "").split("-")[0].split("_")[0].lower()
-        if family in named:
-            entry["family"] = named[family]
+        stem = name.replace(".safetensors", "").lower()
+        family = stem.split("-")[0].split("_")[0]
+        if stem in named or family in named:
+            entry["family"] = named.get(stem) or named[family]
         entries.append(entry)
     return entries
 
