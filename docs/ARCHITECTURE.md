@@ -25,18 +25,18 @@ flowchart LR
     B["Browser<br/>one static page<br/>app.js"]
     subgraph Host["One machine (Docker Compose)"]
         direction LR
-        A["<b>app</b> container<br/>FastAPI + uvicorn<br/>:8090<br/>SQLite, library, jobs<br/>demucs + Whisper on CPU"]
-        E["<b>engine</b> container<br/>ComfyUI<br/>:8188 (host :8189)<br/>YuE2, SheetSage, Gemma<br/>owns the GPU"]
+        A["<b>app</b> container<br/>FastAPI + uvicorn<br/>:8090<br/>SQLite, library, jobs<br/>demucs + Whisper<br/>on CPU"]
+        E["<b>engine</b> container<br/>ComfyUI<br/>:8188 (host :8189)<br/>YuE2, SheetSage,<br/>Gemma<br/>owns the GPU"]
         D[("data/<br/>library + database")]
         M[("models/<br/>checkpoints, LoRAs,<br/>encoders")]
         S[("engine-state/<br/>input + output")]
     end
-    L["External LLM (optional)<br/>OpenAI-compatible API<br/>e.g. Gemini, OpenAI, Ollama"]
+    L["External LLM<br/>(optional)<br/>OpenAI-compatible<br/>e.g. Gemini,<br/>OpenAI, Ollama"]
 
-    B -- "HTTP JSON + audio<br/>polls every 2 s" --> A
-    A -- "HTTP: /prompt /history /view<br/>/upload/image /queue /object_info" --> E
+    B -- "JSON + audio<br/>over HTTP,<br/>polled every 2 s" --> A
+    A -- "HTTP API:<br/>/prompt, /history,<br/>/view, /upload,<br/>/queue, /object_info" --> E
     E -. "WebSocket /ws<br/>progress + logs" .-> A
-    A -- "HTTPS chat/completions" --> L
+    A -- "HTTPS<br/>chat/completions" --> L
     A --- D
     A --- S
     E --- S
@@ -64,14 +64,14 @@ flowchart TB
     end
     subgraph Workers["Background workers (app/jobs.py)"]
         Q1["GPU queue<br/>one job at a time:<br/>plan, render,<br/>transcribe, train"]
-        Q2["CPU queue<br/>stems, lyric extraction"]
+        Q2["CPU queue<br/>stems,<br/>lyric extraction"]
         Q3["corpus worker<br/>vocals, scores,<br/>lyrics, styles"]
         K["keeper<br/>engine status,<br/>rereads its lists"]
     end
-    EC["EngineClient (app/engine.py)<br/>HTTP + WebSocket to ComfyUI"]
+    EC["EngineClient<br/>(app/engine.py)<br/>HTTP + WebSocket<br/>to ComfyUI"]
     LLM["app/llm.py<br/>external LLM client"]
-    DB[("SQLite<br/>takes, sources, spaces,<br/>stem sets, corpora,<br/>settings, lora_runs")]
-    FS[("data/takes, data/sources,<br/>data/stems, data/identities")]
+    DB[("SQLite<br/>takes, sources,<br/>spaces, stem sets,<br/>corpora, settings,<br/>lora_runs")]
+    FS[("data/takes<br/>data/sources<br/>data/stems<br/>data/identities")]
 
     R --> DB
     R -- "queue a job" --> Q1 & Q2 & Q3
@@ -157,15 +157,15 @@ The render graph as it goes to the engine for a song with the real-audio LoRA an
 
 ```mermaid
 flowchart LR
-    C10["10 CheckpointLoaderSimple<br/>yue2_3b_bf16"]
+    C10["10 Checkpoint<br/>loader<br/>yue2_3b_bf16"]
     L25["25 LoraLoader<br/>real-audio LoRA<br/>model 1.0, clip 0"]
-    L27["27 LoraLoader<br/>style LoRA<br/>Sound = model, Planner = clip"]
-    G11["11 YuE2GenerateMusic<br/>style, lyrics, <b>abc</b>, seed,<br/>mode, max_duration"]
-    E12["12 EmptyYuE2LatentAudio<br/>seconds from 11"]
-    Z13["13 ConditioningZeroOut"]
-    K14["14 KSampler<br/>32 steps, dpm_2, sgm_uniform, cfg 1"]
+    L27["27 LoraLoader<br/>style LoRA<br/>Sound = model<br/>Planner = clip"]
+    G11["11 YuE2Generate<br/>Music<br/>style, lyrics, <b>abc</b>,<br/>seed, mode,<br/>max_duration"]
+    E12["12 EmptyYuE2<br/>LatentAudio<br/>seconds from 11"]
+    Z13["13 Conditioning<br/>ZeroOut"]
+    K14["14 KSampler<br/>32 steps, dpm_2,<br/>sgm_uniform, cfg 1"]
     V15["15 VAEDecodeAudio"]
-    S16["16 SaveAudioAdvanced<br/>FLAC"]
+    S16["16 SaveAudio<br/>Advanced, FLAC"]
 
     C10 -- MODEL --> L25 -- MODEL --> L27 -- MODEL --> K14
     C10 -- CLIP --> L27 -- CLIP --> G11
@@ -208,16 +208,16 @@ wrote into audio.
 ```mermaid
 flowchart LR
     IN["Style + lyrics<br/>(sections tagged)"]
-    subgraph P["Planner (autoregressive LM) — ‘Planner’ LoRA strength"]
+    subgraph P["Planner — ‘Planner’ strength"]
         direction TB
-        ABC["1. writes an ABC score<br/>melody, chords, sections<br/><i>the plan</i>"]
-        SEM["2. writes music tokens<br/>coded sound, 25 per second<br/><i>the performance: notes,<br/>phrasing, the voice's character</i>"]
+        ABC["1. writes an<br/>ABC score:<br/>melody, chords,<br/>sections<br/><i>the plan</i>"]
+        SEM["2. writes music<br/>tokens: coded sound,<br/>25 per second<br/><i>the performance:<br/>notes, phrasing,<br/>the voice's character</i>"]
         ABC --> SEM
     end
-    subgraph N["Decoder (diffusion) — ‘Sound’ LoRA strength"]
+    subgraph N["Decoder — ‘Sound’ strength"]
         direction TB
-        NOISE["noise the length of the song<br/>(seeded)"]
-        DIT["KSampler: 32 steps<br/>shapes noise into audio latents,<br/>guided by the music tokens"]
+        NOISE["noise the length<br/>of the song<br/>(seeded)"]
+        DIT["KSampler, 32 steps:<br/>shapes noise into<br/>audio latents, guided<br/>by the music tokens"]
         NOISE --> DIT
     end
     VAE["VAE decode<br/>latents → waveform"]
@@ -265,14 +265,14 @@ the recorded sound of the corpus, production included.
 ```mermaid
 flowchart TB
     subgraph Song["Song from a prompt"]
-        S1["style + lyrics<br/>(or Write lyrics:<br/>Gemma or external LLM)"] --> S2["plan graph<br/>→ ABC score"] --> S3["render graph<br/>→ FLAC"]
+        S1["style + lyrics<br/>(or Write lyrics:<br/>Gemma or an<br/>external LLM)"] --> S2["plan graph<br/>→ ABC score"] --> S3["render graph<br/>→ FLAC"]
     end
     subgraph Inst["Instrumental"]
         I1["style + structure<br/>(sections, timings)"] --> I2["plan graph<br/>+ instrumental LoRA"] --> I3["render graph<br/>+ instrumental LoRA"] --> I4["vocal check<br/>(demucs, CPU)"]
     end
     subgraph Cover["Cover a recording"]
         C1["upload audio"] --> C2["transcribe graph<br/>SheetSage2 → ABC"] --> C4["render graph<br/>→ FLAC"]
-        C1 --> C3["Extract lyrics (CPU):<br/>demucs vocal → Whisper<br/>(or LLM hears it)"] --> C4
+        C1 --> C3["Extract lyrics<br/>(CPU): demucs<br/>vocal → Whisper<br/>(or LLM hears it)"] --> C4
     end
 ```
 
@@ -282,14 +282,14 @@ flowchart TB
 flowchart LR
     subgraph Local["On this machine"]
         G["Gemma 4 E4B<br/>(engine, GPU)<br/>lyric drafts"]
-        W["faster-whisper large-v3-turbo<br/>(app, CPU)<br/>lyrics + timings"]
+        W["faster-whisper<br/>large-v3-turbo<br/>(app, CPU)<br/>lyrics + timings"]
         DM["demucs htdemucs<br/>(app, CPU)<br/>vocals, stems"]
     end
     X["External LLM<br/>(optional, Settings)"]
     T1["Write lyrics"] --> G
     T1 -. "if external is set" .-> X
     T2["Extract lyrics"] --> DM --> W
-    DM -. "LLM hears the vocal,<br/>Whisper keeps the time" .-> X
+    DM -. "LLM hears<br/>the vocal,<br/>Whisper keeps<br/>the time" .-> X
     T3["Corpus style tags"] -. external .-> X
 ```
 
