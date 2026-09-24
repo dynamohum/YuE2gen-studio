@@ -519,8 +519,15 @@ function paintStyleLoraNote() {
       : '<b>' + esc(item.trigger) + '</b> goes in the style when you render.');
   }
   if (item.strengths) {
-    parts.push('Starts at <b>Planner ' + Number(item.strengths.planner).toFixed(2) + ' / Sound ' +
-               Number(item.strengths.sound).toFixed(2) + '</b>.');
+    var pair = 'Planner ' + Number(item.strengths.planner).toFixed(2) + ' / Sound ' + Number(item.strengths.sound).toFixed(2);
+    // Off its saved pair (a take made at other strengths, or the sliders moved): offer
+    // the way back, here rather than as another button in the row.
+    var held = loraKind(item.name);
+    var off = ((held === 'both' || held === 'planner') && Math.abs(Number($('style-lora-clip').value) - item.strengths.planner) > 0.004) ||
+              ((held === 'both' || held === 'decoder') && Math.abs(Number($('style-lora-model').value) - item.strengths.sound) > 0.004);
+    parts.push(off
+      ? 'Saved: <b>' + pair + '</b> <button type="button" id="lora-use-saved" class="chip action compact" title="Put this LoRA\u2019s saved strengths back on the sliders">use</button>'
+      : 'Starts at <b>' + pair + '</b>.');
   }
   if (item.styles && item.styles.length) {
     parts.push('<b>Learned styles:</b> ' + item.styles.length + ' corpus songs. Click any style chip under the Style box to write in that sound.');
@@ -5768,6 +5775,11 @@ function wire() {
   $('realaudio').addEventListener('change', saveForm);
   $('style-lora-field').addEventListener('click', function (event) {
     if (event.target.closest('#lora-reload')) { reloadLoras(); }
+    if (event.target.closest('#lora-use-saved')) {
+      wakeStyleLoraStrengths();
+      paintStyleLoraStrengths();
+      saveForm();
+    }
   });
   $('style-lora').addEventListener('change', function () {
     var item = loraChosen();
