@@ -96,6 +96,8 @@ def relayout() -> None:
         if not have or not have.exists():
             continue
         want = take_audio_path(take["id"], take["title"])
+        if is_normalised_file(have):
+            want = normalised_path(want)
         if have != want:
             try:
                 want.parent.mkdir(parents=True, exist_ok=True)
@@ -170,9 +172,7 @@ def fill_loudness() -> int:
     as rendered, so a normalised take is read from the file kept from before."""
     done = 0
     for row in rows("SELECT id, audio_path FROM takes WHERE status = 'done' AND loudness IS NULL AND audio_path IS NOT NULL"):
-        path = Path(row["audio_path"])
-        if original_path(path).exists():
-            path = original_path(path)
+        path = rendered_path(Path(row["audio_path"]))
         level = loudness(path) if path.exists() else None
         if level is not None:
             execute("UPDATE takes SET loudness = ? WHERE id = ?", (level, row["id"]))
@@ -200,22 +200,62 @@ def replace_file(src: Path, dest: Path, tries: int = 10) -> None:
             time.sleep(0.3)
 
 
+# A normalised take points at a louder copy beside the file as rendered, which is never
+# changed.  Nothing is replaced while it may be open: Windows refuses to replace a file
+# that a player, another tab or an editor is reading.
+NORMALISED = ".normalised"
+
+
+def normalised_path(rendered: Path) -> Path:
+    return rendered.with_name(f"{rendered.stem}{NORMALISED}{rendered.suffix}")
+
+
+def is_normalised_file(audio: Path) -> bool:
+    return audio.stem.endswith(NORMALISED)
+
+
+def rendered_path(audio: Path) -> Path:
+    """The file as rendered, whichever of the two a take points at."""
+    return audio.with_name(audio.stem[:-len(NORMALISED)] + audio.suffix) if is_normalised_file(audio) else audio
+
+
 def original_path(audio: Path) -> Path:
-    """Where a take's audio is kept as it was rendered, once it has been normalised."""
+    """Where the first version of normalising kept the file as rendered, when it
+    normalised a take in place.  Read only to convert such takes."""
     return audio.with_name(f"{audio.stem}.original{audio.suffix}")
 
 
-def normalise(audio: Path) -> None:
-    """Bring a take to the usual loudness, in place, keeping the rendered file beside it.
+def convert_old_normalised() -> int:
+    """Takes normalised in place (song.flac louder, song.original.flac as rendered) get
+    the present layout (song.flac as rendered, song.normalised.flac louder).  Runs at
+    start, when nothing has the files open."""
+    done = 0
+    for take in rows("SELECT id, audio_path FROM takes WHERE normalised = 1 AND audio_path IS NOT NULL"):
+        audio = Path(take["audio_path"])
+        kept = original_path(audio)
+        if is_normalised_file(audio) or not kept.exists() or not audio.exists():
+            continue
+        try:
+            os.replace(audio, normalised_path(audio))
+            os.replace(kept, audio)
+        except OSError as exc:
+            log.warning("could not convert normalised take %s: %s", take["id"], exc)
+            continue
+        execute("UPDATE takes SET audio_path = ? WHERE id = ?", (str(normalised_path(audio)), take["id"]))
+        done += 1
+    return done
+
+
+def normalise(rendered: Path) -> Path:
+    """Write a copy of a take at the usual loudness beside the file as rendered, and
+    return it.  The rendered file is only read, so doing it twice gives the same result.
 
     Two passes: the first measures, the second applies one gain to the whole take, so
     its quiet and loud parts keep their distance.  Only when that gain would push a
     peak past the ceiling does ffmpeg fall back to shaping the level as it goes."""
     target = f"I={NORMAL_LUFS}:TP={NORMAL_PEAK}:LRA=11"
-    # Always from the file as rendered, so doing it twice gives the same result.
-    keep = original_path(audio)
-    if not keep.exists():
-        shutil.copy2(audio, keep)
+    keep = rendered
+    audio = normalised_path(rendered)
     first = subprocess.run(["ffmpeg", "-v", "info", "-nostats", "-i", str(keep), "-af",
                             f"loudnorm={target}:print_format=json", "-f", "null", "-"],
                            capture_output=True, text=True, timeout=300).stderr
@@ -224,11 +264,11 @@ def normalise(audio: Path) -> None:
         raise RuntimeError("ffmpeg could not measure the take's loudness")
     measured = json.loads(found.group(0))
     rate = "48000"
-    with audio.open("rb") as fh:
+    with keep.open("rb") as fh:
         head = fh.read(26)
     if head[:4] == b"fLaC" and len(head) >= 26:
         rate = str(int.from_bytes(head[18:26], "big") >> 44 or 48000)
-    staged = audio.with_name(f"{audio.stem}.normalising{audio.suffix}")
+    staged = rendered.with_name(f"{rendered.stem}.normalising{rendered.suffix}")
     try:
         subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(keep), "-af",
                         f"loudnorm={target}:measured_I={measured['input_i']}:measured_TP={measured['input_tp']}"
@@ -239,6 +279,7 @@ def normalise(audio: Path) -> None:
         replace_file(staged, audio)
     finally:
         staged.unlink(missing_ok=True)
+    return audio
 
 
 def audio_duration(path: Path) -> float | None:

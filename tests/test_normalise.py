@@ -5,7 +5,7 @@ from pathlib import Path
 
 from app import config
 from app.db import execute, one
-from app.library import loudness, original_path
+from app.library import loudness, normalised_path, original_path
 
 from conftest import make_take
 
@@ -32,16 +32,18 @@ def test_normalising_lifts_a_weak_take_and_keeps_the_rendered_file(client, tmp_p
     execute("UPDATE takes SET loudness = ? WHERE id = ?", (before, take["id"]))
 
     assert client.post(f"/api/takes/{take['id']}/normalise").json() == {"normalised": True}
-    louder = loudness(audio)
+    louder_file = normalised_path(audio)
+    louder = loudness(louder_file)
     assert louder > config.WEAK_RENDER_DB
-    assert original_path(audio).exists() and loudness(original_path(audio)) == before
-    assert rate_of(audio) == "44100", "loudnorm works at 192 kHz; the take comes back at its own rate"
-    row = one("SELECT normalised, loudness FROM takes WHERE id = ?", (take["id"],))
-    assert row["normalised"] == 1 and row["loudness"] == before, "the level recorded is the one it was rendered at"
+    assert loudness(audio) == before, "the file as rendered is never changed"
+    assert rate_of(louder_file) == "44100", "loudnorm works at 192 kHz; the take comes back at its own rate"
+    row = one("SELECT normalised, loudness, audio_path FROM takes WHERE id = ?", (take["id"],))
+    assert row["normalised"] == 1 and row["audio_path"] == str(louder_file)
+    assert row["loudness"] == before, "the level recorded is the one it was rendered at"
 
     # Twice gives the same: it always starts from the file as rendered.
     client.post(f"/api/takes/{take['id']}/normalise")
-    assert abs(loudness(audio) - louder) < 0.2
+    assert abs(loudness(louder_file) - louder) < 0.2
 
 
 def test_undo_puts_back_the_rendered_level(client, tmp_path):
@@ -52,8 +54,9 @@ def test_undo_puts_back_the_rendered_level(client, tmp_path):
 
     answer = client.post(f"/api/takes/{take['id']}/normalise?undo=true").json()
     assert answer == {"normalised": False} and loudness(audio) == before
-    assert not original_path(audio).exists()
-    assert one("SELECT normalised FROM takes WHERE id = ?", (take["id"],))["normalised"] == 0
+    assert not normalised_path(audio).exists()
+    row = one("SELECT normalised, audio_path FROM takes WHERE id = ?", (take["id"],))
+    assert row["normalised"] == 0 and row["audio_path"] == str(audio)
     assert client.post(f"/api/takes/{take['id']}/normalise?undo=true").status_code == 409
 
 
@@ -61,7 +64,7 @@ def test_a_take_is_left_as_rendered_unless_asked(client, tmp_path):
     audio = quiet_tone(tmp_path / "takes" / "t3" / "song.flac")
     make_take(audio_path=str(audio))
     listed = client.get("/api/takes").json()[0]
-    assert listed["normalise"] == 0 and listed["normalised"] == 0 and not original_path(audio).exists()
+    assert listed["normalise"] == 0 and listed["normalised"] == 0 and not normalised_path(audio).exists()
 
 
 def test_a_take_without_audio_cannot_be_normalised(client):
@@ -85,7 +88,8 @@ def test_a_take_asked_to_be_normalised_is_when_its_render_finishes(monkeypatch, 
     assert row["status"] == "done" and row["normalised"] == 1
     assert loudness(Path(row["audio_path"])) > config.WEAK_RENDER_DB
     assert row["loudness"] < config.WEAK_RENDER_DB, "still known as weak: the level is the one it was rendered at"
-    assert original_path(Path(row["audio_path"])).exists()
+    assert row["audio_path"].endswith("quiet.normalised.flac")
+    assert Path(row["audio_path"]).with_name("quiet.flac").exists()
 
 
 def test_the_form_choice_is_kept_on_the_take(client):
@@ -140,3 +144,48 @@ def test_a_file_open_elsewhere_is_waited_for_then_reported(monkeypatch, tmp_path
     monkeypatch.setattr(library.os, "replace", lambda a, b: (_ for _ in ()).throw(PermissionError("in use")))
     with pytest.raises(PermissionError):
         library.replace_file(dest, tmp_path / "x.flac", tries=3)
+
+
+def test_normalising_never_touches_the_file_being_played(client, tmp_path, monkeypatch):
+    """On Windows a file that is open cannot be replaced, and a player keeps the take
+    open while it streams.  The louder copy is a new file, so the one playing is left
+    alone however long it is held."""
+    from app import library
+
+    audio = quiet_tone(tmp_path / "takes" / "t6" / "song.flac")
+    take = make_take(audio_path=str(audio))
+    replaced = []
+    real = library.os.replace
+    monkeypatch.setattr(library.os, "replace", lambda a, b: (replaced.append(Path(b)), real(a, b)))
+    assert client.post(f"/api/takes/{take['id']}/normalise").status_code == 200
+    assert audio not in replaced
+
+
+def test_a_take_normalised_in_place_by_the_first_version_is_converted(client, tmp_path):
+    """song.flac louder and song.original.flac as rendered become song.flac as rendered
+    and song.normalised.flac louder."""
+    from app.library import convert_old_normalised
+
+    folder = tmp_path / "takes" / "t7"
+    rendered = quiet_tone(folder / "song.original.flac")
+    before = loudness(rendered)
+    louder = folder / "song.flac"
+    louder.write_bytes(b"louder")
+    take = make_take(audio_path=str(louder))
+    execute("UPDATE takes SET normalised = 1 WHERE id = ?", (take["id"],))
+    assert convert_old_normalised() == 1
+    assert loudness(folder / "song.flac") == before and (folder / "song.normalised.flac").read_bytes() == b"louder"
+    assert one("SELECT audio_path FROM takes WHERE id = ?", (take["id"],))["audio_path"] == str(folder / "song.normalised.flac")
+    assert convert_old_normalised() == 0
+
+
+def test_renaming_files_at_start_keeps_a_normalised_take_on_its_louder_copy(client):
+    from app.library import relayout, take_audio_path
+
+    take = make_take(title="Loud One")
+    rendered = quiet_tone(take_audio_path(take["id"], "Loud One"))
+    louder = normalised_path(rendered)
+    louder.write_bytes(rendered.read_bytes())
+    execute("UPDATE takes SET audio_path = ?, normalised = 1 WHERE id = ?", (str(louder), take["id"]))
+    relayout()
+    assert one("SELECT audio_path FROM takes WHERE id = ?", (take["id"],))["audio_path"] == str(louder)

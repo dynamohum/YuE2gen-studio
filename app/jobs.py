@@ -17,8 +17,8 @@ from pathlib import Path
 from . import config, identities, instrumental, llm, loras, lyrics, score, stems
 from .db import bump_average, execute, get_setting, one, rows
 from .engine import Engine, load_template
-from .library import (audio_duration, ensure_peaks, loudness, inside, normalise, original_path, remove_tree, take_audio_path,
-                      vocal_path, write_take_note)
+from .library import (audio_duration, ensure_peaks, loudness, inside, normalise, normalised_path, original_path, remove_tree,
+                      take_audio_path, vocal_path, write_take_note)
 
 personas = identities
 
@@ -592,15 +592,19 @@ async def _finish(kind: str, ref_id: str, record: dict, job: dict, started: floa
     if ref_id in CANCELLED or not one("SELECT id FROM takes WHERE id = ?", (ref_id,)):
         remove_tree(dest.parent)
         return
-    # A new render replaces any level set before, and the file kept from before it.
-    original_path(dest).unlink(missing_ok=True)
+    # A new render replaces any level set before, and the louder copy made from the
+    # last one.  One still open somewhere is overwritten when this take is next normalised.
+    for stale in (normalised_path(dest), original_path(dest)):
+        with contextlib.suppress(OSError):
+            stale.unlink(missing_ok=True)
     # The level as rendered, before any normalising: a render far quieter than usual
     # has often gone wrong, and a louder copy of it has not been put right.
     level = await asyncio.to_thread(loudness, dest)
     normalised = 0
+    playing = dest
     if record.get("normalise"):
         try:
-            await asyncio.to_thread(normalise, dest)
+            playing = await asyncio.to_thread(normalise, dest)
             normalised = 1
         except Exception as exc:  # noqa: BLE001
             log.warning("Could not normalise '%s'; it keeps the level it was rendered at: %s",
@@ -612,12 +616,12 @@ async def _finish(kind: str, ref_id: str, record: dict, job: dict, started: floa
     elapsed = time.time() - started
     execute(
         "UPDATE takes SET status = 'done', stage = NULL, audio_path = ?, duration = ?, finished_at = ?, elapsed = ?, error = NULL, vocal_check = ?, loudness = ?, normalised = ?, weak_dismissed = 0 WHERE id = ?",
-        (str(dest), duration, time.time(), elapsed, sung, level, normalised, ref_id),
+        (str(playing), duration, time.time(), elapsed, sung, level, normalised, ref_id),
     )
     fresh = one("SELECT * FROM takes WHERE id = ?", (ref_id,))
     if fresh:
         await asyncio.to_thread(write_take_note, fresh, dest)
-    await asyncio.to_thread(ensure_peaks, dest)
+    await asyncio.to_thread(ensure_peaks, playing)
     bump_average("render", elapsed)
     log.info("Audio render finished for '%s' (duration=%.1fs, elapsed=%.1fs)",
              record.get("title") or ref_id, duration or 0.0, elapsed)

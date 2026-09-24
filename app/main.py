@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import collections
+import contextlib
 import hashlib
 import json
 import logging
@@ -226,6 +227,8 @@ async def lifespan(app: FastAPI):
     execute("UPDATE sources SET transcribe_state = 'failed', transcribe_error = 'interrupted by a restart' WHERE transcribe_state = 'running'")
     execute("UPDATE stem_sets SET status = 'failed', error = 'interrupted by a restart' WHERE status = 'running'")
     await requeue_waiting()
+    # Before relayout, which names each take's file, and before the levels are read.
+    await asyncio.to_thread(library.convert_old_normalised)
     await asyncio.to_thread(relayout)
     await asyncio.to_thread(fill_source_durations)
     if config.ENGINE_OUTPUT_DIR:
@@ -2059,18 +2062,16 @@ async def normalise_take(take_id: str, undo: bool = False) -> dict:
         raise HTTPException(404, "no audio for this take")
     if take["status"] != "done":
         raise HTTPException(409, "this take is busy")
-    audio = Path(take["audio_path"])
-    kept = library.original_path(audio)
+    rendered = library.rendered_path(Path(take["audio_path"]))
+    if not rendered.exists():
+        raise HTTPException(404, "the file as rendered is missing")
     try:
         if undo:
-            if not kept.exists():
+            if not take["normalised"]:
                 raise HTTPException(409, "this take has not been normalised")
-            await asyncio.to_thread(library.replace_file, kept, audio)
+            playing = rendered
         else:
-            await asyncio.to_thread(library.normalise, audio)
-        # The kept file carries its old time, and the waveform is redrawn only for a
-        # file newer than it.
-        audio.touch()
+            playing = await asyncio.to_thread(library.normalise, rendered)
     except PermissionError as exc:
         log.warning("Could not normalise take '%s': its file is open in another program (%s)", take["title"] or take_id, exc)
         raise HTTPException(409, "its audio file is open in another program; close it and try again") from exc
@@ -2079,8 +2080,12 @@ async def normalise_take(take_id: str, undo: bool = False) -> dict:
         raise HTTPException(500, "could not normalise this take") from exc
     # The recorded level stays the one it was rendered at: that is what says whether
     # the render went wrong, and normalising does not change that.
-    execute("UPDATE takes SET normalised = ? WHERE id = ?", (0 if undo else 1, take_id))
-    await asyncio.to_thread(ensure_peaks, audio)
+    execute("UPDATE takes SET normalised = ?, audio_path = ? WHERE id = ?", (0 if undo else 1, str(playing), take_id))
+    if undo:
+        # Gone if nothing has it open; a later render clears it otherwise.
+        with contextlib.suppress(OSError):
+            library.normalised_path(rendered).unlink(missing_ok=True)
+    await asyncio.to_thread(ensure_peaks, playing)
     log.info("%s take '%s'", "Restored the rendered level of" if undo else "Normalised", take["title"] or take_id)
     return {"normalised": not undo}
 
