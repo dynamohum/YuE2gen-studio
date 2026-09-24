@@ -60,3 +60,20 @@ def test_a_score_edited_by_hand_is_logged_once(client):
     assert not logged("Score of take 'Harbour'"), "saving it unchanged, as a render does, says nothing"
     client.put("/api/takes/t1/score", json={"abc": "X:1\nK:C"})
     assert logged("Score of take 'Harbour' (t1) edited by hand (7 characters)")
+
+
+def test_a_browser_dropping_a_connection_on_windows_is_not_logged_as_an_error():
+    import logging
+
+    from app.logging_setup import WindowsDisconnectNoise
+
+    noise = WindowsDisconnectNoise()
+    try:
+        raise ConnectionResetError(10054, "An existing connection was forcibly closed by the remote host")
+    except ConnectionResetError:
+        import sys
+        dropped = logging.LogRecord("asyncio", logging.ERROR, "", 0,
+                                    "Exception in callback _ProactorBasePipeTransport._call_connection_lost()",
+                                    None, sys.exc_info())
+    other = logging.LogRecord("asyncio", logging.ERROR, "", 0, "Task exception was never retrieved", None, None)
+    assert not noise.filter(dropped) and noise.filter(other)

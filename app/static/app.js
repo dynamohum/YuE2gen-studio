@@ -5813,6 +5813,15 @@ function wire() {
     if (act === 'normalise') {
       if (State.normalising[id]) { return; }
       State.normalising[id] = true;
+      // The player streams the take a piece at a time and keeps it open, and Windows
+      // will not replace a file that is open.  Let go of it first.
+      if (State.loadedId === id) {
+        var player = $('audio');
+        player.pause();
+        player.removeAttribute('src');
+        player.load();
+        State.loadedId = null;
+      }
       paintTakes();
       statusLine('Normalising\u2026');
       try {

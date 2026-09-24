@@ -162,6 +162,16 @@ def log_engine_entry(
                         pass
 
 
+class WindowsDisconnectNoise(logging.Filter):
+    """On Windows, asyncio logs a traceback whenever a browser drops a connection (a
+    reload, a closed tab): ConnectionResetError from _call_connection_lost.  Nothing
+    failed, so it is left out."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        error = record.exc_info[1] if record.exc_info else None
+        return not (isinstance(error, ConnectionResetError) and "_call_connection_lost" in record.getMessage())
+
+
 def setup_logging(logs_dir: Path | str | None = None) -> Path | None:
     """Configure console, rotating file, and in-memory ring buffer logging."""
     global LOG_FILE_PATH
@@ -219,6 +229,8 @@ def setup_logging(logs_dir: Path | str | None = None) -> Path | None:
     for h in root.handlers:
         if isinstance(h, (RingBufferHandler, RotatingFileHandler)) and h not in uvicorn_errors.handlers:
             uvicorn_errors.addHandler(h)
+
+    logging.getLogger("asyncio").addFilter(WindowsDisconnectNoise())
 
     # Suppress verbose third-party loggers
     logging.getLogger("httpx").setLevel(logging.WARNING)
