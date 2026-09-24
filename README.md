@@ -115,7 +115,8 @@ Open **Corpora** from the menu. The app prepares a **corpus** — a folder of on
 each vocal separated, its key, tempo and sections found and its lyrics drafted — exports it as a
 training set, and trains a style LoRA from it. Training holds the GPU until it finishes, keeps a
 snapshot every 50 steps so you can pick one by ear, and the LoRA appears in the Style LoRA list,
-with a style chip for each song it learned from.
+with a style chip for each song it learned from. To share it, press **Download** under the picker:
+the zip carries its chips, and the other person adds it with **Install**.
 
 It does most in a song from a prompt, where the LoRA writes the tune: Planner and Sound up to
 about 0.70, with Plan variety Calm or Normal. In a cover your recording sets the melody, so keep

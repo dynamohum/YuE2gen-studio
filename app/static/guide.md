@@ -274,7 +274,8 @@ engine built with `WITH_TRAINER=0`, takes it out.
    finishes. Progress shows on the main screen, where you can stop it.
 
 When training finishes, the LoRA appears in the **Style LoRA** list with its trigger word. See
-**Balancing Planner and Sound** below for starting strengths.
+**Balancing Planner and Sound** below for starting strengths. To share it, press **Download** under
+the picker; see **Sharing a LoRA** below.
 
 To use a LoRA trained elsewhere from the exported set, press **Install a LoRA** and choose the
 file. It is added to the Style LoRA list with this corpus's trigger word.
