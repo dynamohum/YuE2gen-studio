@@ -63,10 +63,12 @@ SETTINGS_SPEC: list[dict] = [
         "key": "stems.format",
         "label": "Stem audio format",
         "type": "select",
-        "default": "wav",
+        # FLAC by default: lossless like WAV at about half the size, and what takes are
+        # saved as.  WAV stays for software that cannot open FLAC.
+        "default": "flac",
         "options": [
-            {"value": "wav", "label": "WAV, uncompressed"},
             {"value": "flac", "label": "FLAC, lossless"},
+            {"value": "wav", "label": "WAV, uncompressed"},
             {"value": "mp3", "label": "MP3, 320 kbps"},
         ],
         "help": "The format for new stems.",

@@ -242,7 +242,7 @@ any browser and survive a rebuild.
 
 | Setting | What it does |
 |---|---|
-| Stem audio format | WAV, FLAC, or MP3 at 320 kbps. The default for a new run; the sheet can still choose another |
+| Stem audio format | FLAC (the default), WAV, or MP3 at 320 kbps. The default for a new run; the sheet can still choose another |
 | Stem separation model | Which model a run starts with |
 | Stem save folder | Where stems are written. It must sit inside the data folder |
 

@@ -2296,7 +2296,7 @@ function paintStemChoices(preferred) {
   if (preferred && preferred.format) {
     formatSelect.value = preferred.format;
   } else if (firstFill) {
-    formatSelect.value = setting('stems.format', options.default_format || 'wav');
+    formatSelect.value = setting('stems.format', options.default_format || 'flac');
   }
   var chosen = null;
   for (var i = 0; i < models.length; i++) { if (models[i].id === select.value) { chosen = models[i]; } }
@@ -2323,7 +2323,7 @@ function openStemsModal(target) {
   $('stems-dir').value = setting('stems.folder', options.default_dir || '/data/stems');
   paintStemChoices({
     model: setting('stems.model', options.default_model || 'htdemucs'),
-    format: setting('stems.format', options.default_format || 'wav')
+    format: setting('stems.format', options.default_format || 'flac')
   });
   var estimate = options.avg_seconds
     ? 'The last run took ' + Math.round(options.avg_seconds) + ' seconds.'
