@@ -104,6 +104,16 @@ var State = { normalising: {}, sources: [], takes: [], options: {}, filter: 'all
 var LAYOUT_KEY = 'yue2.layout';
 var WIDTH_KEY = 'yue2.width';
 var SPACE_KEY = 'yue2.space';
+var FILTER_KEY = 'yue2.filter';
+
+/* All or Starred, kept across a reload like the layout. */
+function applyFilter(filter) {
+  State.filter = filter === 'favourite' ? 'favourite' : 'all';
+  Array.prototype.forEach.call(document.querySelectorAll('.filters [data-filter]'), function (chip) {
+    chip.classList.toggle('active', chip.dataset.filter === State.filter);
+  });
+  try { localStorage.setItem(FILTER_KEY, State.filter); } catch (err) { /* private mode */ }
+}
 
 function applyLayout(mode) {
   State.layout = mode === 'comfy' ? 'comfy' : 'compact';
@@ -142,6 +152,9 @@ function loadLayout() {
   var saved = null;
   try { saved = localStorage.getItem(LAYOUT_KEY); } catch (err) { saved = null; }
   applyLayout(saved === 'comfy' ? 'comfy' : 'compact');
+  var filter = null;
+  try { filter = localStorage.getItem(FILTER_KEY); } catch (err) { filter = null; }
+  applyFilter(filter);
 }
 
 function $(id) { return document.getElementById(id); }
@@ -5518,9 +5531,7 @@ function wire() {
   document.querySelector('.filters').addEventListener('click', function (event) {
     var button = event.target.closest('[data-filter]');
     if (!button) { return; }
-    State.filter = button.dataset.filter;
-    Array.prototype.forEach.call(document.querySelectorAll('.filters [data-filter]'), function (chip) { chip.classList.remove('active'); });
-    button.classList.add('active');
+    applyFilter(button.dataset.filter);
     State.takesRaw = '';
     clearPicked();
     loadTakes();
