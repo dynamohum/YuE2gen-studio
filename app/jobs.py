@@ -885,6 +885,10 @@ async def run_identity_job(kind: str, song_id: str) -> None:
                 set_song(song_id, style_hint=hint, style_state="done")
                 log.info("Finished external LLM style analysis for corpus song '%s': %s", song_title, hint[:60] + "..." if len(hint) > 60 else hint)
             else:
+                # Gemma is optional (the Windows installer can leave it out).  Without it
+                # the engine cannot run this, and says so only in its own terms.
+                if ENGINE.options_loaded and not ENGINE.options.get("lyrics"):
+                    raise RuntimeError("needs Gemma 4 on this PC, or an external LLM set in Settings")
                 samples = await asyncio.to_thread(identities.read_mono, Path(song["stored_path"]))
                 middle = len(samples) / identities.CHUNK_RATE * 0.4
                 clip = identities.write_chunk(samples, (middle, middle + 30), folder / "style-clip.wav")

@@ -169,6 +169,13 @@ function Test-Port([int]$port) {
     try { $client.Connect('127.0.0.1', $port); return $true } catch { return $false } finally { $client.Close() }
 }
 
+# Anything unforeseen stops here too, with the window left open to read, rather
+# than closing on the error.
+trap {
+    $where = $_.InvocationInfo.ScriptLineNumber
+    Stop-Setup "an unexpected error at line ${where}: $($_.Exception.Message)"
+}
+
 # -------------------------------------------------------------- system check
 Step 'Checking this PC'
 $problems = New-Object System.Collections.ArrayList
@@ -347,7 +354,8 @@ New-Item -ItemType Directory -Force -Path (Join-Path $InstallDir 'data') | Out-N
 # ------------------------------------------------------------------- models
 if (-not $SkipModels) {
     Step 'The models (the long part)'
-    $total = ($ModelFiles | Measure-Object -Property Size -Sum).Sum
+    $total = 0
+    foreach ($m in $ModelFiles) { $total += $m.Size }
     Say ("{0} files, {1:N1} GB in all. Downloads resume if they break off." -f $ModelFiles.Count, ($total / 1GB))
     foreach ($m in $ModelFiles) {
         Say ''

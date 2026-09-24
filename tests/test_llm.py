@@ -208,6 +208,26 @@ async def test_identity_style_job_with_external_llm():
     assert row["style_hint"] == "folk rock, hammond organ, telecaster, driving beat, cynical"
 
 
+@pytest.mark.anyio
+async def test_style_analysis_without_gemma_or_an_llm_says_what_it_needs(monkeypatch):
+    """The Windows installer can leave Gemma out.  Then a song's style step fails at
+    once with the reason, instead of sending the engine a job it cannot run."""
+    from app.jobs import ENGINE
+    monkeypatch.setattr(ENGINE, "options_loaded", True)
+    monkeypatch.setattr(ENGINE, "options", {"lyrics": False})
+    sent = []
+    monkeypatch.setattr("app.jobs._run_graph", lambda *a, **k: sent.append(a))
+    execute("INSERT INTO identities(id, name, trigger_word, folder, created_at) VALUES('id-1', 'Bob Dylan', 'dylan', '/tmp/dylan', 1000.0)")
+    execute("""INSERT INTO identity_songs(id, identity_id, file, title, sha256, style_state, stored_path)
+               VALUES('song-1', 'id-1', 'like.mp3', 'Like a Rolling Stone', 'sha', 'queued', '/tmp/dylan/like.mp3')""")
+
+    await run_identity_job("identity_style", "song-1")
+
+    row = one("SELECT style_state, error FROM identity_songs WHERE id = 'song-1'")
+    assert row["style_state"] == "failed" and "Gemma" in row["error"] and "external LLM" in row["error"]
+    assert not sent
+
+
 def test_lyrics_available_in_state_when_external_llm_enabled(client):
     set_setting("llm.provider", "external")
     res = client.get("/api/state")
