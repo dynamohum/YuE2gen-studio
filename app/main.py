@@ -644,7 +644,7 @@ def _job_title(kind: str, ref_id: str) -> str | None:
         row = one("SELECT title FROM identity_songs WHERE id = ?", (ref_id,))
         label = {"identity_score": "key and tempo", "identity_style": "style",
                  "persona_score": "key and tempo", "persona_style": "style"}.get(kind, "analysis")
-        return f"Identity {label}: {row['title']}" if row else None
+        return f"{label.capitalize()}: {row['title']}" if row else None
     if kind == "lyrics":
         record = LYRICS.get(ref_id)
         return ("Lyrics: " + _shorten(record["brief"], 60)) if record else None
@@ -2089,6 +2089,13 @@ def source_audio(source_id: str) -> FileResponse:
 
 
 # ---------------------------------------------------------------------- jobs
+@app.post("/api/queue/{kind}/{job_id}/cancel")
+async def cancel_waiting_job(kind: str, job_id: str) -> dict:
+    """Take a job out of Up next before it starts.  One already running is stopped
+    from the job card instead."""
+    return {"cancelled": await jobs.cancel_waiting(kind, job_id)}
+
+
 @app.post("/api/jobs/current/cancel")
 async def cancel_current_job() -> dict:
     stopped = await jobs.cancel_current()

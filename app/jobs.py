@@ -1118,6 +1118,44 @@ async def cancel_lyrics(record: dict) -> None:
             await ENGINE.cancel(CURRENT["prompt_id"])
 
 
+async def cancel_waiting(kind: str, ref_id: str) -> bool:
+    """Take back a job still waiting for the GPU.  The worker skips anything no longer
+    'queued', so this only changes the state.  An analysis or a transcription goes back
+    to what it was before, so cancelling a re-run keeps the earlier result; a take is
+    cancelled as it is from its own card."""
+    if kind in IDENTITY_FIELDS:
+        field = IDENTITY_FIELDS[kind]
+        song = identity_song(ref_id)
+        if not song or song[field] != "queued":
+            return False
+        had = (song.get("key") or song.get("tempo")) if field == "score_state" else song.get("style_hint")
+        set_song(ref_id, **{field: "done" if had else "none"})
+        log.info("Cancelled waiting %s for corpus song '%s'", kind, song.get("title") or ref_id)
+        return True
+    if kind == "lyrics":
+        record = LYRICS.get(ref_id)
+        if not record or record["status"] != "queued":
+            return False
+        await cancel_lyrics(record)
+        return True
+    if kind == "transcribe":
+        source = one("SELECT title, abc FROM sources WHERE id = ? AND transcribe_state = 'queued'", (ref_id,))
+        if not source:
+            return False
+        state = "done" if (source["abc"] or "").strip() else "none"
+        execute("UPDATE sources SET transcribe_state = ?, transcribe_error = NULL WHERE id = ? AND transcribe_state = 'queued'",
+                (state, ref_id))
+        log.info("Cancelled waiting transcription for source '%s'", source["title"] or ref_id)
+        return True
+    if kind in ("render", "plan"):
+        take = one("SELECT * FROM takes WHERE id = ?", (ref_id,))
+        if not take or take["status"] != "queued":
+            return False
+        await cancel_take(take)
+        return True
+    return False
+
+
 def waiting_jobs() -> list[dict]:
     """App jobs not yet sent to the engine, in the order the worker will take them."""
     return list(QUEUE._queue)   # asyncio.Queue keeps its items in a deque

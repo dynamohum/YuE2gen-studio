@@ -1211,7 +1211,8 @@ function refreshTitleHint() {
   $('title').placeholder = guess ? 'Leave blank to use: ' + guess : 'Leave blank and the first lyric line is used';
 }
 
-var JOB_KINDS = { render: 'Render', plan: 'Score plan', transcribe: 'Transcription', lyrics: 'Lyrics', text: 'Text generation', train: 'LoRA training', other: 'Engine job' };
+var JOB_KINDS = { render: 'Render', plan: 'Score plan', transcribe: 'Transcription', lyrics: 'Lyrics', text: 'Text generation', train: 'LoRA training', other: 'Engine job',
+  identity_score: 'Corpus analysis', identity_style: 'Corpus analysis', persona_score: 'Corpus analysis', persona_style: 'Corpus analysis' };
 
 /* While a LoRA trains it holds the GPU — 12.5 GB of 16, measured — so everything
    else that would ask for the card is disabled rather than left to fail. The server
@@ -1267,7 +1268,8 @@ function paintJob(current, queue, options) {
   var head = queue[0] && queue[0].state === 'running' ? queue[0] : null;
   var mineRunning = current && head && !head.outside && head.id === current.id;
   var titles = { render: 'Rendering your song', plan: 'Writing the score plan', transcribe: 'Transcribing the recording',
-    lyrics: 'Writing lyrics', train: 'Training the LoRA' };
+    lyrics: 'Writing lyrics', train: 'Training the LoRA', identity_score: 'Analysing a corpus song',
+    identity_style: 'Analysing a corpus song', persona_score: 'Analysing a corpus song', persona_style: 'Analysing a corpus song' };
   // Only the render has an average, measured from this machine's own history.
   // The others show the time they have taken and claim nothing about the rest.
   var average = function (kind) {
@@ -1310,7 +1312,12 @@ function paintJob(current, queue, options) {
   }
   $('job-next').classList.toggle('hidden', !rest.length);
   var html = rest.map(function (item) {
-    return '<li><span class="q-what">' + queueWhat(item) + '</span><span class="q-when">' + esc(queueWhen(item)) + '</span></li>';
+    // Only the app's own jobs that have not started can be taken back here; the one
+    // running has the card's stop, and a job from outside the app is not ours.
+    var cancel = item.state === 'waiting' && !item.outside && item.id
+      ? '<button class="link q-cancel" data-kind="' + esc(item.kind) + '" data-id="' + esc(item.id) + '" title="Take this job out of the queue">cancel</button>'
+      : '';
+    return '<li><span class="q-what">' + queueWhat(item) + '</span><span class="q-when">' + esc(queueWhen(item)) + '</span>' + cancel + '</li>';
   }).join('');
   if ($('job-queue').dataset.html !== html) {
     $('job-queue').innerHTML = html;
@@ -5791,6 +5798,18 @@ function wire() {
       if (createButton) { createButton.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
     }
   }
+
+  $('job-queue').addEventListener('click', function (event) {
+    var button = event.target.closest('.q-cancel');
+    if (!button) { return; }
+    button.disabled = true;
+    api('/api/queue/' + encodeURIComponent(button.dataset.kind) + '/' + encodeURIComponent(button.dataset.id) + '/cancel', { method: 'POST' })
+      .then(function () { loadTakes(); pollState(); })
+      .catch(function (err) {
+        button.disabled = false;
+        statusLine('Could not cancel the job: ' + err.message, 'bad');
+      });
+  });
 
   $('job-stop').addEventListener('click', function () {
     api('/api/jobs/current/cancel', { method: 'POST' }).then(loadTakes).catch(function (err) {

@@ -886,6 +886,7 @@ label .lora-value:disabled { opacity: 0.6; }
 .job-queue .q-kind { font-weight: 600; }
 .job-queue .q-outside { color: var(--muted); font-style: italic; }
 .job-queue .q-when { color: var(--muted); flex: 0 0 auto; }
+.job-queue .q-cancel { flex: 0 0 auto; font-size: 12px; }
 
 /* ---------- player ---------- */
 .player {
