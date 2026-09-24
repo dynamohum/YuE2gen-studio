@@ -1331,10 +1331,10 @@ async def replan_take(take_id: str, body: ReplanIn | None = None) -> dict:
 def _base_title(title: str) -> str:
     """'Night drive · Tight' -> 'Night drive', so a variation of a variation is not 'X · Tight · Loose'."""
     head, sep, tail = title.rpartition(" \u00b7 ")
-    return head if sep and (tail in INTERPRETATION_NAMES.values() or tail == "new voice") else title
+    return head if sep and (tail in INTERPRETATION_NAMES.values() or tail in ("new voice", "sung again")) else title
 
 
-# What a new voice leaves behind: the copy is a new take with its own audio and state.
+# What Sing again leaves behind: the copy is a new take with its own audio and state.
 _REVOICE_FRESH = {"id", "title", "status", "stage", "error", "audio_path", "duration", "prompt_id", "created_at",
                   "finished_at", "elapsed", "favourite", "vocal_check", "loudness", "sound_seed"}
 
@@ -1356,12 +1356,12 @@ async def revoice(take_id: str) -> dict:
     _checkpoint()
     record = {key: value for key, value in take.items() if key not in _REVOICE_FRESH}
     seed = int.from_bytes(os.urandom(4), "big")
-    record.update(id=uuid.uuid4().hex[:12], title=f"{_base_title(take['title'])} \u00b7 new voice",
+    record.update(id=uuid.uuid4().hex[:12], title=f"{_base_title(take['title'])} \u00b7 sung again",
                   status="queued", created_at=time.time(), checkpoint=config.CHECKPOINT, seed=seed, sound_seed=None)
     columns = list(record)
     execute(f"INSERT INTO takes({', '.join(columns)}) VALUES({', '.join(':' + c for c in columns)})", record)
     await QUEUE.put({"kind": "render", "id": record["id"]})
-    log.info("Queued a new voice for take '%s' (%s -> %s, seed %d)", take.get("title") or take_id,
+    log.info("Queued Sing again for take '%s' (%s -> %s, seed %d)", take.get("title") or take_id,
              take_id, record["id"], seed)
     return {"id": record["id"], "title": record["title"], "seed": seed}
 

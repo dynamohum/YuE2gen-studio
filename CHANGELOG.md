@@ -27,10 +27,11 @@ cannot creep back in.
 
 ### New
 
-- **New voice.** A mic icon in each take's corner sings the same score again with a new seed, as a
-  new take beside the original. The melody, chords and words stay; the voice and the backing are
-  drawn afresh. Useful for keeping a take you like while trying other voices, or for finding the
-  voice again after changing the length, which re-sings the song.
+- **Sing again.** A mic icon in each take's corner sings the same score again with a new seed, as a
+  new take beside the original. The melody, chords and words stay; the performance is drawn afresh,
+  so the backing and the voice can both change. With a style LoRA the voice usually stays close;
+  press again to try another. Useful for keeping a song you like while trying for a better take of
+  it, including at a longer length.
 - **The Style LoRA list folds by group.** Click a heading to open or close it; the picker
   remembers which groups you left open, and the group holding the current LoRA opens with it.
 - **Buttons instead of underlined links** in the left panel: Rescan, Download, Install, Delete,

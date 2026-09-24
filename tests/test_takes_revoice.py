@@ -1,4 +1,4 @@
-"""New voice: a copy of a take with the same score and a new seed."""
+"""Sing again: a copy of a take with the same score and a new seed."""
 import time
 
 from app.db import execute, one
@@ -25,7 +25,7 @@ def test_a_new_voice_sings_the_same_score_with_a_new_seed(client, monkeypatch):
     made = client.post("/api/takes/orig1/revoice")
     assert made.status_code == 200, made.text
     copy = one("SELECT * FROM takes WHERE id = ?", (made.json()["id"],))
-    assert copy["title"] == "good1 \u00b7 new voice"
+    assert copy["title"] == "good1 \u00b7 sung again"
     assert copy["abc"] == ABC, "the same score"
     assert copy["seed"] == made.json()["seed"] and copy["seed"] != 1747519420, "a new seed"
     assert copy["sound_seed"] is None, "the sound follows the new seed"

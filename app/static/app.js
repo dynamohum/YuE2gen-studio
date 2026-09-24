@@ -4235,8 +4235,8 @@ function paintTakes() {
         // Occasional, so small corner buttons rather than tiles in an already full row.
         '<div class="take-corner">' +
           (take.abc && take.abc.length > 50 && status !== 'queued' && status !== 'running'
-            ? '<button class="take-move" data-act="revoice"' + id + ' title="New voice: the same score, sung again with a new seed"' +
-              ' aria-label="New voice">' + icon('voice') + '</button>' +
+            ? '<button class="take-move" data-act="revoice"' + id + ' title="Sing again: the same score with a new seed. The backing and phrasing come out new; with a style LoRA the voice usually stays close"' +
+              ' aria-label="Sing again">' + icon('voice') + '</button>' +
               '<button class="take-move" data-act="variations"' + id + ' title="Variations: render this score in other interpretations"' +
               ' aria-label="Variations">' + icon('variations') + '</button>'
             : '') +
