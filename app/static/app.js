@@ -359,6 +359,7 @@ function paintStyleLoras() {
     if (item && item.trigger) { State.loraTrigger = item.trigger; }
   }
   paintStyleLoraStrengths();
+  paintLoraPicker();
 }
 
 /* A note is written for a web page, so it arrives with emphasis and code
@@ -403,7 +404,95 @@ function loraTrainedHere(name) {
   return Boolean(name && corpusLoras()[name]);
 }
 
+/* ------------------------------------------------------ Style LoRA picker
+   The select stays the source of truth: every path that sets or reads the style
+   LoRA goes through it, and this draws its groups as a menu that folds.  Which groups
+   are open is remembered in the browser.  If drawing fails, the select is left in
+   view and works as it always did. */
+var LORA_OPEN_KEY = 'yue2.lora-groups';
+
+function loraOpenGroups() {
+  try { return JSON.parse(localStorage.getItem(LORA_OPEN_KEY) || '[]') || []; } catch (err) { return []; }
+}
+
+function saveLoraOpenGroups(list) {
+  try { localStorage.setItem(LORA_OPEN_KEY, JSON.stringify(list)); } catch (err) { /* private mode */ }
+}
+
+function chosenLoraGroup() {
+  var select = $('style-lora');
+  var option = select && select.options[select.selectedIndex];
+  return option && option.parentNode && option.parentNode.tagName === 'OPTGROUP' ? option.parentNode.label : null;
+}
+
+function paintLoraPicker() {
+  var select = $('style-lora');
+  var picker = $('lora-picker');
+  var menu = $('lora-picker-menu');
+  if (!select || !picker || !menu) { return; }
+  try {
+    var chosen = select.value;
+    var current = select.options[select.selectedIndex];
+    $('lora-picker-label').textContent = current ? current.textContent : 'None';
+    var open = loraOpenGroups();
+    var entry = function (option, flat) {
+      return '<div class="source-picker-item lora-item' + (flat ? ' flat' : '') + (option.value === chosen ? ' selected' : '') +
+        '" role="option" data-value="' + esc(option.value) + '" title="' + esc(option.title || '') + '">' +
+        '<span class="source-item-title">' + esc(option.textContent) + '</span></div>';
+    };
+    var html = '';
+    Array.prototype.forEach.call(select.children, function (child) {
+      if (child.tagName !== 'OPTGROUP') { html += entry(child, true); return; }
+      var isOpen = open.indexOf(child.label) >= 0;
+      html += '<div class="lora-group" role="button" aria-expanded="' + isOpen + '" data-group="' + esc(child.label) + '">' +
+        '<span class="fold">' + (isOpen ? '\u25BE' : '\u25B8') + '</span><span>' + esc(child.label) + '</span>' +
+        '<span class="count">' + child.children.length + '</span></div>';
+      if (isOpen) { Array.prototype.forEach.call(child.children, function (option) { html += entry(option, false); }); }
+    });
+    // The state poll repaints every few seconds; an unchanged menu is left alone so
+    // it does not jump under the pointer.
+    if (menu.dataset.html !== html) { menu.innerHTML = html; menu.dataset.html = html; }
+    select.classList.add('hidden');
+    picker.classList.remove('hidden');
+  } catch (err) {
+    select.classList.remove('hidden');
+    picker.classList.add('hidden');
+  }
+}
+
+function openLoraPicker() {
+  var menu = $('lora-picker-menu');
+  var btn = $('lora-picker-btn');
+  // The group holding the current choice opens with the menu, so it is never hidden.
+  var group = chosenLoraGroup();
+  var open = loraOpenGroups();
+  if (group && open.indexOf(group) < 0) { open.push(group); saveLoraOpenGroups(open); }
+  paintLoraPicker();
+  // It sits near the bottom of the column, so it opens whichever way has the room.
+  var box = btn.getBoundingClientRect();
+  var panel = btn.closest('.panel');
+  var bounds = panel ? panel.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
+  var below = Math.min(bounds.bottom, window.innerHeight) - box.bottom;
+  var above = box.top - Math.max(bounds.top, 0);
+  var up = above > below;
+  menu.classList.toggle('up', up);
+  menu.style.maxHeight = Math.max(160, Math.min(360, (up ? above : below) - 12)) + 'px';
+  menu.classList.remove('hidden');
+  btn.setAttribute('aria-expanded', 'true');
+  var selected = menu.querySelector('.selected');
+  if (selected) { selected.scrollIntoView({ block: 'nearest' }); }
+}
+
+function closeLoraPicker() {
+  var menu = $('lora-picker-menu');
+  var btn = $('lora-picker-btn');
+  if (!menu || !btn) { return; }
+  menu.classList.add('hidden');
+  btn.setAttribute('aria-expanded', 'false');
+}
+
 function paintStyleLoraNote() {
+  paintLoraPicker();
   var item = loraChosen();
   var download = $('lora-download');
   if (download) {
@@ -5364,6 +5453,31 @@ function wire() {
     if (!event.target.closest('#source-picker')) {
       closeSourcePicker();
     }
+    if (!event.target.closest('#lora-picker')) { closeLoraPicker(); }
+  });
+  $('lora-picker-btn').addEventListener('click', function () {
+    if ($('lora-picker-menu').classList.contains('hidden')) { openLoraPicker(); } else { closeLoraPicker(); }
+  });
+  $('lora-picker-menu').addEventListener('click', function (event) {
+    // Folding redraws the menu, which detaches the heading clicked; left to bubble, the
+    // outside-click check above would no longer find it inside and close the menu.
+    event.stopPropagation();
+    var group = event.target.closest('.lora-group');
+    if (group) {
+      var name = group.dataset.group;
+      var open = loraOpenGroups();
+      var at = open.indexOf(name);
+      if (at >= 0) { open.splice(at, 1); } else { open.push(name); }
+      saveLoraOpenGroups(open);
+      paintLoraPicker();
+      return;
+    }
+    var entry = event.target.closest('.lora-item');
+    if (entry) {
+      closeLoraPicker();
+      $('style-lora').value = entry.dataset.value;
+      $('style-lora').dispatchEvent(new Event('change', { bubbles: true }));
+    }
   });
   $('start-fresh').addEventListener('click', startFresh);
   wireCorporaBadge(corporaBadge());
@@ -5780,6 +5894,7 @@ function wire() {
   });
   document.addEventListener('keydown', function (event) {
     if (event.key === 'Escape' && $('source-picker-menu') && !$('source-picker-menu').classList.contains('hidden')) { closeSourcePicker(); return; }
+    if (event.key === 'Escape' && $('lora-picker-menu') && !$('lora-picker-menu').classList.contains('hidden')) { closeLoraPicker(); return; }
     if (event.key === 'Escape' && $('brand-menu') && !$('brand-menu').classList.contains('hidden')) { closeBrandMenu(); return; }
     if (event.key === 'Escape' && !$('sung-modal').classList.contains('hidden')) { closeSungWarning(); return; }
     if (event.key === 'Escape' && !$('move-modal').classList.contains('hidden')) { closeMoveModal(); return; }

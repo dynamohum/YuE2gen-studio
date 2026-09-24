@@ -235,6 +235,15 @@
     <div class="field hidden" id="style-lora-field" style="margin-top:10px">
       <label for="style-lora">Style LoRA</label>
       <select id="style-lora"><option value="">None</option></select>
+      <!-- Folding groups over the select above, which stays the source of truth. Shown only
+           once it has drawn; if it fails, the select stays in view and works as before. -->
+      <div class="source-picker lora-picker hidden" id="lora-picker">
+        <button type="button" class="source-picker-btn" id="lora-picker-btn" aria-haspopup="listbox" aria-expanded="false">
+          <span id="lora-picker-label" class="source-picker-label">None</span>
+          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+        </button>
+        <div id="lora-picker-menu" class="source-picker-menu lora-picker-menu hidden" role="listbox"></div>
+      </div>
       <div class="grid2 hidden" id="style-lora-strengths">
         <div class="field">
           <label for="style-lora-clip">Planner

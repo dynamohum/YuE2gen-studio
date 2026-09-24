@@ -331,6 +331,9 @@ deleted. You will see the word appear in the Style box — it is yours to edit o
 
 ### Descriptions
 
+The list is grouped by set. Click a heading to open or fold it; the picker remembers which you
+left open, and the group holding your current choice always opens with it.
+
 Hover any entry to read what it is, in its author's words, with their suggested strengths. Those
 descriptions come from a text file beside the LoRA:
 
