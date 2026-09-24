@@ -1,0 +1,3 @@
+#!/bin/sh
+# Refuse a commit that carries a key. See tools/check_secrets.py.
+exec python3 "$(git rev-parse --show-toplevel)/tools/check_secrets.py"

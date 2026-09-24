@@ -29,10 +29,11 @@ creates takes, so delete them afterwards.
 
 ## Keys never go into git
 
-Run `sh tools/install-hooks.sh` once in each checkout. It installs a pre-commit hook that refuses
-a commit carrying a key: any key stored in this install's settings (even in part, and whatever its
+Run `sh tools/install-hooks.sh` once in each checkout. It points git at `tools/git-hooks`, whose
+pre-commit hook refuses a commit carrying a key: any key stored in this install's settings (even in part, and whatever its
 format), or anything shaped like a Google, OpenAI, Anthropic, GitHub or Hugging Face key or a
-private key. `python3 tools/check_secrets.py --all` checks every file in the whole history. GitHub's
+private key. The pre-push hook runs the same check over the whole history before anything goes to GitHub, and
+`python3 tools/check_secrets.py --all` runs it by hand. GitHub's
 secret scanning and push protection are on for the public repository as a second line.
 
 ## Commit messages

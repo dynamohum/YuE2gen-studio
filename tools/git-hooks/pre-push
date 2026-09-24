@@ -1,5 +1,5 @@
 #!/bin/sh
-# Refuse a push to GitHub that would carry a PDF in the top-level folder.  Pushes
+# Refuse a push to GitHub that would carry a PDF in the top-level folder, or a key.  Pushes
 # to any other remote, such as the author's own server, are not checked.  Every
 # commit being pushed is checked, not only the newest, so a PDF added and later
 # deleted is still caught.  Enabled with:
@@ -34,5 +34,13 @@ done
 
 if [ "$status" -ne 0 ]; then
   echo "pre-push: push refused. Remove the PDF from those commits first." >&2
+  exit $status
 fi
-exit $status
+
+# And no key, anywhere in the history being published: a second line behind the
+# pre-commit check, for a commit made without it.
+if ! python3 "$(git rev-parse --show-toplevel)/tools/check_secrets.py" --all; then
+  echo "pre-push: push refused. A key is in the history; it must come out before this reaches GitHub." >&2
+  exit 1
+fi
+exit 0
