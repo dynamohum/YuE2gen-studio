@@ -23,6 +23,23 @@ Release notes live in two places and neither is a file in this repository: this 
 history, and each GitHub release holds its published notes. `RELEASE-NOTES-*.md` is ignored so it
 cannot creep back in.
 
+## 0.0.31 - 2026-09-24
+
+### What's new
+
+- **Normalise any take** with the speaker button at the top of its card, beside Sing again and
+  Variations. It shows on finished takes that are not yet normalised.
+- **A normalised take still says if it was weak as rendered:** *Weak render, normalised: try
+  another seed if it sounds thin*. Normalising raises the level and nothing else, so this is the
+  hint to listen. A take that sounds fine can be cleared with the **×** on the note; a new render
+  of it brings the check back.
+
+### Improved
+
+- **The All/Starred filter is kept across a reload**, like the layout.
+- **With the logs popped out, the Logs button brings that window forward** instead of opening the
+  panel as well.
+
 ## 0.0.30 - 2026-09-24
 
 ### Fixed
