@@ -96,7 +96,7 @@ function boxShowsSource(sourceId) {
   return false;
 }
 
-var State = { sources: [], takes: [], options: {}, filter: 'all', playing: null, busy: false, mode: 'cover',
+var State = { normalising: {}, sources: [], takes: [], options: {}, filter: 'all', playing: null, busy: false, mode: 'cover',
   layout: 'compact',
   takesRaw: '', takesTotal: 0, takeLimit: 300, takesAt: 0, paintedAt: 0, draft: null, audition: null,
   picked: {},
@@ -4262,6 +4262,10 @@ function paintTakes() {
       // audio is checked, so a spoiled take says so rather than puzzling you.
       live = '<button class="take-status sung" data-act="sung" data-id="' + take.id + '">singing in ' +
         Math.round(take.vocal_check * 100) + '% of this instrumental</button>';
+    } else if (State.normalising[take.id]) {
+      // Takes a few seconds, and the cards are redrawn meanwhile, so the state is
+      // kept here rather than on the button that was clicked.
+      live = '<div class="take-status working">Normalising\u2026</div>';
     } else if (weakRender(take)) {
       // A render that loses its footing comes out quiet from end to end, and
       // sounds thin or distorted. Another seed usually fixes it.
@@ -5728,7 +5732,10 @@ function wire() {
       loadTakes();
     }
     if (act === 'normalise') {
-      button.disabled = true;
+      if (State.normalising[id]) { return; }
+      State.normalising[id] = true;
+      paintTakes();
+      statusLine('Normalising\u2026');
       try {
         await api('/api/takes/' + id + '/normalise', { method: 'POST' });
         // The same take loaded in the player would carry on with the old file.
@@ -5737,8 +5744,9 @@ function wire() {
       } catch (err) {
         statusLine('Could not normalise the take: ' + err.message, 'bad');
       }
-      button.disabled = false;
-      loadTakes();
+      delete State.normalising[id];
+      await loadTakes();
+      paintTakes();   // an unchanged list is not redrawn, and the card must drop Normalising
       return;
     }
     if (act === 'sung') {
