@@ -177,6 +177,9 @@ def main() -> None:
         "HF_HOME": str(data / "models" / "whisper"),
         "TRAINING_ENABLED": "1",
         "PYTHONUTF8": "1",
+        # Windows without Developer Mode cannot make symlinks; the library copies instead
+        # and says so every time.
+        "HF_HUB_DISABLE_SYMLINKS_WARNING": "1",
     })
     app_log = LOGS / "app.log"
     app = subprocess.Popen(

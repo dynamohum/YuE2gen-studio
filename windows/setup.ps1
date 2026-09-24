@@ -364,6 +364,32 @@ if (-not $SkipModels) {
     }
 }
 
+# ------------------------------------------------------ the app's own models
+# Whisper (times the lyric lines of a cover) and demucs (separates the vocal) would
+# otherwise download the first time a cover or stems are made, and leave that first
+# go sitting on a 1.6 GB download.  Fetched with the app's own Python, by the same
+# calls the app makes, so they land where it looks.
+if (-not $SkipModels -and -not (IsDone 'app-models')) {
+    Step "The app's own models (lyric timing and stems)"
+    $dataDir = Join-Path $InstallDir 'data'
+    $ini = Join-Path $InstallDir 'settings.ini'
+    if (Test-Path $ini) {
+        $line = Get-Content $ini | Where-Object { $_ -match '^\s*data_dir\s*=\s*(.+?)\s*$' } | Select-Object -First 1
+        if ($line -and $Matches[1]) { $dataDir = $Matches[1] }
+    }
+    # As the launcher sets them for the app: demucs 4.1 fetches from Hugging Face, so
+    # its model goes where HF_HOME says, and Whisper is given its folder directly.
+    $env:TORCH_HOME = Join-Path $dataDir 'models\torch'
+    $env:HF_HOME = Join-Path $dataDir 'models\whisper'
+    $env:HF_HUB_DISABLE_SYMLINKS_WARNING = '1'
+    Say 'Whisper large-v3-turbo (about 1.6 GB)'
+    $whisperDir = Join-Path $dataDir 'models\whisper'
+    Invoke-Checked 'Whisper' $appPy @('-c', "from faster_whisper import download_model; download_model('large-v3-turbo', cache_dir=r'$whisperDir')")
+    Say 'demucs htdemucs (about 80 MB)'
+    Invoke-Checked 'demucs' $appPy @('-c', "from demucs.pretrained import get_model; get_model('htdemucs')")
+    Done 'app-models'
+}
+
 # -------------------------------------------------------------------- done
 # uv's download cache is only needed while installing.
 Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $env:UV_CACHE_DIR
