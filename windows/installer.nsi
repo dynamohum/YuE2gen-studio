@@ -20,17 +20,22 @@ Unicode true
   !define OUTFILE "YuE2Studio-Setup-${VERSION}.exe"
 !endif
 
-!ifndef SETUP_ARGS
-  !define SETUP_ARGS ""   ; a test build passes -SkipModels
+; A test build (setup given -SkipModels or -CheckOnly) has its own name, shortcuts and
+; uninstall entry, so trying it out on a PC with YuE2 Studio installed leaves that alone.
+!ifdef SETUP_ARGS
+  !define APPNAME "YuE2 Studio (test)"
+  !define REGNAME "YuE2StudioTest"
+!else
+  !define SETUP_ARGS ""
+  !define APPNAME "YuE2 Studio"
+  !define REGNAME "YuE2Studio"
 !endif
-
-!define APPNAME "YuE2 Studio"
-!define REGKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\YuE2Studio"
+!define REGKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${REGNAME}"
 
 Name "${APPNAME}"
 OutFile "${OUTFILE}"
-InstallDir "$LOCALAPPDATA\Programs\YuE2Studio"   ; where per-user programs go (VS Code, Discord)
-InstallDirRegKey HKCU "Software\YuE2Studio" "InstallDir"
+InstallDir "$LOCALAPPDATA\Programs\${REGNAME}"   ; where per-user programs go (VS Code, Discord)
+InstallDirRegKey HKCU "Software\${REGNAME}" "InstallDir"
 RequestExecutionLevel user
 SetCompressor /SOLID lzma
 BrandingText "${APPNAME} ${VERSION}"
@@ -47,7 +52,7 @@ VIAddVersionKey "LegalCopyright" "Apache License 2.0"
 !define MUI_ABORTWARNING
 
 !define MUI_WELCOMEPAGE_TITLE "Install ${APPNAME}"
-!define MUI_WELCOMEPAGE_TEXT "${APPNAME} writes and covers songs with the YuE2 music model, on this PC.$\r$\n$\r$\nThis installer is small. It checks that this PC can run YuE2 (an NVIDIA RTX 30-series card or newer), then downloads the rest from each part's publisher: about 22 GB, most of it the models. A download that breaks off carries on where it stopped when you run the installer again.$\r$\n$\r$\nYou need about 40 GB of free space."
+!define MUI_WELCOMEPAGE_TEXT "${APPNAME} writes and covers songs with the YuE2 music model, on this PC.$\r$\n$\r$\nThis installer is small. It checks that this PC can run YuE2 (an NVIDIA RTX 30-series card or newer), then downloads the rest from each part's publisher: about 24 GB, most of it the models. A download that breaks off carries on where it stopped when you run the installer again.$\r$\n$\r$\nA separate window shows the setup's progress; it may open behind this one.$\r$\n$\r$\nYou need about 40 GB of free space."
 !insertmacro MUI_PAGE_WELCOME
 !define MUI_LICENSEPAGE_TEXT_TOP "Each part is used under its own terms."
 !insertmacro MUI_PAGE_LICENSE "${STAGE}\terms.txt"
@@ -109,7 +114,7 @@ Section "${APPNAME}" SecCore
   File "${STAGE}\LICENSE"
   File "${STAGE}\THIRD_PARTY_NOTICES.md"
   File "${STAGE}\terms.txt"
-  WriteRegStr HKCU "Software\YuE2Studio" "InstallDir" "$INSTDIR"
+  WriteRegStr HKCU "Software\${REGNAME}" "InstallDir" "$INSTDIR"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
   WriteRegStr HKCU "${REGKEY}" "DisplayName" "${APPNAME}"
   WriteRegStr HKCU "${REGKEY}" "DisplayVersion" "${VERSION}"
@@ -135,7 +140,8 @@ Section "-Setup"
   ${Else}
     StrCpy $1 "-NoLyrics"
   ${EndIf}
-  DetailPrint "Setting up: a window shows the progress. This takes a while."
+  DetailPrint "Setting up. Its progress is in a separate window, which may be behind this one."
+  DetailPrint "This takes a while: about 24 GB to download."
   ExecWait '"$PowerShell" -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\setup.ps1" -InstallDir "$INSTDIR" $1 ${SETUP_ARGS}' $0
   ${If} $0 != 0
     MessageBox MB_ICONSTOP "Setup did not finish.$\r$\n$\r$\nThe details are in $INSTDIR\logs\install.log. Run this installer again to carry on from where it stopped." /SD IDOK
@@ -162,7 +168,7 @@ Section "Uninstall"
   Delete "$DESKTOP\${APPNAME}.lnk"
   RMDir /r "$SMPROGRAMS\${APPNAME}"
   DeleteRegKey HKCU "${REGKEY}"
-  DeleteRegKey HKCU "Software\YuE2Studio"
+  DeleteRegKey HKCU "Software\${REGNAME}"
 
   MessageBox MB_YESNO|MB_ICONQUESTION "Keep your library (songs, takes and corpora) and the downloaded models (about 18 GB), so installing again does not download them again?" /SD IDYES IDYES keep
     RMDir /r "$INSTDIR"

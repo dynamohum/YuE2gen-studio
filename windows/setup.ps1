@@ -111,7 +111,7 @@ function Get-Verified($spec, [string]$dest) {
     if ((Test-Path $dest) -and (Test-Path $ok)) { return }
     $part = "$dest.part"
     if (-not (Test-Path $dest)) {
-        Say ("Downloading {0} ({1:N0} MB)" -f (Split-Path $dest -Leaf), ($spec.Size / 1MB))
+        Say ("Downloading {0} ({1:N0} MB)" -f (Split-Path $dest -Leaf), ($spec.Size / 1e6))
         for ($try = 1; $try -le 6; $try++) {
             & curl.exe -L --fail --retry 5 -C - -# -o $part $spec.Url
             if ($LASTEXITCODE -eq 0) { break }
@@ -217,13 +217,14 @@ if ($ramGB -lt 15) { [void]$warnings.Add("This PC has $ramGB GB of memory; 16 GB
 
 # Room for what is still to come: the missing models, plus about 12 GB for the engine,
 # the app and the downloads while they unpack.
-$needBytes = 12GB
+# Sizes are shown in thousands, as the installer's own pages and download sites count.
+$needBytes = 14e9   # the engine, the app, Whisper and demucs, and room to unpack
 foreach ($m in $ModelFiles) { if (-not (Test-Path (Join-Path (Join-Path $Models $m.Dir) $m.File))) { $needBytes += $m.Size } }
-if ($SkipModels) { $needBytes = 12GB }
+if ($SkipModels) { $needBytes = 12e9 }
 $drive = (Get-Item $InstallDir).PSDrive
-$freeGB = [math]::Round($drive.Free / 1GB, 1)
-Say ("Free space on {0}: {1} GB (needed: about {2} GB)" -f $drive.Name, $freeGB, [math]::Ceiling($needBytes / 1GB))
-if ($drive.Free -lt $needBytes) { [void]$problems.Add("Not enough free space on $($drive.Name): about $([math]::Ceiling($needBytes / 1GB)) GB is needed.") }
+$freeGB = [math]::Round($drive.Free / 1e9, 1)
+Say ("Free space on {0}: {1} GB (needed: about {2} GB)" -f $drive.Name, $freeGB, [math]::Ceiling($needBytes / 1e9))
+if ($drive.Free -lt $needBytes) { [void]$problems.Add("Not enough free space on $($drive.Name): about $([math]::Ceiling($needBytes / 1e9)) GB is needed.") }
 
 if ($InstallDir.Length -gt 60) { [void]$warnings.Add("The install folder's path is long ($($InstallDir.Length) characters); a shorter one avoids Windows' path length limit.") }
 
@@ -356,7 +357,7 @@ if (-not $SkipModels) {
     Step 'The models (the long part)'
     $total = 0
     foreach ($m in $ModelFiles) { $total += $m.Size }
-    Say ("{0} files, {1:N1} GB in all. Downloads resume if they break off." -f $ModelFiles.Count, ($total / 1GB))
+    Say ("{0} files, {1:N1} GB in all. Downloads resume if they break off." -f $ModelFiles.Count, ($total / 1e9))
     foreach ($m in $ModelFiles) {
         Say ''
         Say $m.Name 'White'

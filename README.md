@@ -11,9 +11,12 @@ then pull the stems out of the result.
 - **Lyrics:** draft them from a sentence, or extract them from a recording.
 - **Stems:** split any take into vocals, drums, bass and more.
 - **A library:** spaces, stars, and every take's settings kept so it can be made again.
+- **Windows without Docker:** an installer that sets it all up natively, for people who would
+  rather not use Docker. [It is new, and being tested](#on-windows-without-docker).
 
-Everything runs in two containers on one machine. No cloud and no accounts; an external LLM for
-lyrics is optional.
+Everything runs on one machine, in two parts: the app and the engine. With Docker they are two
+containers; the Windows installer runs the same two natively. No cloud and no accounts; an
+external LLM for lyrics is optional.
 
     browser  ->  app  (this project)                 http://localhost:8090
                    |
@@ -128,6 +131,52 @@ through it.
 It is on by default. `TRAINING_ENABLED: "0"` on the app takes it out, and `WITH_TRAINER=0` leaves
 the trainer out of the engine image.
 
+## On Windows, without Docker
+
+**A first version, being tested.** A small installer sets YuE2 Studio up natively on Windows.
+It needs no Docker, no WSL and no administrator rights.
+
+**You need:**
+
+- Windows 10 22H2 or Windows 11, 64-bit.
+- An NVIDIA graphics card, RTX 30-series or newer, with a recent driver. 12 GB of video memory is
+  recommended, and 8 GB works. AMD and Intel graphics are not supported.
+- 16 GB of RAM and about 40 GB of free disk.
+- An internet connection for about 24 GB of downloads, most of it the models.
+
+The installer checks all of this before it downloads anything.
+
+**Installing:**
+
+1. **Download** `YuE2Studio-Setup-<version>.exe` from the
+   [latest release](https://github.com/dynamohum/YuE2gen-studio/releases/latest).
+2. **Run it.** The installer is not signed yet, so Windows may say *Windows protected your PC*.
+   Choose *More info*, then *Run anyway*.
+3. **Choose your options:**
+   - Accept the terms.
+   - Choose whether to include **Lyric drafts (Gemma 4)**. Leave it out if you will set up an
+     external LLM; that saves an 8 GB download.
+   - Keep or change the folder. The default is `%LOCALAPPDATA%\Programs\YuE2Studio`.
+4. **Wait for setup.** A setup window checks the PC, then downloads each part from its own
+   publisher and checks it against its published checksum. The window may open behind the
+   installer. If a download breaks off, run the installer again: it carries on from where it
+   stopped.
+5. **Start YuE2 Studio** from the Start menu or the desktop. A small window starts the engine and
+   the app, then opens http://localhost:8090 in your browser. Closing that window stops them.
+
+**Updating:** run a newer installer over the top. It keeps the models and your library, and
+fetches only what has changed.
+
+**Uninstalling:** use *Settings → Apps*. It asks whether to keep your library and the models, so
+a reinstall does not download them again.
+
+**If something goes wrong:**
+- **Logs:** the `logs` folder inside the install folder holds `install.log`, `engine.log` and
+  `app.log`.
+- **Repair:** *Repair YuE2 Studio* in the Start menu runs the setup again.
+- **Docker at the same time:** a Docker copy of YuE2 Studio uses the same ports and the same GPU,
+  so stop one before starting the other.
+
 ## Requirements
 
 - An NVIDIA GPU with 12 GB of VRAM or more is recommended, with 16 GB of system RAM. An 8 GB card
@@ -136,7 +185,8 @@ the trainer out of the engine image.
 - Docker with the NVIDIA container toolkit, so containers can see the GPU.
 - About 35 GB of disk: 15 GB of images, 17 GB of models, and room for your songs.
 - Linux, or Windows with WSL2 or Docker Desktop. WSL2 is what this was built on; Windows with
-  Docker Desktop needs a few settings, below.
+  Docker Desktop needs a few settings, below. On Windows, [the installer](#on-windows-without-docker)
+  needs none of this.
 
 ## Quick start
 

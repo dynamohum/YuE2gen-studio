@@ -23,6 +23,34 @@ Release notes live in two places and neither is a file in this repository: this 
 history, and each GitHub release holds its published notes. `RELEASE-NOTES-*.md` is ignored so it
 cannot creep back in.
 
+## 0.0.33 - 2026-09-24
+
+### What's new
+
+- **A Windows installer that needs no Docker** (first version, being tested). A small installer
+  checks the PC, then downloads each part from its own publisher and sets YuE2 Studio up natively.
+  It needs no WSL and no administrator rights, and downloads resume if they break off. It is
+  attached to this release as `YuE2Studio-Setup-0.0.33.exe`; see *On Windows, without Docker* in
+  the README.
+- **Stems default to FLAC**: lossless, about half the size of WAV, and the format takes are
+  already saved in. WAV and MP3 are still in Settings, and a format you have already chosen is
+  kept.
+
+### Fixed
+
+- **Asking for stems no longer comes back as an error.** The stems were made, but the request was
+  answered with an error, since 0.0.14.
+- **The Vocal chips follow the style text.** A style that said "female" somewhere other than the
+  chips' own phrase (a learned style's "intimate female lead vocals", say) kept Female lit
+  whichever chip was clicked. Switching away from Duet also left scraps ("male and") behind, and
+  those could tip the model to the wrong voice. The chips now change the voice words where they
+  are, and clear old scraps.
+- **Normalising writes a louder copy beside the take** instead of replacing its file, so a take
+  that is playing, or open in another program, no longer blocks it. Takes normalised by 0.0.29 to
+  0.0.32 are converted when the app starts.
+- **Corpus style analysis without Gemma or an external LLM** now says what it needs, instead of
+  failing with an engine error.
+
 ## 0.0.32 - 2026-09-24
 
 ### Fixed
