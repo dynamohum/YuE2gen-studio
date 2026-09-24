@@ -3968,8 +3968,13 @@ function stemsBlock(take) {
    take calls this first, so the panel always describes the take you just touched. */
 function selectTake(take) {
   if (!take) { return; }
-  // Words typed over the take on show count too: clicking that same card again loads
-  // the take's own words, and without this the edit was lost with nothing to restore.
+  // The take already on show, with words typed over it: leave the form as it is. Play,
+  // Score and the other buttons on a card select their take first, and reloading it
+  // here threw the edit away in favour of words that were already there.
+  if (take.id === selectedTakeId() && formIsDraft()) {
+    paintTakeHighlights();
+    return;
+  }
   if (formIsDraft()) { stashDraft(); }
   // Songs and instrumentals are both written from a prompt; only a cover has a recording.
   var isInst = take.kind === 'instrumental';
