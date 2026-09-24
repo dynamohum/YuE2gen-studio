@@ -71,7 +71,7 @@ a, .link {
 /* ---------- top bar ---------- */
 .topbar {
   position: sticky; top: 0; z-index: 20;
-  display: flex; align-items: center; justify-content: space-between;
+  display: flex; align-items: flex-start; justify-content: space-between;
   padding: 14px 22px;
   background: rgba(8, 8, 11, 0.82);
   backdrop-filter: blur(14px);
@@ -271,6 +271,10 @@ textarea.lyrics { min-height: 200px; font-family: ui-monospace, SFMono-Regular, 
 
 /* ---------------------------------------------------------------- settings */
 .brand-wrap { position: relative; display: inline-flex; align-items: center; }
+/* The brand lines up with the first badge on the right, not the middle of the stack:
+   the top bar aligns to the top, and this box is one pill high, so the button (a
+   little taller, for its hover padding) centres on the Engine pill. */
+.topbar .brand-wrap { height: 31px; }
 .brand {
   display: flex; align-items: center; gap: 9px; font: inherit; font-size: 15px;
   color: var(--text); background: none; border: 0; padding: 6px 10px; margin-left: -10px;
