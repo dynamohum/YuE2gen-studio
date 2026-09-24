@@ -76,3 +76,4 @@ TODO.md
 # Local machine Docker compose overrides:
 compose.override.yml
 docker-compose.override.yml
+windows/dist/

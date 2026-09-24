@@ -113,3 +113,30 @@ def test_the_weak_note_on_a_normalised_take_can_be_dismissed(client, tmp_path):
     assert client.post(f"/api/takes/{take['id']}/weak/dismiss").json() == {"dismissed": True}
     assert one("SELECT weak_dismissed FROM takes WHERE id = ?", (take["id"],))["weak_dismissed"] == 1
     assert client.post("/api/takes/nosuch/weak/dismiss").status_code == 404
+
+
+def test_a_file_open_elsewhere_is_waited_for_then_reported(monkeypatch, tmp_path):
+    """Windows will not replace a file another program has open.  A player lets go in
+    a moment, so it is tried again; one that does not is reported as open."""
+    import pytest
+
+    from app import library
+
+    src, dest = tmp_path / "new.flac", tmp_path / "old.flac"
+    src.write_bytes(b"new")
+    dest.write_bytes(b"old")
+    real, refusals = library.os.replace, []
+
+    def busy_twice(a, b):
+        if len(refusals) < 2:
+            refusals.append(1)
+            raise PermissionError("in use")
+        real(a, b)
+    monkeypatch.setattr(library.os, "replace", busy_twice)
+    monkeypatch.setattr(library.time, "sleep", lambda s: None)
+    library.replace_file(src, dest)
+    assert dest.read_bytes() == b"new" and len(refusals) == 2
+
+    monkeypatch.setattr(library.os, "replace", lambda a, b: (_ for _ in ()).throw(PermissionError("in use")))
+    with pytest.raises(PermissionError):
+        library.replace_file(dest, tmp_path / "x.flac", tries=3)

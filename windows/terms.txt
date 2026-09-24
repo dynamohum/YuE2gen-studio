@@ -1,0 +1,32 @@
+YuE2 Studio is free software under the Apache License 2.0.
+
+This installer is small. When it runs, it downloads the rest from each part's own publisher
+and sets it up on this PC. Each part is used under its own terms:
+
+MODELS (downloaded from Hugging Face, about 18 GB)
+
+  YuE2-3B and SheetSage2, by HKUST M-A-P: CC BY-NC 4.0, with the YuE2 authors' creator
+  permission. Personal users, content creators and musicians may use YuE2 and monetise the
+  music they make with it, with no fees or royalties. Commercial companies need a licence
+  from the authors for the weights. Illegal, harmful, deceptive or unethical use is
+  excluded.
+
+  The Instrumental, Production polish and training LoRAs and packs, by Mothersuperior:
+  CC BY-NC 4.0.
+
+  Gemma 4 E4B (lyric drafts), by Google: Apache 2.0. Optional.
+
+SOFTWARE
+
+  ComfyUI (the engine), GPL-3.0, from github.com/Comfy-Org/ComfyUI.
+  FS_Audio Suite (LoRA training), by Make the Robot Do It: CC BY-NC 4.0.
+  Python, PyTorch, demucs, faster-whisper, ffmpeg, 7-Zip and uv, each under its own
+  licence.
+
+The full list, with links to each licence, is THIRD_PARTY_NOTICES.md in the install
+folder, and at github.com/dynamohum/YuE2gen-studio.
+
+Everything is provided as is, without warranty. You are responsible for what you put
+in and what you make with it.
+
+By continuing, you accept the terms of each part above.

@@ -151,6 +151,10 @@ SETTINGS_BY_KEY = {item["key"]: item for item in SETTINGS_SPEC}
 
 
 def setting_value(key: str) -> str:
+    # The stems folder follows the data folder, read now rather than when this module
+    # was first imported.
+    if key == "stems.folder":
+        return get_setting(key, None) or str(config.STEMS_DIR)
     return get_setting(key, None) or SETTINGS_BY_KEY[key]["default"]
 
 
@@ -2059,12 +2063,15 @@ async def normalise_take(take_id: str, undo: bool = False) -> dict:
         if undo:
             if not kept.exists():
                 raise HTTPException(409, "this take has not been normalised")
-            await asyncio.to_thread(os.replace, kept, audio)
+            await asyncio.to_thread(library.replace_file, kept, audio)
         else:
             await asyncio.to_thread(library.normalise, audio)
         # The kept file carries its old time, and the waveform is redrawn only for a
         # file newer than it.
         audio.touch()
+    except PermissionError as exc:
+        log.warning("Could not normalise take '%s': its file is open in another program (%s)", take["title"] or take_id, exc)
+        raise HTTPException(409, "its audio file is open in another program; close it and try again") from exc
     except (subprocess.SubprocessError, OSError, RuntimeError) as exc:
         log.warning("Could not normalise take '%s': %s", take["title"] or take_id, exc)
         raise HTTPException(500, "could not normalise this take") from exc

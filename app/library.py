@@ -8,6 +8,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 from . import config
@@ -186,6 +187,19 @@ NORMAL_LUFS = -14.0
 NORMAL_PEAK = -1.0
 
 
+def replace_file(src: Path, dest: Path, tries: int = 10) -> None:
+    """os.replace, waiting a moment when another program has the file open.  Windows
+    refuses to replace an open file; a player or an editor usually lets go soon."""
+    for attempt in range(tries):
+        try:
+            os.replace(src, dest)
+            return
+        except PermissionError:
+            if attempt == tries - 1:
+                raise
+            time.sleep(0.3)
+
+
 def original_path(audio: Path) -> Path:
     """Where a take's audio is kept as it was rendered, once it has been normalised."""
     return audio.with_name(f"{audio.stem}.original{audio.suffix}")
@@ -222,7 +236,7 @@ def normalise(audio: Path) -> None:
                         f":offset={measured['target_offset']}:linear=true",
                         "-ar", rate, "-c:a", "flac", str(staged)],
                        capture_output=True, text=True, timeout=300, check=True)
-        os.replace(staged, audio)
+        replace_file(staged, audio)
     finally:
         staged.unlink(missing_ok=True)
 
