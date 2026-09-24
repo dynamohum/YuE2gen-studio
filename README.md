@@ -152,7 +152,7 @@ These need a rebuild rather than a setting.
 
 | Build arg | Default | What it does |
 |---|---|---|
-| `WITH_TRAINER` | `1` | on the **engine** service. The LoRA trainer node pack; `0` leaves it out and the app hides Corpora. See Training a LoRA above |
+| `WITH_TRAINER` | `1` | on the **engine** service. Builds in the LoRA trainer; `0` leaves it out, and Corpora is hidden. See Training a LoRA above |
 | `FS_AUDIO_REF` | pinned commit | which commit of that pack to use, if it is included |
 | `COMFYUI_REF` | pinned commit | which commit of ComfyUI the engine is built from. See Contributing for how far it has drifted |
 
@@ -361,7 +361,7 @@ missing node or model shows in the header instead of failing a render.
 | `MAX_UPLOAD_MB` | `2048` | the largest recording you can upload, in megabytes. The engine has its own ceiling, `ENGINE_MAX_UPLOAD_MB` on the engine service, set to the same figure: raise both together |
 | `STEMS_THREADS` | half the CPUs | torch threads for the separation |
 | `STEMS_JOBS` | 4, or a quarter of the CPUs | demucs segments applied at once. One uses about 1.8 GB and 2.5x realtime, four uses 3.7 GB and 3.6x. The split setup's 2 GB cap needs this at 1, or the cap raised |
-| `TRAINING_ENABLED` | `1` | the corpus and LoRA-training workflow, all of it. `0` takes it out of the app. Training also needs the engine built with `WITH_TRAINER=1`, the default. See Training a LoRA |
+| `TRAINING_ENABLED` | `1` | corpora and LoRA training; `0` takes them out of the app. Training also needs `WITH_TRAINER` on the engine. See Training a LoRA |
 | `DATA_DIR` | `/data` | the library |
 
 ## Troubleshooting
