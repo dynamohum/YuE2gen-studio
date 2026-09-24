@@ -1617,7 +1617,9 @@ function setVocalSex(value) {
   var parts = $('style').value.split(',').map(function (part) { return part.trim(); }).filter(function (part) {
     // The chips' own phrases go; they are put back below if still wanted.
     return part && !/^(male|female)\s+(vocal|vocals|voice|voices)$/i.test(part) && !/^duet\b/i.test(part) &&
-      !/^male and female voices$/i.test(part);
+      !/^male and female voices$/i.test(part) &&
+      // Scraps of the duet phrase ("male and") that an earlier version left behind.
+      !/^((fe)?male|and|\s)+$/i.test(part);
   }).map(function (part) {
     if (value === 'male') { return part.replace(/\bfemale\b/gi, function (w) { return w[0] === 'F' ? 'Male' : 'male'; }); }
     if (value === 'female') { return part.replace(/\bmale\b/gi, function (w) { return w[0] === 'M' ? 'Female' : 'female'; }); }
