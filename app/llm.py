@@ -282,7 +282,7 @@ async def describe_song_style(title: str, artist: str = "", lyrics_text: str = "
     ]
 
     # Room for a thinking model's thought as well as the tags (see chat_complete).
-    reply = await chat_complete(messages, temperature=0.5, max_tokens=1024)
+    reply = await chat_complete(messages, temperature=0.5, max_tokens=2048)
     tags = clean_style_tags(reply, title=title)
     if not re.search(r"[a-z]{3}", tags):
         # "." or "/" is not a style; failing lets the corpus screen offer Analyse style again.

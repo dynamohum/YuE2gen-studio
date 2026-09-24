@@ -375,7 +375,7 @@ async def test_style_tags_have_room_for_a_thinking_model():
     with patch("app.llm.chat_complete", new_callable=AsyncMock) as mock_chat:
         mock_chat.return_value = "celtic folk, a cappella, ethereal"
         await llm.describe_song_style(title="My Lagan Love", artist="Kate Bush")
-        assert mock_chat.call_args.kwargs["max_tokens"] >= 1024
+        assert mock_chat.call_args.kwargs["max_tokens"] >= 2048
 
 
 @pytest.mark.anyio
