@@ -500,6 +500,7 @@ function paintStyleLoraNote() {
     download.href = item ? '/api/loras/' + encodeURIComponent(item.name) + '/download' : '#';
   }
   if ($('lora-delete')) { $('lora-delete').classList.toggle('hidden', !item); }
+  if ($('lora-strengths')) { $('lora-strengths').classList.toggle('hidden', !item); }
   var label = document.querySelector('label[for="style-lora"]');
   if (label) {
     label.textContent = loraTrainedHere(item && item.name) ? 'Style LoRA \u2014 custom' : 'Style LoRA';
@@ -516,6 +517,10 @@ function paintStyleLoraNote() {
     parts.push(styleHas($('style').value, item.trigger)
       ? 'Trigger word <b>' + esc(item.trigger) + '</b> is in the style.'
       : '<b>' + esc(item.trigger) + '</b> goes in the style when you render.');
+  }
+  if (item.strengths) {
+    parts.push('Starts at <b>Planner ' + Number(item.strengths.planner).toFixed(2) + ' / Sound ' +
+               Number(item.strengths.sound).toFixed(2) + '</b>.');
   }
   if (item.styles && item.styles.length) {
     parts.push('<b>Learned styles:</b> ' + item.styles.length + ' corpus songs. Click any style chip under the Style box to write in that sound.');
@@ -583,6 +588,13 @@ function wakeStyleLoraStrengths() {
   var hasPlanner = kind === 'both' || kind === 'planner' || kind === 'unknown';
   var hasSound = kind === 'both' || kind === 'decoder' || kind === 'unknown';
   var isInst = State.mode === 'inst';
+  // A LoRA with strengths of its own starts at them.
+  var item = loraChosen();
+  if (item && item.strengths) {
+    if (hasPlanner) { $('style-lora-clip').value = item.strengths.planner; }
+    if (hasSound) { $('style-lora-model').value = item.strengths.sound; }
+    return;
+  }
   if (hasPlanner && (Number($('style-lora-clip').value) === 0 || (isInst && $('style-lora-clip').value === '1'))) {
     $('style-lora-clip').value = isInst ? 0.6 : 1;
   }
@@ -3689,6 +3701,27 @@ async function identityClick(event) {
 }
 var personaClick = identityClick;
 
+async function saveLoraStrengths() {
+  var item = loraChosen();
+  if (!item) { return; }
+  var planner = Number($('style-lora-clip').value);
+  var sound = Number($('style-lora-model').value);
+  var status = $('lora-install-status');
+  try {
+    await api('/api/loras/' + encodeURIComponent(item.name) + '/strengths', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ planner: planner, sound: sound })
+    });
+    await pollState();
+    paintStyleLoras();
+    status.textContent = 'Saved: it starts at Planner ' + planner.toFixed(2) + ' / Sound ' + sound.toFixed(2) + '.';
+    status.className = 'status good';
+  } catch (err) {
+    status.textContent = err.message;
+    status.className = 'status bad';
+  }
+}
+
 async function deleteLora() {
   var item = loraChosen();
   if (!item) { return; }
@@ -5854,6 +5887,7 @@ function wire() {
   }, true);
   $('lora-install').addEventListener('click', function () { $('lora-install-file').click(); });
   $('lora-delete').addEventListener('click', deleteLora);
+  $('lora-strengths').addEventListener('click', saveLoraStrengths);
   $('lora-install-file').addEventListener('change', installSharedLora);
   var btnTestLLM = $('btn-test-llm');
   if (btnTestLLM) { btnTestLLM.addEventListener('click', testLLMConnection); }

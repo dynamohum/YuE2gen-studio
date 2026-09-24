@@ -321,6 +321,8 @@ such rather than failing quietly inside a render.
 - **Diverse corpora:** If the training corpus spans multiple genres, production styles, or eras (e.g. acoustic folk, rock, and synth-pop), high Sound weights can cause acoustic clashing. Up to about **Planner 0.70 / Sound 0.70** keeps the audio clean while retaining the artist's melodic phrasing and vocal character.
 - **Covers:** your recording sets the melody, so there is less for the LoRA to shape and the Sound half is pushed harder. Keep Sound near **0.50**.
 - **Plan variety:** with a LoRA trained from a corpus, **Calm** or **Normal** gives the most recognisable result.
+- **Save strengths:** when you find the right pair for a LoRA, press **Save strengths** under the
+  picker. Choosing that LoRA then starts at them, and they travel with it when you share it.
 
 ### Trigger words
 

@@ -93,7 +93,7 @@ def note_for(path: Path) -> dict:
         log.warning("could not read %s: %s", sidecar.name, err)
         return {}
     title = lines[0].strip()
-    rest, trigger, styles = [], None, []
+    rest, trigger, styles, strengths = [], None, [], None
     for line in lines[1:]:
         # A trigger word has to be typed into the style, or the LoRA barely
         # shows, so it is pulled out of the prose and shown on its own.
@@ -104,9 +104,44 @@ def note_for(path: Path) -> dict:
         if style:
             styles.append(style)
             continue
+        found = parse_strengths(line)
+        if found:
+            strengths = found
+            continue
         rest.append(line)
     body = "\n".join(rest).strip()
-    return {k: v for k, v in (("title", title), ("note", body), ("trigger", trigger), ("styles", styles)) if v}
+    return {k: v for k, v in (("title", title), ("note", body), ("trigger", trigger), ("styles", styles),
+                              ("strengths", strengths)) if v}
+
+
+# The strengths a LoRA starts at when it is chosen, kept in its note so they travel with
+# it when it is shared:  Strengths: Planner 0.80, Sound 0.60
+STRENGTHS = re.compile(r"^strengths:\s*planner\s+([\d.]+)\s*,\s*sound\s+([\d.]+)\s*$", re.I)
+
+
+def parse_strengths(line: str) -> dict | None:
+    match = STRENGTHS.match(line.strip())
+    if not match:
+        return None
+    try:
+        return {"planner": float(match.group(1)), "sound": float(match.group(2))}
+    except ValueError:
+        return None
+
+
+def set_strengths(path: Path, planner: float | None, sound: float | None) -> None:
+    """Write, replace or (with both None) remove the Strengths line in a LoRA's note,
+    just under its trigger word.  A LoRA with no note gets one named after its file."""
+    sidecar = path.with_suffix(".txt")
+    try:
+        lines = sidecar.read_text(encoding="utf-8").rstrip("\n").split("\n") if sidecar.is_file() else [path.stem]
+    except (OSError, UnicodeDecodeError):
+        lines = [path.stem]
+    lines = [line for line in lines if not parse_strengths(line)]
+    if planner is not None and sound is not None:
+        at = next((i + 1 for i, line in enumerate(lines) if line.lower().startswith("trigger:")), 1)
+        lines.insert(at, f"Strengths: Planner {planner:.2f}, Sound {sound:.2f}")
+    sidecar.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 # A learned style travels in the note as one line, so a LoRA shared as its file and

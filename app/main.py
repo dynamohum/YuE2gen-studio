@@ -1719,6 +1719,24 @@ async def delete_lora(name: str) -> dict:
     return {"deleted": gone}
 
 
+class StrengthsIn(BaseModel):
+    planner: float | None = Field(None, ge=0.0, le=3.0)
+    sound: float | None = Field(None, ge=0.0, le=3.0)
+
+
+@app.put("/api/loras/{name}/strengths")
+def lora_strengths(name: str, body: StrengthsIn) -> dict:
+    """The strengths this LoRA starts at when chosen.  Both empty clears them."""
+    path = _lora_file(name)
+    if (body.planner is None) != (body.sound is None):
+        raise HTTPException(400, "give both strengths, or neither to clear them")
+    try:
+        loras.set_strengths(path, body.planner, body.sound)
+    except OSError as exc:
+        raise HTTPException(500, f"could not write the LoRA's note: {exc}")
+    return {"name": name, "strengths": loras.note_for(path).get("strengths")}
+
+
 @app.post("/api/loras/install")
 async def install_shared_lora(file: UploadFile = File(...)) -> dict:
     """A LoRA from someone else: the zip Download makes, or a bare .safetensors file."""

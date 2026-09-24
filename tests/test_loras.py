@@ -211,3 +211,49 @@ def test_the_app_deletes_a_lora_and_forgets_it_on_the_corpus(client, tmp_path, m
     assert one("SELECT lora FROM identities WHERE id = 'c1'")["lora"] is None
     assert client.delete("/api/loras/alicia_lora.safetensors").status_code == 404
     assert client.delete("/api/loras/..%2Fsecret.safetensors").status_code == 404
+
+
+# ------------------------------------------------------ a LoRA's own strengths
+
+def test_strengths_are_written_under_the_trigger_and_read_back(tmp_path):
+    lora = fake_lora(tmp_path / "dylan_lora.safetensors", "both")
+    (tmp_path / "dylan_lora.txt").write_text("dylan\nTrigger: dylan\n\nTrained from the corpus dylan.\n", encoding="utf-8")
+
+    loras.set_strengths(lora, 0.8, 0.6)
+    lines = (tmp_path / "dylan_lora.txt").read_text(encoding="utf-8").split("\n")
+    assert lines[:3] == ["dylan", "Trigger: dylan", "Strengths: Planner 0.80, Sound 0.60"]
+    note = loras.note_for(lora)
+    assert note["strengths"] == {"planner": 0.8, "sound": 0.6}
+    assert "Strengths" not in note["note"], "a setting, not prose under the picker"
+
+    loras.set_strengths(lora, 0.7, 0.5)
+    assert (tmp_path / "dylan_lora.txt").read_text(encoding="utf-8").count("Strengths:") == 1, "replaced, not added"
+    loras.set_strengths(lora, None, None)
+    assert "strengths" not in loras.note_for(lora), "both empty clears them"
+
+
+def test_a_lora_without_a_note_gets_one_for_its_strengths(tmp_path):
+    lora = fake_lora(tmp_path / "bare.safetensors")
+    loras.set_strengths(lora, 1.0, 0.5)
+    assert (tmp_path / "bare.txt").read_text(encoding="utf-8").split("\n")[:2] == ["bare", "Strengths: Planner 1.00, Sound 0.50"]
+
+
+def test_strengths_travel_in_a_download(tmp_path):
+    import zipfile
+    lora = fake_lora(tmp_path / "dylan_lora.safetensors", "both")
+    (tmp_path / "dylan_lora.txt").write_text("dylan\nTrigger: dylan\n", encoding="utf-8")
+    loras.set_strengths(lora, 0.8, 0.6)
+    note = zipfile.ZipFile(loras.bundle(lora, [], tmp_path / "out.zip")).read("dylan_lora.txt").decode()
+    assert "Strengths: Planner 0.80, Sound 0.60" in note
+
+
+def test_the_app_saves_a_loras_strengths(client, tmp_path, monkeypatch):
+    root = tmp_path / "loras"
+    root.mkdir()
+    monkeypatch.setattr(loras, "folder", lambda: root)
+    fake_lora(root / "dylan_lora.safetensors", "both")
+    saved = client.put("/api/loras/dylan_lora.safetensors/strengths", json={"planner": 0.8, "sound": 0.6})
+    assert saved.status_code == 200 and saved.json()["strengths"] == {"planner": 0.8, "sound": 0.6}
+    assert client.put("/api/loras/dylan_lora.safetensors/strengths", json={"planner": 0.8}).status_code == 400
+    assert client.put("/api/loras/dylan_lora.safetensors/strengths", json={"planner": 9, "sound": 0.6}).status_code == 422
+    assert client.put("/api/loras/nope.safetensors/strengths", json={"planner": 0.8, "sound": 0.6}).status_code == 404
