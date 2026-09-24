@@ -21,6 +21,7 @@ import re
 import shutil
 import struct
 import time
+import zipfile
 from pathlib import Path
 
 from . import config
@@ -92,16 +93,115 @@ def note_for(path: Path) -> dict:
         log.warning("could not read %s: %s", sidecar.name, err)
         return {}
     title = lines[0].strip()
-    rest, trigger = [], None
+    rest, trigger, styles = [], None, []
     for line in lines[1:]:
         # A trigger word has to be typed into the style, or the LoRA barely
         # shows, so it is pulled out of the prose and shown on its own.
         if line.lower().startswith("trigger:"):
             trigger = line.split(":", 1)[1].strip()
             continue
+        style = parse_style(line)
+        if style:
+            styles.append(style)
+            continue
         rest.append(line)
     body = "\n".join(rest).strip()
-    return {k: v for k, v in (("title", title), ("note", body), ("trigger", trigger)) if v}
+    return {k: v for k, v in (("title", title), ("note", body), ("trigger", trigger), ("styles", styles)) if v}
+
+
+# A learned style travels in the note as one line, so a LoRA shared as its file and
+# note still offers its chips:  Style: Jet | pop, synth, male vocal, key of A major | 136
+STYLE_PREFIX = "style:"
+
+
+def parse_style(line: str) -> dict | None:
+    if not line.lower().startswith(STYLE_PREFIX):
+        return None
+    parts = [part.strip() for part in line.split(":", 1)[1].split("|")]
+    if len(parts) < 2 or not parts[1]:
+        return None
+    tempo = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
+    return {"title": parts[0], "prompt": parts[1], "hint": parts[1], "tempo": tempo, "key": None}
+
+
+def style_line(style: dict) -> str:
+    clean = lambda text: str(text or "").replace("|", "/").replace("\n", " ").strip()
+    tempo = f" | {style['tempo']}" if style.get("tempo") else ""
+    return f"Style: {clean(style.get('title'))} | {clean(style.get('prompt'))}{tempo}"
+
+
+def note_with_styles(path: Path, styles: list[dict]) -> str:
+    """The note beside a LoRA, with its learned styles written in, replacing any it
+    already carries.  A LoRA with no note gets one named after its file."""
+    sidecar = path.with_suffix(".txt")
+    try:
+        lines = sidecar.read_text(encoding="utf-8").rstrip().split("\n") if sidecar.is_file() else [path.stem]
+    except (OSError, UnicodeDecodeError):
+        lines = [path.stem]
+    lines = [line for line in lines if not parse_style(line)]
+    while lines and not lines[-1].strip():
+        lines.pop()
+    if styles:
+        lines += [""] + [style_line(style) for style in styles]
+    return "\n".join(lines) + "\n"
+
+
+def bundle(path: Path, styles: list[dict], dest: Path) -> Path:
+    """One file to hand to someone else: the LoRA and its note, styles included.
+    Stored rather than compressed, since a safetensors file does not compress."""
+    with zipfile.ZipFile(dest, "w", compression=zipfile.ZIP_STORED) as archive:
+        archive.write(path, path.name)
+        archive.writestr(path.with_suffix(".txt").name, note_with_styles(path, styles))
+    return dest
+
+
+# The group a LoRA installed from someone else's bundle goes in.
+INSTALLED_FAMILY = "Installed"
+
+
+def install_shared(source: Path, filename: str, root: Path | None = None) -> dict:
+    """Put a LoRA someone shared where the engine looks: a bundle from Download (the
+    file and its note), or a bare safetensors file.  The note is kept as it came, so
+    the LoRA arrives with its name, trigger word and chips."""
+    root = root or folder()
+    if not root:
+        raise ValueError("the app cannot see the engine's model folder")
+    note = None
+    if zipfile.is_zipfile(source):
+        with zipfile.ZipFile(source) as archive:
+            members = [m for m in archive.infolist() if not m.is_dir()]
+            weights = [m for m in members if m.filename.lower().endswith(".safetensors")]
+            if len(weights) != 1:
+                raise ValueError("that zip should hold one .safetensors file")
+            stem = Path(weights[0].filename).stem
+            texts = [m for m in members if Path(m.filename).name.lower() == f"{stem.lower()}.txt"]
+            staged = source.with_name(source.name + ".lora")
+            with archive.open(weights[0]) as src, staged.open("wb") as out:
+                shutil.copyfileobj(src, out)
+            if texts:
+                note = archive.read(texts[0]).decode("utf-8", errors="replace")
+        weights_path = staged
+    else:
+        stem = Path(filename or "lora").stem
+        weights_path = source
+    try:
+        names = names_in(weights_path)          # raises if it is not a safetensors file
+        if not names:
+            raise ValueError("that file holds no tensors")
+        stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", stem).strip("._") or "lora"
+        target = root / f"{stem}.safetensors"
+        if target.exists():
+            raise ValueError(f"{target.name} is already in the LoRA folder")
+        shutil.copyfile(weights_path, target)
+    finally:
+        if weights_path != source:
+            weights_path.unlink(missing_ok=True)
+    (root / f"{stem}.txt").write_text(note if note is not None else stem + "\n", encoding="utf-8")
+    if stem.lower() not in families(root):
+        with (root / "families.txt").open("a", encoding="utf-8") as handle:
+            handle.write(f"\n{stem.lower()} = {INSTALLED_FAMILY}\n")
+    log.info("installed shared LoRA %s (%s)", target.name, kind_of(names))
+    return {"name": target.name, "kind": kind_of(names), "styles": len(note_for(target).get("styles", []))}
 
 
 def install(source: Path, name: str, trigger: str, corpus: str, root: Path | None = None) -> dict:

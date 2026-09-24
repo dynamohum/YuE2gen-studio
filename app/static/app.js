@@ -318,8 +318,7 @@ function paintStyleLoras() {
   var select = $('style-lora');
   if (!select) { return; }
   var list = loraCatalogue();
-  $('style-lora-field').classList.toggle('hidden', !list.length);
-  if (!list.length) { return; }
+  $('style-lora-field').classList.remove('hidden');
   var chosen = select.value;
   var groups = loraGroups(list);
   var names = Object.keys(groups).sort(function (a, b) {
@@ -406,6 +405,11 @@ function loraTrainedHere(name) {
 
 function paintStyleLoraNote() {
   var item = loraChosen();
+  var download = $('lora-download');
+  if (download) {
+    download.classList.toggle('hidden', !item);
+    download.href = item ? '/api/loras/' + encodeURIComponent(item.name) + '/download' : '#';
+  }
   var label = document.querySelector('label[for="style-lora"]');
   if (label) {
     label.textContent = loraTrainedHere(item && item.name) ? 'Style LoRA \u2014 custom' : 'Style LoRA';
@@ -3586,6 +3590,29 @@ async function identityClick(event) {
 }
 var personaClick = identityClick;
 
+async function installSharedLora(event) {
+  var picked = event.target.files && event.target.files[0];
+  event.target.value = '';
+  if (!picked) { return; }
+  var status = $('lora-install-status');
+  status.textContent = 'Installing ' + picked.name + '\u2026';
+  status.className = 'status';
+  try {
+    var form = new FormData();
+    form.append('file', picked);
+    var done = await api('/api/loras/install', { method: 'POST', body: form });
+    await pollState();
+    paintStyleLoras();
+    $('style-lora').value = done.name;
+    $('style-lora').dispatchEvent(new Event('change', { bubbles: true }));
+    status.textContent = 'Installed' + (done.styles ? ', with ' + done.styles + ' learned styles.' : '.');
+    status.className = 'status good';
+  } catch (err) {
+    status.textContent = err.message;
+    status.className = 'status bad';
+  }
+}
+
 async function identityChange(event) {
   var target = event.target;
   if (target.id === 'identity-lora-file') {
@@ -5670,6 +5697,8 @@ function wire() {
   $('settings-list').addEventListener('blur', function (event) {
     if (event.target.dataset && event.target.dataset.key && event.target.tagName === 'INPUT') { saveSetting(event.target); }
   }, true);
+  $('lora-install').addEventListener('click', function () { $('lora-install-file').click(); });
+  $('lora-install-file').addEventListener('change', installSharedLora);
   var btnTestLLM = $('btn-test-llm');
   if (btnTestLLM) { btnTestLLM.addEventListener('click', testLLMConnection); }
   $('stems-close').addEventListener('click', closeStemsModal);

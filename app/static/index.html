@@ -252,6 +252,12 @@
         </div>
       </div>
       <div class="hint" id="style-lora-hint">Planner shapes what is played, Sound how it sounds.</div>
+      <div class="row lora-share">
+        <a id="lora-download" class="link hidden" href="#" title="The LoRA and its note in one file, for someone else's app">Download</a>
+        <button id="lora-install" type="button" class="link" title="Add a LoRA someone shared: their zip, or a .safetensors file">Install a LoRA</button>
+        <input id="lora-install-file" type="file" accept=".zip,.safetensors" class="hidden">
+        <span id="lora-install-status" class="status"></span>
+      </div>
     </div>
 
     <label class="check" id="auto-wrap"><input id="auto-render" type="checkbox"> render as soon as the plan is ready</label>

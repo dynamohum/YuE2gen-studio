@@ -1329,3 +1329,7 @@ button.take-status.sung:hover { background: rgba(251, 191, 36, 0.16); }
   color: #fff;
   box-shadow: 0 0 10px rgba(52, 211, 153, 0.3);
 }
+
+/* Download and Install a LoRA, under the picker. */
+.lora-share { margin-top: 6px; gap: 14px; font-size: 12.5px; flex-wrap: wrap; }
+.lora-share .status { margin: 0; }

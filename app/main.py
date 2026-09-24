@@ -1644,6 +1644,55 @@ async def install_identity_lora(
     return result
 
 
+def _lora_file(name: str) -> Path:
+    """A LoRA in the engine's folder, by its file name and nothing else."""
+    root = loras.folder()
+    if not root or Path(name).name != name or not name.endswith(".safetensors"):
+        raise HTTPException(404, "no such LoRA")
+    path = root / name
+    if not path.is_file():
+        raise HTTPException(404, "no such LoRA")
+    return path
+
+
+@app.get("/api/loras/{name}/download")
+async def download_lora(name: str) -> FileResponse:
+    """The LoRA and its note in one zip, for someone else's app.  A LoRA trained from a
+    corpus has its learned styles written into the note, so its chips travel with it."""
+    path = _lora_file(name)
+    styles = _lora_corpus_styles().get(name) or loras.note_for(path).get("styles") or []
+    config.WORK_DIR.mkdir(parents=True, exist_ok=True)
+    archive = config.WORK_DIR / f"lora-{uuid.uuid4().hex[:8]}.zip"
+    await asyncio.to_thread(loras.bundle, path, styles, archive)
+    return FileResponse(archive, media_type="application/zip", filename=f"{path.stem}.zip",
+                        background=BackgroundTask(archive.unlink, missing_ok=True))
+
+
+@app.post("/api/loras/install")
+async def install_shared_lora(file: UploadFile = File(...)) -> dict:
+    """A LoRA from someone else: the zip Download makes, or a bare .safetensors file."""
+    try:
+        _digest, tmp, size = await asyncio.to_thread(_store_upload, file.file)
+    except TooLarge:
+        raise HTTPException(413, f"That file is larger than {config.MAX_UPLOAD_MB} MB.")
+    if not size:
+        tmp.unlink(missing_ok=True)
+        raise HTTPException(400, "empty upload")
+    try:
+        result = await asyncio.to_thread(loras.install_shared, tmp, file.filename or "lora.safetensors")
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except OSError as exc:
+        raise HTTPException(500, f"could not write the LoRA: {exc}")
+    finally:
+        tmp.unlink(missing_ok=True)
+    try:
+        await ENGINE.refresh_options()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("the engine's list was not re-read: %s", exc)
+    return result
+
+
 def _training_run() -> dict | None:
     """The LoRA being trained, if there is one: it holds the whole GPU."""
     return one("SELECT * FROM lora_runs WHERE state IN ('queued', 'running') ORDER BY started_at IS NULL, started_at DESC LIMIT 1")

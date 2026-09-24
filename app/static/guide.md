@@ -352,6 +352,15 @@ rest, its trigger word beside it, and the same two strengths apply.
 New files appear once the engine has looked at `models/loras/` again, which it does when the
 options are reloaded.
 
+### Sharing a LoRA
+
+Choose a LoRA and press **Download** under the picker: you get one zip with the LoRA and its note.
+For a LoRA trained from a corpus, the note carries its learned styles, so the chips come with it.
+
+To add one someone sent you, press **Install a LoRA** and choose their zip, or a bare
+`.safetensors` file. It goes into `models/loras` under the heading **Installed**, with its name,
+trigger word and chips.
+
 ---
 
 ## Stems

@@ -89,3 +89,88 @@ def test_install_will_not_overwrite_one_already_there(tmp_path):
 def test_install_says_so_when_there_is_no_model_folder():
     with pytest.raises(ValueError, match="model folder"):
         loras.install(Path("whatever.safetensors"), "Alicia", "", "Alicia", root=None)
+
+
+# ------------------------------------------------------------- sharing a LoRA
+
+STYLES = [{"title": "Jet", "prompt": "pop, synth, male vocal, key of A major", "tempo": 136},
+          {"title": "My Love", "prompt": "soul, piano | drums, male vocal", "tempo": None}]
+
+
+def test_learned_styles_travel_in_the_note_and_come_back_as_chips(tmp_path):
+    lora = fake_lora(tmp_path / "paul_mccartney_lora.safetensors", "both")
+    (tmp_path / "paul_mccartney_lora.txt").write_text(
+        "Paul McCartney\nTrigger: paulmccartney\n\nWorks up to 0.70.\nStyle: Old | stale | 99\n", encoding="utf-8")
+
+    text = loras.note_with_styles(lora, STYLES)
+    assert "Style: Old" not in text, "styles already in the note are replaced, not repeated"
+    (tmp_path / "paul_mccartney_lora.txt").write_text(text, encoding="utf-8")
+    note = loras.note_for(lora)
+
+    assert note["title"] == "Paul McCartney" and note["trigger"] == "paulmccartney"
+    assert "Style:" not in note["note"], "the lines are chips, not prose under the picker"
+    assert [s["title"] for s in note["styles"]] == ["Jet", "My Love"]
+    assert note["styles"][0]["prompt"] == "pop, synth, male vocal, key of A major" and note["styles"][0]["tempo"] == 136
+    assert note["styles"][1]["tempo"] is None and "|" not in note["styles"][1]["prompt"]
+
+
+def test_a_bundle_installs_on_another_machine_with_its_note(tmp_path):
+    mine, theirs = tmp_path / "mine", tmp_path / "theirs"
+    mine.mkdir(), theirs.mkdir()
+    lora = fake_lora(mine / "paul_mccartney_lora.safetensors", "both")
+    (mine / "paul_mccartney_lora.txt").write_text("Paul McCartney\nTrigger: paulmccartney\n", encoding="utf-8")
+    zipped = loras.bundle(lora, STYLES, tmp_path / "shared.zip")
+
+    done = loras.install_shared(zipped, "shared.zip", root=theirs)
+
+    assert done == {"name": "paul_mccartney_lora.safetensors", "kind": "both", "styles": 2}
+    assert (theirs / "paul_mccartney_lora.safetensors").read_bytes() == lora.read_bytes()
+    assert loras.note_for(theirs / "paul_mccartney_lora.safetensors")["trigger"] == "paulmccartney"
+    assert loras.families(theirs)["paul_mccartney_lora"] == loras.INSTALLED_FAMILY
+    assert zipped.exists(), "the upload is the caller's to remove"
+
+
+def test_a_bare_safetensors_file_installs_too(tmp_path):
+    root = tmp_path / "loras"
+    root.mkdir()
+    done = loras.install_shared(fake_lora(tmp_path / "upload.tmp"), "someones_lora.safetensors", root=root)
+    assert done["name"] == "someones_lora.safetensors" and done["styles"] == 0
+    assert (root / "someones_lora.txt").read_text(encoding="utf-8").strip() == "someones_lora"
+
+
+def test_a_shared_lora_does_not_replace_one_already_there(tmp_path):
+    root = tmp_path / "loras"
+    root.mkdir()
+    fake_lora(root / "taken.safetensors")
+    with pytest.raises(ValueError):
+        loras.install_shared(fake_lora(tmp_path / "upload.tmp"), "taken.safetensors", root=root)
+
+
+def test_a_zip_without_a_lora_is_refused(tmp_path):
+    import zipfile
+    junk = tmp_path / "junk.zip"
+    with zipfile.ZipFile(junk, "w") as archive:
+        archive.writestr("notes.txt", "hello")
+    with pytest.raises(ValueError):
+        loras.install_shared(junk, "junk.zip", root=tmp_path)
+
+
+def test_download_and_install_through_the_app(client, tmp_path, monkeypatch):
+    import io
+    import zipfile
+    root = tmp_path / "loras"
+    root.mkdir()
+    monkeypatch.setattr(loras, "folder", lambda: root)
+    fake_lora(root / "shared_lora.safetensors", "both")
+    (root / "shared_lora.txt").write_text("Shared\nTrigger: sharedword\n", encoding="utf-8")
+
+    got = client.get("/api/loras/shared_lora.safetensors/download")
+    assert got.status_code == 200
+    assert sorted(zipfile.ZipFile(io.BytesIO(got.content)).namelist()) == ["shared_lora.safetensors", "shared_lora.txt"]
+    assert client.get("/api/loras/..%2Fsecret.safetensors/download").status_code == 404
+
+    (root / "shared_lora.safetensors").rename(root / "moved.bin")
+    (root / "shared_lora.txt").unlink()
+    put = client.post("/api/loras/install", files={"file": ("shared_lora.zip", got.content, "application/zip")})
+    assert put.status_code == 200 and put.json()["name"] == "shared_lora.safetensors"
+    assert loras.note_for(root / "shared_lora.safetensors")["trigger"] == "sharedword"
