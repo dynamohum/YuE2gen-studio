@@ -559,7 +559,8 @@ function paintStyleLoraNote() {
     if (loraTrainedHere(item.name)) {
       parts.push('<b>Sound texture:</b> Sound strength around <b>~0.55–0.60</b> applies the corpus acoustic texture cleanly.');
     }
-  } else if (loraTrainedHere(item.name)) {
+  } else if (loraTrainedHere(item.name) && !item.strengths) {
+    // General advice, until the LoRA has strengths of its own.
     parts.push(State.mode === 'cover'
       ? '<b>In a cover</b>, keep Sound near 0.50: your recording sets the tune.'
       : '<b>Trained from a corpus:</b> up to about 0.70 / 0.70, with Plan variety Calm or Normal.');

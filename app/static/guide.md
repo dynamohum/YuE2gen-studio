@@ -365,7 +365,7 @@ For a LoRA trained from a corpus, the note carries its learned styles, so the ch
 
 To add one someone sent you, press **Install** and choose their zip, or a bare `.safetensors`
 file. It goes into `models/loras` under the heading **Installed**, with its name, trigger word and
-chips. **Delete** removes the chosen LoRA, its note and its group line; **Rescan** reads the folder
+chips. **Delete LoRA** removes the chosen LoRA, its note and its group line; **Rescan** reads the folder
 again after you add a file by hand.
 
 ---
