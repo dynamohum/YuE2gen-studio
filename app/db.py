@@ -388,9 +388,10 @@ def _loudness() -> None:
 
 
 def _sound_seed() -> None:
-    """A take can draw its sound from a seed of its own.  The seed that chooses the notes
-    also drew the noise the decoder shapes into sound; a second one lets the voice be
-    drawn again over the same performance.  NULL means the take's own seed, as before."""
+    """A take can draw its sound from a seed of its own.  NULL means the take's own seed.
+    Tried as "new voice, same notes" and found to change the voice very little: the
+    voice is in what the note stage writes.  Kept so takes made that way still render
+    as they were made."""
     if "sound_seed" not in _columns("takes"):
         execute("ALTER TABLE takes ADD COLUMN sound_seed INTEGER")
 

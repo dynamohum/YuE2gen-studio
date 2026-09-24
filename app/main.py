@@ -1341,8 +1341,11 @@ _REVOICE_FRESH = {"id", "title", "status", "stage", "error", "audio_path", "dura
 
 @app.post("/api/takes/{take_id}/revoice")
 async def revoice(take_id: str) -> dict:
-    """The same score and the same notes, with the sound drawn again: a new take beside
-    the original, identical but for the seed of its sound."""
+    """The same score sung again: a new take beside the original with a new seed.
+
+    The voice lives in what the note stage writes, not in the decoder's noise: a copy
+    that kept the seed and drew only new noise came back sounding the same.  A new seed
+    sings the same score with a different voice and slightly different phrasing."""
     _gpu_free_for_rendering()
     take = one("SELECT * FROM takes WHERE id = ?", (take_id,))
     if not take:
@@ -1352,15 +1355,15 @@ async def revoice(take_id: str) -> dict:
     _check_score(take["abc"], take["kind"])
     _checkpoint()
     record = {key: value for key, value in take.items() if key not in _REVOICE_FRESH}
-    sound_seed = int.from_bytes(os.urandom(4), "big")
+    seed = int.from_bytes(os.urandom(4), "big")
     record.update(id=uuid.uuid4().hex[:12], title=f"{_base_title(take['title'])} \u00b7 new voice",
-                  status="queued", created_at=time.time(), checkpoint=config.CHECKPOINT, sound_seed=sound_seed)
+                  status="queued", created_at=time.time(), checkpoint=config.CHECKPOINT, seed=seed, sound_seed=None)
     columns = list(record)
     execute(f"INSERT INTO takes({', '.join(columns)}) VALUES({', '.join(':' + c for c in columns)})", record)
     await QUEUE.put({"kind": "render", "id": record["id"]})
-    log.info("Queued a new voice for take '%s' (%s -> %s, sound seed %d)", take.get("title") or take_id,
-             take_id, record["id"], sound_seed)
-    return {"id": record["id"], "title": record["title"], "sound_seed": sound_seed}
+    log.info("Queued a new voice for take '%s' (%s -> %s, seed %d)", take.get("title") or take_id,
+             take_id, record["id"], seed)
+    return {"id": record["id"], "title": record["title"], "seed": seed}
 
 
 @app.post("/api/takes/{take_id}/variations")

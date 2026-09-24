@@ -1,4 +1,4 @@
-"""New voice, same notes: a copy of a take with only the seed of its sound drawn again."""
+"""New voice: a copy of a take with the same score and a new seed."""
 import time
 
 from app.db import execute, one
@@ -18,19 +18,20 @@ def a_take(**extra):
     return row
 
 
-def test_a_new_voice_keeps_the_notes_and_draws_the_sound_again(client, monkeypatch):
+def test_a_new_voice_sings_the_same_score_with_a_new_seed(client, monkeypatch):
     from app import main
     monkeypatch.setattr(main, "_checkpoint", lambda: "x")
-    a_take()
+    a_take(sound_seed=999)
     made = client.post("/api/takes/orig1/revoice")
     assert made.status_code == 200, made.text
     copy = one("SELECT * FROM takes WHERE id = ?", (made.json()["id"],))
-    assert copy["title"] == "good1 · new voice"
-    assert copy["abc"] == ABC and copy["seed"] == 1747519420 and copy["interpretation"] == "tight"
-    assert copy["style_lora_model"] == 0.7 and copy["max_duration"] == 120
-    assert copy["sound_seed"] and copy["sound_seed"] == made.json()["sound_seed"]
+    assert copy["title"] == "good1 \u00b7 new voice"
+    assert copy["abc"] == ABC, "the same score"
+    assert copy["seed"] == made.json()["seed"] and copy["seed"] != 1747519420, "a new seed"
+    assert copy["sound_seed"] is None, "the sound follows the new seed"
+    assert copy["interpretation"] == "tight" and copy["style_lora_model"] == 0.7 and copy["max_duration"] == 120
     assert copy["status"] == "queued" and copy["audio_path"] is None and not copy["favourite"]
-    assert one("SELECT sound_seed FROM takes WHERE id = 'orig1'")["sound_seed"] is None, "the original is untouched"
+    assert one("SELECT seed FROM takes WHERE id = 'orig1'")["seed"] == 1747519420, "the original is untouched"
 
 
 def test_rendering_with_a_new_seed_lets_the_sound_follow_it(client, monkeypatch):

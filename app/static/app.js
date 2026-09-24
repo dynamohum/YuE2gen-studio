@@ -4235,8 +4235,8 @@ function paintTakes() {
         // Occasional, so small corner buttons rather than tiles in an already full row.
         '<div class="take-corner">' +
           (take.abc && take.abc.length > 50 && status !== 'queued' && status !== 'running'
-            ? '<button class="take-move" data-act="revoice"' + id + ' title="New voice, same notes: render this take again with only the sound drawn afresh"' +
-              ' aria-label="New voice, same notes">' + icon('voice') + '</button>' +
+            ? '<button class="take-move" data-act="revoice"' + id + ' title="New voice: the same score, sung again with a new seed"' +
+              ' aria-label="New voice">' + icon('voice') + '</button>' +
               '<button class="take-move" data-act="variations"' + id + ' title="Variations: render this score in other interpretations"' +
               ' aria-label="Variations">' + icon('variations') + '</button>'
             : '') +
@@ -5662,7 +5662,7 @@ function wire() {
     if (act === 'revoice') {
       var voiced = takeById(id);
       await api('/api/takes/' + id + '/revoice', { method: 'POST' });
-      statusLine('Drawing a new voice for ' + (voiced ? voiced.title : 'this take') + ', same notes\u2026', 'good');
+      statusLine('Singing ' + (voiced ? voiced.title : 'this take') + ' again with a new seed\u2026', 'good');
       loadTakes();
     }
     if (act === 'variations') {
