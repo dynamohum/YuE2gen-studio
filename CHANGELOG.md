@@ -23,6 +23,35 @@ Release notes live in two places and neither is a file in this repository: this 
 history, and each GitHub release holds its published notes. `RELEASE-NOTES-*.md` is ignored so it
 cannot creep back in.
 
+## 0.0.25 - 2026-09-24
+
+### New
+
+- **Share a LoRA.** Under the Style LoRA picker, **Download** gives one zip with the chosen LoRA
+  and its note. For a LoRA trained from a corpus, the note carries its learned styles, so the
+  style chips travel with it.
+- **Install** takes a shared zip, or a bare `.safetensors` file, and puts it in `models/loras`
+  under the heading **Installed**, with its name, trigger word and chips. It is open to everyone,
+  not only from inside a corpus.
+- **Delete** removes the chosen LoRA with its note, its training log and its line in
+  `families.txt`; a corpus that made it forgets it.
+- **Rescan** reads `models/loras` again, for a file added by hand. The four sit on one line under
+  the picker, with the detail in their tooltips.
+
+### Fixed
+
+- The seed box shows all ten digits. A seed like 1747519420 was cut to 174751942, so changing
+  between takes whose seeds differed only in the last digit looked as if the seed had not changed.
+- **Previous** and **Next** on the player bar load the take into the left column, as Play on a card
+  does. The player moved on while the form, seed included, still described the take before.
+- The note under the picker for a LoRA trained here gives the current advice: up to about 0.70 /
+  0.70 in a song, Sound near 0.50 in a cover.
+
+### Documentation
+
+- The guide and README say how to share a LoRA, and point to Rescan and Install rather than
+  restarting the engine. The README's rows for `TRAINING_ENABLED` and `WITH_TRAINER` are plainer.
+
 ## 0.0.24 - 2026-09-24
 
 - **Training a LoRA from your own songs is on by default.** Corpora and LoRA training are part of
