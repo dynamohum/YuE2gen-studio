@@ -4262,6 +4262,9 @@ function stepTake(delta) {
   var index = -1;
   for (var i = 0; i < list.length; i++) { if (list[i].id === id) { index = i; } }
   var next = index === -1 ? 0 : (index + delta + list.length) % list.length;
+  // The left column follows, as it does for Play on a card: a take you are hearing
+  // is the take whose seed and settings you see.
+  selectTake(list[next]);
   playTake(list[next].id);
 }
 
