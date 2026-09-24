@@ -611,7 +611,7 @@ async def _finish(kind: str, ref_id: str, record: dict, job: dict, started: floa
     sung = await asyncio.to_thread(singing_share, dest) if record.get("kind") == "instrumental" else None
     elapsed = time.time() - started
     execute(
-        "UPDATE takes SET status = 'done', stage = NULL, audio_path = ?, duration = ?, finished_at = ?, elapsed = ?, error = NULL, vocal_check = ?, loudness = ?, normalised = ? WHERE id = ?",
+        "UPDATE takes SET status = 'done', stage = NULL, audio_path = ?, duration = ?, finished_at = ?, elapsed = ?, error = NULL, vocal_check = ?, loudness = ?, normalised = ?, weak_dismissed = 0 WHERE id = ?",
         (str(dest), duration, time.time(), elapsed, sung, level, normalised, ref_id),
     )
     fresh = one("SELECT * FROM takes WHERE id = ?", (ref_id,))

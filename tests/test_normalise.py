@@ -105,3 +105,11 @@ def test_a_take_normalised_before_keeps_its_rendered_level_once_read_again(clien
     execute("UPDATE takes SET loudness = NULL WHERE id = ?", (take["id"],))
     assert fill_loudness() == 1
     assert one("SELECT loudness FROM takes WHERE id = ?", (take["id"],))["loudness"] == before
+
+
+def test_the_weak_note_on_a_normalised_take_can_be_dismissed(client, tmp_path):
+    take = make_take(audio_path=str(quiet_tone(tmp_path / "takes" / "t5" / "song.flac")))
+    assert client.get("/api/takes").json()[0]["weak_dismissed"] == 0
+    assert client.post(f"/api/takes/{take['id']}/weak/dismiss").json() == {"dismissed": True}
+    assert one("SELECT weak_dismissed FROM takes WHERE id = ?", (take["id"],))["weak_dismissed"] == 1
+    assert client.post("/api/takes/nosuch/weak/dismiss").status_code == 404

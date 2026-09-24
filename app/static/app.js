@@ -4280,13 +4280,15 @@ function paintTakes() {
       // Takes a few seconds, and the cards are redrawn meanwhile, so the state is
       // kept here rather than on the button that was clicked.
       live = '<div class="take-status working">Normalising\u2026</div>';
-    } else if (weakRender(take)) {
+    } else if (weakRender(take) && !(take.normalised && take.weak_dismissed)) {
       // A render that loses its footing comes out quiet from end to end, and
       // sounds thin or distorted. Another seed usually fixes it.
       // Normalising raises the level and nothing else, so a take that was quiet as
       // rendered keeps saying so, and a listen tells a good quiet take from a bad one.
       live = take.normalised
-        ? '<div class="take-status weak" title="Came out at ' + take.loudness.toFixed(1) + ' dB as rendered, far below the usual level, and has been normalised. Takes like this often sound thin or distorted, and some were only quiet.">Weak render, normalised: try another seed if it sounds thin</div>'
+        ? '<div class="take-status weak with-x" title="Came out at ' + take.loudness.toFixed(1) + ' dB as rendered, far below the usual level, and has been normalised. Takes like this often sound thin or distorted, and some were only quiet.">' +
+          '<span>Weak render, normalised: try another seed if it sounds thin</span>' +
+          '<button class="status-x" data-act="dismiss-weak" data-id="' + take.id + '" title="It sounds fine: dismiss" aria-label="Dismiss">\u00d7</button></div>'
         : '<button class="take-status weak" data-act="normalise"' + ' data-id="' + take.id + '" title="Came out at ' + take.loudness.toFixed(1) +
           ' dB, far below the usual level. Takes like this often sound thin or distorted, and some are only quiet. If it still sounds wrong once normalised, try another seed.">Weak render: click here to normalise, or try another seed</button>';
     } else if (take.ran_to_cap) {
@@ -5778,6 +5780,17 @@ function wire() {
     if (act === 'stem-del') {
       await api('/api/stem-sets/' + button.dataset.set, { method: 'DELETE' });
       loadTakes();
+    }
+    if (act === 'dismiss-weak') {
+      var heard = takeById(id);
+      if (heard) { heard.weak_dismissed = 1; paintTakes(); }
+      try {
+        await api('/api/takes/' + id + '/weak/dismiss', { method: 'POST' });
+      } catch (err) {
+        statusLine('Could not dismiss the note: ' + err.message, 'bad');
+      }
+      loadTakes();
+      return;
     }
     if (act === 'normalise') {
       if (State.normalising[id]) { return; }

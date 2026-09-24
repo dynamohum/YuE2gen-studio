@@ -1409,7 +1409,8 @@ def _base_title(title: str) -> str:
 
 # What Sing again leaves behind: the copy is a new take with its own audio and state.
 _REVOICE_FRESH = {"id", "title", "status", "stage", "error", "audio_path", "duration", "prompt_id", "created_at",
-                  "finished_at", "elapsed", "favourite", "vocal_check", "loudness", "sound_seed", "normalised"}
+                  "finished_at", "elapsed", "favourite", "vocal_check", "loudness", "sound_seed", "normalised",
+                  "weak_dismissed"}
 
 
 @app.post("/api/takes/{take_id}/revoice")
@@ -2073,6 +2074,14 @@ async def normalise_take(take_id: str, undo: bool = False) -> dict:
     await asyncio.to_thread(ensure_peaks, audio)
     log.info("%s take '%s'", "Restored the rendered level of" if undo else "Normalised", take["title"] or take_id)
     return {"normalised": not undo}
+
+
+@app.post("/api/takes/{take_id}/weak/dismiss")
+def dismiss_weak(take_id: str) -> dict:
+    """Listened to, and fine: the weak-render note on a normalised take goes."""
+    if not execute("UPDATE takes SET weak_dismissed = 1 WHERE id = ?", (take_id,)):
+        raise HTTPException(404, "no such take")
+    return {"dismissed": True}
 
 
 @app.get("/api/takes/{take_id}/peaks")

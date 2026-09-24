@@ -413,6 +413,13 @@ def _rendered_level() -> None:
     execute("UPDATE takes SET loudness = NULL WHERE normalised = 1")
 
 
+def _weak_dismissed() -> None:
+    """A normalised take that was weak as rendered says so, and some of those sound
+    fine.  Once listened to, the note can be dismissed; a new render brings it back."""
+    if "weak_dismissed" not in _columns("takes"):
+        execute("ALTER TABLE takes ADD COLUMN weak_dismissed INTEGER NOT NULL DEFAULT 0")
+
+
 MIGRATIONS = [
     lambda: (conn().executescript(BASE_SCHEMA), _legacy_takes()),   # -> 1
     _indexes,                                                        # -> 2
@@ -436,6 +443,7 @@ MIGRATIONS = [
     _sound_seed,                                                     # -> 20
     _normalised,                                                     # -> 21
     _rendered_level,                                                 # -> 22
+    _weak_dismissed,                                                 # -> 23
 ]
 
 

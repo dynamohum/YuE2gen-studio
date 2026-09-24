@@ -1102,6 +1102,11 @@ button.ghost.danger:hover {
 button.take-status.sung { cursor: pointer; text-align: left; width: 100%; font: inherit; font-size: 12px; }
 button.take-status.weak { cursor: pointer; text-align: left; font: inherit; font-size: 12px; }
 button.take-status.weak:hover { background: rgba(251, 191, 36, 0.16); }
+.take-status.with-x { display: flex; align-items: flex-start; gap: 6px; }
+.take-status.with-x > span { flex: 1; min-width: 0; }
+.status-x { flex: 0 0 auto; border: 0; background: none; color: inherit; opacity: 0.7; cursor: pointer;
+  font: inherit; font-size: 15px; line-height: 1; padding: 0 2px; }
+.status-x:hover { opacity: 1; }
 .take-status.working { color: var(--muted); border: 1px dashed var(--line); border-radius: 8px; padding: 4px 8px;
   font-size: 12px; align-self: flex-start; animation: corpora-pulse 1.5s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .take-status.working { animation: none; } }
