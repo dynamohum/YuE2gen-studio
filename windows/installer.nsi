@@ -81,6 +81,9 @@ FunctionEnd
 
 Section "${APPNAME}" SecCore
   SectionIn RO
+  ; What setup.ps1 will put on disk, so the page shows the real figure: the engine,
+  ; the app and the models other than Gemma.
+  AddSize 15000000
   SetOutPath "$INSTDIR"
   ; A running copy holds its files open.  Only its own programs are stopped, never
   ; this installer, which may be running from the same folder.
@@ -108,7 +111,8 @@ Section "${APPNAME}" SecCore
   WriteRegDWORD HKCU "${REGKEY}" "EstimatedSize" 36000000
 SectionEnd
 
-Section "Lyric drafts on this PC (Gemma 4, 8 GB)" SecLyrics
+Section "Lyric drafts (Gemma 4)" SecLyrics
+  AddSize 7900000
   ; No files: setup.ps1 is told whether to fetch Gemma.  Without it, lyric drafts and
   ; song analysis need an external LLM, set in Settings.
 SectionEnd
@@ -134,7 +138,7 @@ Section "-Setup"
 SectionEnd
 
 LangString DESC_Core ${LANG_ENGLISH} "The app, the engine (ComfyUI), and the YuE2 models."
-LangString DESC_Lyrics ${LANG_ENGLISH} "Gemma 4, for lyric drafts and song analysis without an external LLM. Leave it out to save 8 GB."
+LangString DESC_Lyrics ${LANG_ENGLISH} "Gemma 4, for lyric drafts and song analysis on this PC. Leave it out if you intend to configure an external LLM. This will save 8 GB."
 !insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
   !insertmacro MUI_DESCRIPTION_TEXT ${SecCore} $(DESC_Core)
   !insertmacro MUI_DESCRIPTION_TEXT ${SecLyrics} $(DESC_Lyrics)
