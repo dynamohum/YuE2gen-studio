@@ -1594,22 +1594,38 @@ function tidyStyle(text) {
     .trim();
 }
 
+/* A style can say "female" anywhere, not only in the chips' own phrase: a learned
+   style reads "intimate female lead vocals". Whichever the text names last is the
+   voice it asks for. \bmale\b does not match inside "female". */
 function currentVocalSex() {
   var style = $('style').value;
   if (/\bduet\b/i.test(style)) { return 'duet'; }
-  if (styleHas(style, 'female')) { return 'female'; }
-  if (styleHas(style, 'male')) { return 'male'; }
-  return 'any';
+  var female = style.toLowerCase().lastIndexOf('female');
+  var male = -1;
+  style.replace(/\bmale\b/gi, function (word, at) { male = at; return word; });
+  if (female < 0 && male < 0) { return 'any'; }
+  return female > male ? 'female' : 'male';
 }
 
+/* Edits the style part by part, keeping what each part says about the voice: choosing
+   Male turns "intimate female lead vocals" into "intimate male lead vocals" rather than
+   leaving it to contradict a "male vocal" added at the end. Any drops the word; Duet
+   drops it and adds its own phrase. */
 function setVocalSex(value) {
   var option = VOCAL_SEX.filter(function (item) { return item.value === value; })[0] || VOCAL_SEX[0];
-  var style = $('style').value
-    .replace(/\s*,?\s*(male|female)\s+(vocal|vocals|voice|voices)\b/gi, '')
-    .replace(/\s*,?\s*duet\b[^,]*/gi, '');
-  style = tidyStyle(style);
-  if (option.phrase) { style = style ? style + ', ' + option.phrase : option.phrase; }
-  $('style').value = style;
+  var bare = /^(vocal|vocals|voice|voices|lead|lead vocal|lead vocals|singer)$/i;
+  var parts = $('style').value.split(',').map(function (part) { return part.trim(); }).filter(function (part) {
+    // The chips' own phrases go; they are put back below if still wanted.
+    return part && !/^(male|female)\s+(vocal|vocals|voice|voices)$/i.test(part) && !/^duet\b/i.test(part) &&
+      !/^male and female voices$/i.test(part);
+  }).map(function (part) {
+    if (value === 'male') { return part.replace(/\bfemale\b/gi, function (w) { return w[0] === 'F' ? 'Male' : 'male'; }); }
+    if (value === 'female') { return part.replace(/\bmale\b/gi, function (w) { return w[0] === 'M' ? 'Female' : 'female'; }); }
+    return part.replace(/\b(fe)?male\b\s*/gi, '').replace(/\s{2,}/g, ' ').trim();
+  }).filter(function (part) { return part && !bare.test(part); });
+  var said = parts.some(function (part) { return value !== 'any' && value !== 'duet' && new RegExp('\\b' + value + '\\b', 'i').test(part); });
+  if (option.phrase && !said) { parts.push(option.phrase); }
+  $('style').value = tidyStyle(parts.join(', '));
   paintVocals();
 }
 
