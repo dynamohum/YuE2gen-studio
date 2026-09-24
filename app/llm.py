@@ -146,6 +146,13 @@ async def chat_complete(
         log.error("Failed to parse JSON response from %s: %s (body: %s)", endpoint, exc, resp.text[:300])
         raise RuntimeError(f"Invalid response from LLM provider: {exc}") from exc
 
+    # A model that thinks before it answers spends the same budget on the thinking, and
+    # a small budget left it one token for the answer: a corpus song's style came back
+    # as "." with 145 of 150 tokens gone on thought.  Say so when it happens.
+    if choice.get("finish_reason") == "length":
+        log.warning("External LLM reply from %s (%s) was cut off at max_tokens=%s; the answer may be incomplete",
+                    endpoint, model, max_tokens)
+
     usage = data.get("usage") or {}
     ptokens = usage.get("prompt_tokens", "?")
     ctokens = usage.get("completion_tokens", "?")
@@ -173,7 +180,7 @@ async def test_connection(config_override: dict[str, str] | None = None) -> dict
             {"role": "user", "content": "Ping test. Reply with the single word 'OK'."},
         ],
         temperature=0.0,
-        max_tokens=120,
+        max_tokens=1024,
         config_override=cfg,
     )
     latency_ms = int((time.perf_counter() - t0) * 1000)
@@ -274,8 +281,12 @@ async def describe_song_style(title: str, artist: str = "", lyrics_text: str = "
         {"role": "user", "content": user_prompt},
     ]
 
-    reply = await chat_complete(messages, temperature=0.5, max_tokens=150)
+    # Room for a thinking model's thought as well as the tags (see chat_complete).
+    reply = await chat_complete(messages, temperature=0.5, max_tokens=1024)
     tags = clean_style_tags(reply, title=title)
+    if not re.search(r"[a-z]{3}", tags):
+        # "." or "/" is not a style; failing lets the corpus screen offer Analyse style again.
+        raise RuntimeError(f"the model returned no usable tags ({reply.strip()[:40]!r})")
     log.info("Finished external LLM style description for '%s': %s", title, tags)
     return tags
 

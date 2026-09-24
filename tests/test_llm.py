@@ -367,3 +367,34 @@ def test_an_empty_key_from_the_page_means_the_saved_one(client):
     with patch("app.llm.fetch_models", side_effect=fake_fetch):
         client.post("/api/settings/llm-models", json={"api_url": "https://api.test/v1", "api_key": "sk-typed"})
     assert seen["key"] == "sk-typed", "a key typed into the box is tried as typed"
+
+
+@pytest.mark.anyio
+async def test_style_tags_have_room_for_a_thinking_model():
+    """A thinking model spends max_tokens on its thought too; 150 left it one token."""
+    with patch("app.llm.chat_complete", new_callable=AsyncMock) as mock_chat:
+        mock_chat.return_value = "celtic folk, a cappella, ethereal"
+        await llm.describe_song_style(title="My Lagan Love", artist="Kate Bush")
+        assert mock_chat.call_args.kwargs["max_tokens"] >= 1024
+
+
+@pytest.mark.anyio
+async def test_a_style_reply_with_no_words_is_a_failure_not_a_style():
+    for junk in (".", "/", "  ", "-, ."):
+        with patch("app.llm.chat_complete", new_callable=AsyncMock) as mock_chat:
+            mock_chat.return_value = junk
+            with pytest.raises(RuntimeError):
+                await llm.describe_song_style(title="My Lagan Love", artist="Kate Bush")
+
+
+@pytest.mark.anyio
+async def test_a_reply_cut_off_at_its_budget_is_logged():
+    from app import logging_setup
+    resp = httpx.Response(200, json={"choices": [{"message": {"content": "."}, "finish_reason": "length"}],
+                                     "usage": {"prompt_tokens": 74, "completion_tokens": 1}},
+                          request=httpx.Request("POST", "https://api.test/v1/chat/completions"))
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
+        mock_post.return_value = resp
+        await llm.chat_complete([{"role": "user", "content": "x"}], max_tokens=150,
+                                config_override={"api_url": "https://api.test/v1", "model": "m", "api_key": ""})
+    assert any("was cut off at max_tokens=150" in e["message"] for e in logging_setup.LOG_BUFFER)

@@ -3419,8 +3419,8 @@ function songDetail(song) {
     '</div><div>' + players +
       '<div class="field" style="margin:10px 0 0"><label for="pd-' + song.id + '">This song\u2019s sound</label>' +
       '<input id="pd-' + song.id + '" type="text" maxlength="400" data-description="' + song.id + '" value="' + esc(song.description || '') + '" ' +
-      'placeholder="' + esc((IDENTITY.data && IDENTITY.data.description) || 'the identity\u2019s description') + '">' +
-      '<div class="hint">Only where it differs from the rest, say stripped back or acoustic. Blank uses the identity\u2019s. Saved with Save.</div></div>' +
+      'placeholder="' + esc((IDENTITY.data && IDENTITY.data.description) || 'the corpus\u2019s description') + '">' +
+      '<div class="hint">Only where it differs from the rest, say stripped back or acoustic. Blank uses the corpus\u2019s. Saved with Save.</div></div>' +
       '<div class="muted" style="margin-top:8px">Style caption</div><div class="caption" data-caption="' + song.id + '">' + esc(song.caption) + '</div>' +
       (song.style_hint ? '<div class="muted" style="margin-top:8px; display:flex; justify-content:space-between; align-items:center"><span>Style suggestion</span><button class="ghost small" data-restyle="' + song.id + '" style="font-size:11px; padding:2px 6px">Re-analyse</button></div><div class="caption">' + esc(song.style_hint) + '</div>' : '<div style="margin-top:8px"><button class="ghost small" data-restyle="' + song.id + '" style="font-size:11px; padding:2px 6px">Analyse style</button></div>') +
       (song.error ? '<div class="status bad" style="margin-top:8px">' + esc(song.error) + '</div>' : '') +
