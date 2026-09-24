@@ -11,8 +11,8 @@ from conftest import tone
 
 @pytest.fixture(autouse=True)
 def corpora_built_in(monkeypatch):
-    """Corpora are experimental and off by default; these test the workflow, so they
-    turn it on. The tests for it being off live in test_lora_training.py."""
+    """Corpora are on by default; pinned on here so the tests do not depend on the
+    environment. The tests for it switched off live in test_lora_training.py."""
     monkeypatch.setattr(config, "TRAINING_ENABLED", True)
 
 

@@ -163,7 +163,7 @@ async function pollState() {
     var engine = data.engine;
     State.options = data.options || {};
     State.training = data.training || null;
-    // EXPERIMENTAL: no way in to a workflow that is not built in. Here rather than at
+    // No way in to a workflow that is switched off. Here rather than at
     // wiring time, because the options this reads arrive with the state, not before it.
     // Hidden rather than disabled: a greyed-out row invites a hunt for how to enable it.
     var corporaRow = $('menu-identities');
@@ -391,15 +391,15 @@ function loraShortLabel(name) {
 /* A file name says nothing about what a LoRA does, so whatever its author
    wrote is shown under the picker, and the trigger word is shown as something
    to click, because it has to reach the style box to do anything. */
-/* EXPERIMENTAL FEATURE GATE.  Training a LoRA here is off unless the engine image
-   carries the trainer node pack and the app has TRAINING_ENABLED set. The server
-   answers both in one flag, so the page never offers a button that would 501. */
+/* Training is offered when the engine image carries the trainer node pack and the
+   app has TRAINING_ENABLED set, both the defaults. The server answers both in one
+   flag, so the page never offers a button that would 501. */
 function trainingAvailable() {
   return Boolean(State.options && State.options.training_available);
 }
 
-/* Is this one of ours?  A file trained by this app is the experimental kind; one
-   downloaded from elsewhere is not, and calling it experimental would be a lie. */
+/* Is this one of ours?  A file trained by this app is labelled custom; one
+   downloaded from elsewhere is not. */
 function loraTrainedHere(name) {
   return Boolean(name && corpusLoras()[name]);
 }
@@ -3134,9 +3134,6 @@ async function showIdentityList() {
     '<p class="identity-intro persona-intro">A corpus is a folder of recordings, prepared as a training set. ' +
     'Point at a folder: the app separates each vocal, finds its key and tempo, and drafts its lyrics for you ' +
     'to check. Then export the set and train it' + (trainingAvailable() ? ' — here, or anywhere else' : ' with the trainer of your choice') + '.</p>' +
-    (trainingAvailable()
-      ? '<p class="hint"><b>Training here is experimental.</b></p>'
-      : '') +
     '<button id="identity-new" class="ghost">New corpus</button>' +
     '<div class="identity-cards persona-cards">' + list.map(function (item) {
       return '<div class="identity-card persona-card" data-identity="' + esc(item.id) + '" data-persona="' + esc(item.id) + '"><strong>' + esc(item.name) + '</strong>' +

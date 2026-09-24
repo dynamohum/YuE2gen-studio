@@ -78,17 +78,16 @@ TIMEOUTS = {"transcribe": 12 * 60, "plan": 10 * 60, "render": 25 * 60, "lyrics":
 
 # ---------------------------------------------------------------- LoRA training
 #
-# EXPERIMENTAL, AND OFF UNLESS IT IS BUILT IN.  Training a LoRA from a corpus is
-# shipped disabled, and the engine image is built without the trainer node pack it
-# needs.  To turn it on, build the engine with --build-arg WITH_TRAINER=1 and set
-# TRAINING_ENABLED=1 for the app.
+# On by default.  TRAINING_ENABLED=0 takes Corpora and training out of the app, and an
+# engine built with --build-arg WITH_TRAINER=0 leaves out the trainer node pack; the
+# app offers training only when both are in.
 #
 # Dual-branch training uses ComfyUI-FS_Audio_Suite (FSAudioArtistTrainer):
 # trains the planner LoRA (what they write) and the decoder LoRA (how they sound)
 # in one joint loop, exported as one file that applies to both halves.
 # Evaluated against reference convergence targets (blgr_rhodope): artist loss ~4.635,
 # regularizer loss ~3.576, decoder flow loss ~1.069.
-TRAINING_ENABLED = os.environ.get("TRAINING_ENABLED", "").strip().lower() in ("1", "true", "yes", "on")
+TRAINING_ENABLED = os.environ.get("TRAINING_ENABLED", "1").strip().lower() in ("1", "true", "yes", "on")
 
 # Dual-branch training parameters, following the trainer's own guidance and the
 # published LoRAs made with it (blgr, mltnt, cnzn, chnsn, qwwl, drksf).  Those ran

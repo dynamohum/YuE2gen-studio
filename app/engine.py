@@ -286,9 +286,8 @@ class Engine:
                         "lyrics": "TextGenerate" in info and config.LYRICS_MODEL in text_models,
                         "instrumental": config.INSTRUMENTAL_LORA in loras,
                         "realaudio": config.REAL_AUDIO_LORA in loras,
-                        # EXPERIMENTAL: the trainer node pack is left out of the engine
-                        # image unless it is built with --build-arg WITH_TRAINER=1, so
-                        # the app can tell whether training is there to offer at all.
+                        # An engine built with WITH_TRAINER=0 has no trainer, so the
+                        # app can tell whether training is there to offer at all.
                         "trainer": "FSAudioArtistTrainer" in info,
                         "loras": loras}
 

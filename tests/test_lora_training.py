@@ -1,10 +1,10 @@
 """Training a LoRA: it holds the GPU, so the app keeps everything else off it.
 
-Training is experimental and off unless it is built in, so these turn it on: what
-they cover is how it behaves when someone has chosen to have it. The tests for it
-being off are at the bottom, and they are the ones that describe the default.
+Training is on by default and can be switched off.  The tests pin it on, so they do
+not depend on the environment; the ones for it switched off are at the bottom.
 """
 import time
+from pathlib import Path
 
 import pytest
 
@@ -14,7 +14,7 @@ from app.db import execute, one
 
 @pytest.fixture(autouse=True)
 def training_built_in(monkeypatch):
-    """Everything above the "off by default" tests assumes the feature is built in."""
+    """Everything above the "switched off" tests assumes the feature is on."""
     monkeypatch.setattr(config, "TRAINING_ENABLED", True)
 
 
@@ -130,18 +130,26 @@ def test_a_queued_run_can_be_cancelled(client):
     assert client.get("/api/state").json()["training"] is None
 
 
-# --------------------------------------------------------- off unless built in
+# ------------------------------------------------------------------ switched off
 
-def test_training_is_off_unless_it_is_built_in(client, monkeypatch):
-    """The default. It answers 501 with the reason, not 404, so a caller can tell the
-    difference between a feature that is absent and a URL that is wrong."""
+def test_training_is_on_by_default():
+    """Both switches default to on: the app's setting, and the engine image's."""
+    root = Path(__file__).resolve().parent.parent
+    assert 'os.environ.get("TRAINING_ENABLED", "1")' in (root / "app" / "config.py").read_text()
+    assert "ARG WITH_TRAINER=1" in (root / "engine" / "Dockerfile").read_text()
+    compose = (root / "compose.yml").read_text()
+    assert 'WITH_TRAINER: "1"' in compose and 'TRAINING_ENABLED: "1"' in compose
+
+
+def test_switched_off_it_says_so(client, monkeypatch):
+    """It answers 501 with the reason, not 404, so a caller can tell the difference
+    between a feature switched off and a URL that is wrong."""
     monkeypatch.setattr(config, "TRAINING_ENABLED", False)
     corpus = a_corpus()
     answer = client.post(f"/api/identities/{corpus['id']}/train")
     assert answer.status_code == 501
     detail = answer.json()["detail"]
-    assert "experimental" in detail and "WITH_TRAINER=1" in detail
-    assert "TRAINING_ENABLED=1" in detail
+    assert "switched off" in detail and "TRAINING_ENABLED=1" in detail
 
 
 def test_the_gate_comes_before_anything_else(client, monkeypatch):

@@ -395,10 +395,10 @@ async def run_job(kind: str, ref_id: str) -> None:
         await run_identity_job(kind, ref_id)
         return
     if kind == "train":
-        # EXPERIMENTAL, off unless built in.  A run queued before the feature was
-        # turned off must not start when the app comes back up without it.
+        # A run queued before training was switched off must not start when the app
+        # comes back up without it.
         if not config.TRAINING_ENABLED:
-            _run_state(ref_id, state="failed", error="training is not built in",
+            _run_state(ref_id, state="failed", error="training is switched off",
                        finished_at=time.time())
             return
         await run_lora_train(ref_id)
@@ -890,11 +890,8 @@ run_persona_job = run_identity_job
 
 # --------------------------------------------------------------- training a LoRA
 #
-# EXPERIMENTAL, AND OFF UNLESS IT IS BUILT IN.  Everything from here to cancel_train
-# is reached only when config.TRAINING_ENABLED is set and the engine image was built
-# with --build-arg WITH_TRAINER=1.  It is kept, not deleted, because a trainer that
-# reaches the AR branch would reuse all of it; see config.TRAINING_ENABLED for the
-# measurements that put it behind the flag.
+# Everything from here to cancel_train is reached only when config.TRAINING_ENABLED is
+# set and the engine image carries the trainer (WITH_TRAINER=1), both the defaults.
 #
 # The trainer is a ComfyUI node pack inside the engine image.  It reads a folder of
 # audio with a caption beside each file and writes a LoRA into the engine's

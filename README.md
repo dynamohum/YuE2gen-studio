@@ -4,6 +4,14 @@ A web interface for [YuE2](https://github.com/multimodal-art-projection/YuE), th
 model. Write a song from a prompt, or cover your own recording. Edit the score either way,
 then pull the stems out of the result.
 
+- **Song from a prompt:** write a score plan from a style and lyrics, edit it, render it.
+- **Cover a recording:** transcribe your song, change its melody and chords, render a new version.
+- **Instrumentals:** build the structure section by section.
+- **Style LoRAs:** use published ones, or train your own from a folder of one artist's songs.
+- **Lyrics:** draft them from a sentence, or extract them from a recording.
+- **Stems:** split any take into vocals, drums, bass and more.
+- **A library:** spaces, stars, and every take's settings kept so it can be made again.
+
 Everything runs in two containers on one machine. No cloud and no accounts; an external LLM for
 lyrics is optional.
 
@@ -56,9 +64,9 @@ Writing an instrumental, with the structure built section by section:
   **Variations** renders one take in the others, so you can compare them by ear.
 - **Choose the voice.** Chips set female, male or duet and a voice character. YuE2 has no vocal
   parameter, so the chips write into the style text, and the take keeps the choice.
-- **Train a LoRA from your own songs (experimental).** Prepare a corpus from a folder of one
-  artist's songs and train a style LoRA from it. Off unless enabled in the build; see Training a
-  LoRA below.
+- **Train a LoRA from your own songs.** Prepare a corpus from a folder of one artist's songs and
+  train a style LoRA from it. It shows most in a song from a prompt, where the LoRA writes the
+  tune. See Training a LoRA below.
 - **Lean on a style LoRA.** Drop other people's trained files into `models/loras/` and pick one
   from a list, with separate strengths for the score and the sound. See Style LoRAs below.
 - **Read the score three ways.** Expand opens a full size editor, with the chord find and replace
@@ -103,19 +111,19 @@ will not end.
 
 ## Training a LoRA
 
-**Experimental, and not in the standard build.** The app can prepare a **corpus** — a folder of
-one artist's songs, each vocal separated, its key, tempo and sections found and its lyrics
-drafted — export it as a training set, and train a style LoRA from it.
+Open **Corpora** from the menu. The app prepares a **corpus** — a folder of one artist's songs,
+each vocal separated, its key, tempo and sections found and its lyrics drafted — exports it as a
+training set, and trains a style LoRA from it. Training holds the GPU until it finishes, keeps a
+snapshot every 50 steps so you can pick one by ear, and the LoRA appears in the Style LoRA list,
+with a style chip for each song it learned from.
 
-To turn it on, build the engine with the trainer:
+It does most in a song from a prompt, where the LoRA writes the tune: Planner and Sound up to
+about 0.70, with Plan variety Calm or Normal. In a cover your recording sets the melody, so keep
+Sound near 0.50. The [user guide](app/static/guide.md#corpora-and-training-a-lora) walks
+through it.
 
-```sh
-docker compose build --build-arg WITH_TRAINER=1 engine
-```
-
-and set `TRAINING_ENABLED: "1"` on the app in `compose.yml`. **Corpora** then appears in the menu.
-Training holds the GPU until it finishes, and the LoRA it makes appears in the Style LoRA list.
-The [user guide](app/static/guide.md#corpora-and-training-a-lora-experimental) walks through it.
+It is on by default. `TRAINING_ENABLED: "0"` on the app takes it out, and `WITH_TRAINER=0` leaves
+the trainer out of the engine image.
 
 ## Requirements
 
@@ -140,18 +148,18 @@ Then open <http://localhost:8090>.
 
 ### Build options
 
-One thing is built out by default, and turning it on needs a rebuild rather than a setting.
+These need a rebuild rather than a setting.
 
 | Build arg | Default | What it does |
 |---|---|---|
-| `WITH_TRAINER` | `0` | on the **engine** service. Includes the LoRA trainer node pack in the image. See Training a LoRA below |
+| `WITH_TRAINER` | `1` | on the **engine** service. The LoRA trainer node pack; `0` leaves it out and the app hides Corpora. See Training a LoRA above |
 | `FS_AUDIO_REF` | pinned commit | which commit of that pack to use, if it is included |
 | `COMFYUI_REF` | pinned commit | which commit of ComfyUI the engine is built from. See Contributing for how far it has drifted |
 
 They are set under `build: args:` in `compose.yml`, or passed on the command line:
 
 ```sh
-docker compose build --build-arg WITH_TRAINER=1 engine
+docker compose build --build-arg WITH_TRAINER=0 engine
 ```
 
 The fetch script also creates `data/` and `engine-state/output/`. Let it, rather than leaving them
@@ -261,7 +269,7 @@ server-side change only.
 ```
 compose.yml            engine + app, the one machine setup
 engine/Dockerfile      ComfyUI pinned to the commit this was built against, and the
-                       WITH_TRAINER build arg, off, that leaves the trainer out
+                       WITH_TRAINER build arg, on, that builds the trainer in
 engine/custom_nodes/   yue2_harmony, the node behind the Harmony slider
 Dockerfile             the app: FastAPI, one static page, demucs
 app/                   the application
@@ -353,7 +361,7 @@ missing node or model shows in the header instead of failing a render.
 | `MAX_UPLOAD_MB` | `2048` | the largest recording you can upload, in megabytes. The engine has its own ceiling, `ENGINE_MAX_UPLOAD_MB` on the engine service, set to the same figure: raise both together |
 | `STEMS_THREADS` | half the CPUs | torch threads for the separation |
 | `STEMS_JOBS` | 4, or a quarter of the CPUs | demucs segments applied at once. One uses about 1.8 GB and 2.5x realtime, four uses 3.7 GB and 3.6x. The split setup's 2 GB cap needs this at 1, or the cap raised |
-| `TRAINING_ENABLED` | `0` | turns on the corpus and LoRA-training workflow, all of it. Needs the engine built with `WITH_TRAINER=1` as well: with only one of the two it stays hidden. See Training a LoRA |
+| `TRAINING_ENABLED` | `1` | the corpus and LoRA-training workflow, all of it. `0` takes it out of the app. Training also needs the engine built with `WITH_TRAINER=1`, the default. See Training a LoRA |
 | `DATA_DIR` | `/data` | the library |
 
 ## Troubleshooting
@@ -368,7 +376,7 @@ missing node or model shows in the header instead of failing a render.
 | Render fails out of memory | another program is using the GPU | close other GPU work; see Requirements |
 | **Write score plan** is greyed out in Instrumental | the LoRA is not in `models/loras` | `sh scripts/fetch-models.sh`, then `docker compose restart engine` |
 | **Write lyrics** is greyed out | Gemma is not in `models/text_encoders` | `sh scripts/fetch-models.sh`, then `docker compose restart engine` |
-| **Corpora** is not in the menu | it is experimental and not in the standard build | see Training a LoRA above; it needs `WITH_TRAINER=1` on the engine build *and* `TRAINING_ENABLED=1` on the app |
+| **Corpora** is not in the menu | `TRAINING_ENABLED` is `0`, or the engine was built with `WITH_TRAINER=0` | set both back to `1`, rebuild the engine if it was the second; see Training a LoRA above |
 | Header says the checkpoint is missing | `yue2_3b_bf16.safetensors` is not in `models/checkpoints` | `sh scripts/fetch-models.sh`, then `docker compose restart engine` |
 | **Render this score** and **Write a new plan** are greyed out | no take's score is in the editor | press **Score** on a take in the library, or write a plan |
 | The app restarts, and its log says it cannot open the database | `data/` belongs to root, because Docker created it | `sudo chown -R 1000:1000 data engine-state/output`, or the uid in compose.yml |

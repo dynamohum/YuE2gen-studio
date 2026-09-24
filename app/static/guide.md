@@ -255,12 +255,11 @@ per check and holds nothing, or turns the check off.
 
 The **Vocal** chips set the singer's sex and character by writing into the style.
 
-## Corpora and training a LoRA (experimental)
+## Corpora and training a LoRA
 
 A **corpus** is a folder of one artist's songs, prepared as a training set for a style LoRA.
-It is experimental and not in the standard build: build the engine with
-`--build-arg WITH_TRAINER=1` and run the app with `TRAINING_ENABLED=1`, and **Corpora** appears
-in the menu.
+Open **Corpora** from the menu. It is on by default; `TRAINING_ENABLED=0` for the app, or an
+engine built with `WITH_TRAINER=0`, takes it out.
 
 1. **New corpus.** Give it a name and a **trigger word**, say whether the voice is male or female,
    describe the sound shared by every song, and open the folder that holds the songs. Confirm you
@@ -349,9 +348,6 @@ folder gives the groups their headings, one `prefix = label` per line.
 
 A LoRA trained from one of your corpora is an ordinary style LoRA: it appears in this list with the
 rest, its trigger word beside it, and the same two strengths apply.
-
-In a build without Corpora, a file trained earlier still appears in this list, marked
-**experimental**. If you would rather not be offered it, delete the file from `models/loras`.
 
 New files appear once the engine has looked at `models/loras/` again, which it does when the
 options are reloaded.

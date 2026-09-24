@@ -277,27 +277,23 @@ def host_allowed(host_header: str) -> bool:
 # Every path the corpus and training workflow answers on.  One tuple in one place,
 # because the workflow has twenty-odd route decorators and a guard repeated that many
 # times is a guard that will be forgotten on the next one added.
-EXPERIMENTAL_PATHS = ("/api/identities", "/api/personas", "/api/lora-runs", "/api/import/")
+TRAINING_PATHS = ("/api/identities", "/api/personas", "/api/lora-runs", "/api/import/")
 
 
 @app.middleware("http")
-async def experimental_off(request: Request, call_next):
-    """EXPERIMENTAL FEATURE GATE.  Training a LoRA from a corpus is off unless built in.
+async def training_off(request: Request, call_next):
+    """Corpora and training, when TRAINING_ENABLED=0 has switched them off.
 
     The whole workflow is behind this, not only the training step: preparing a corpus
     costs real CPU — a vocal separation and a transcription for every song — and with
-    no way to train at the end of it, that work buys nothing.  Offering half the path
-    would waste somebody's evening before the wall appeared.
-
-    See config.TRAINING_ENABLED for why it is off.  The code and any corpus already on
-    disk are untouched; only the way in is closed."""
-    if not config.TRAINING_ENABLED and request.url.path.startswith(EXPERIMENTAL_PATHS):
+    no way to train at the end of it, that work buys nothing.  Any corpus already on
+    disk is untouched; only the way in is closed."""
+    if not config.TRAINING_ENABLED and request.url.path.startswith(TRAINING_PATHS):
         # JSON with a detail key, like every other refusal here, so the page shows the
         # reason rather than a wall of plain text.
         return JSONResponse(
-            {"detail": "Corpora and LoRA training are experimental and are not built in. "
-                       "Build the engine with --build-arg WITH_TRAINER=1 and set "
-                       "TRAINING_ENABLED=1 for the app."},
+            {"detail": "Corpora and LoRA training are switched off. Set TRAINING_ENABLED=1 "
+                       "for the app, with the engine built with WITH_TRAINER=1."},
             status_code=501,
         )
     return await call_next(request)
@@ -767,8 +763,8 @@ def state() -> dict:
             "harmony_steps": HARMONY_STEPS,
             # Unknown until the engine has been read, so only a confirmed absence disables it.
             "harmony_available": ENGINE.options.get("harmony", False) or not ENGINE.options_loaded,
-            # EXPERIMENTAL: off unless built in, so the corpus screen hides the button
-            # rather than offering something that answers 501.  See config.TRAINING_ENABLED.
+            # Both switches and the engine's node, so the page never offers a button
+            # that would answer 501.  See config.TRAINING_ENABLED.
             "training_available": config.TRAINING_ENABLED and ENGINE.options.get("trainer", False),
             "weak_render_db": config.WEAK_RENDER_DB,
         },
@@ -1678,24 +1674,20 @@ class TrainIn(BaseModel):
 
 
 def _training_built_in() -> None:
-    """EXPERIMENTAL FEATURE GATE.  Training is off unless it was built in.
-
-    See config.TRAINING_ENABLED for why it is off by default: the node pack it needs
-    adapts only the acoustic branch and what it produces does not sound like the
-    corpus.  The route stays so the feature can be turned back on whole, and so a
-    caller gets a reason rather than a 404 that looks like a bug."""
+    """Training, when TRAINING_ENABLED=0 has switched it off.  A caller gets the
+    reason rather than a 404 that looks like a bug."""
     if not config.TRAINING_ENABLED:
         raise HTTPException(
             501,
-            "Training a LoRA here is experimental and is not built in. Build the engine "
-            "with --build-arg WITH_TRAINER=1 and set TRAINING_ENABLED=1 for the app. "
-            "Export the training set instead and train it elsewhere.",
+            "Training a LoRA is switched off. Set TRAINING_ENABLED=1 for the app, with "
+            "the engine built with WITH_TRAINER=1, or export the training set and train "
+            "it elsewhere.",
         )
 
 
 @app.post("/api/identities/{identity_id}/train")
 async def train_identity(identity_id: str, body: TrainIn | None = None) -> dict:
-    """EXPERIMENTAL, off unless built in.  Train a LoRA from this corpus's set.
+    """Train a LoRA from this corpus's set.
 
     It takes the better part of an hour and the whole GPU, so the app refuses to start
     it while the engine is busy, refuses to start anything else on the engine while it
@@ -1733,7 +1725,7 @@ async def train_identity(identity_id: str, body: TrainIn | None = None) -> dict:
 
 @app.post("/api/lora-runs/{run_id}/cancel")
 async def cancel_lora_run(run_id: str) -> dict:
-    """EXPERIMENTAL, off unless built in.  Stop a run started before it was turned off."""
+    """Stop a training run."""
     run = one("SELECT * FROM lora_runs WHERE id = ?", (run_id,))
     if not run:
         raise HTTPException(404, "no such training run")

@@ -38,11 +38,9 @@ RUN pip install "torch==2.9.*" "torchvision==0.24.*" "torchaudio==2.9.*" \
 #
 # librosa, scipy and soundfile are required for audio tokenization and latent storage.
 #
-# EXPERIMENTAL, AND LEFT OUT BY DEFAULT.
-# To build it in:   docker compose build --build-arg WITH_TRAINER=1 engine
-# and run the app with TRAINING_ENABLED=1.  Both are needed: the app hides the
-# button unless the node is present *and* the flag is set.
-ARG WITH_TRAINER=0
+# Built in by default.  --build-arg WITH_TRAINER=0 leaves it out, and the app then
+# hides Corpora and training.
+ARG WITH_TRAINER=1
 ARG FS_AUDIO_REF=26fe2e91d20ebf3531cf053c0c654fd3b849e5de
 RUN if [ "${WITH_TRAINER}" = "1" ]; then \
         git clone --quiet https://github.com/KytraScript/ComfyUI-FS_Audio_Suite.git \
@@ -53,7 +51,7 @@ RUN if [ "${WITH_TRAINER}" = "1" ]; then \
             /app/custom_nodes/ComfyUI-FS_Audio_Suite/fs_train/artist.py \
         && pip install "soundfile>=0.12" "librosa>=0.10" "scipy"; \
     else \
-        echo "trainer left out: build with --build-arg WITH_TRAINER=1 to include it"; \
+        echo "trainer left out (WITH_TRAINER=0)"; \
     fi
 
 # YuE2 Studio's own node: the Harmony control for score plans.  Copied after the

@@ -40,13 +40,12 @@ def test_the_guide_does_not_promise_what_is_not_built():
         assert unbuilt not in text, f"the guide describes {unbuilt}, which is not in the app"
 
 
-def test_the_guide_says_training_is_experimental():
-    """It is off in the standard build, so the guide has to say so and say how to
-    turn it on, rather than describe a menu that is not there."""
+def test_the_guide_says_how_to_switch_training_off():
+    """On by default, so the guide says how to take it out rather than how to put it in."""
     text = GUIDE.read_text(encoding="utf-8")
-    assert "experimental" in text
-    assert "WITH_TRAINER=1" in text, "the engine half"
-    assert "TRAINING_ENABLED=1" in text, "and the app half, or it stays hidden"
+    assert "TRAINING_ENABLED=0" in text, "the app half"
+    assert "WITH_TRAINER=0" in text, "and the engine half"
+    assert "experimental" not in text.lower()
 
 
 def test_the_guide_names_the_corpus_buttons():
