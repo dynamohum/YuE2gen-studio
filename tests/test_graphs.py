@@ -53,3 +53,16 @@ def test_train_graph():
     assert g["5"]["inputs"]["batch_songs"] == 2
     assert g["7"]["class_type"] == "PreviewAny"
 
+
+
+def test_a_sound_seed_draws_the_sound_and_leaves_the_notes():
+    """Node 11 chooses the notes and node 14 draws the sound from noise. A take with a
+    sound seed of its own keeps its notes and gets a new voice; one without renders as
+    it always did."""
+    from app.jobs import build_render_graph
+    take = {"id": "t1", "style": "pop", "lyrics": "[verse]\na", "abc": "X:1", "seed": 111, "mode": "full",
+            "interpretation": "standard", "max_duration": 120}
+    plain = build_render_graph(take)
+    assert plain["11"]["inputs"]["seed"] == 111 and plain["14"]["inputs"]["seed"] == 111
+    voiced = build_render_graph({**take, "sound_seed": 222})
+    assert voiced["11"]["inputs"]["seed"] == 111 and voiced["14"]["inputs"]["seed"] == 222

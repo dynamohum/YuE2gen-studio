@@ -237,7 +237,9 @@ def build_render_graph(take: dict) -> dict:
     node["seed"] = int(take["seed"])
     node["mode"] = take["mode"]
     node["max_duration"] = float(take.get("max_duration") or 360)
-    graph["14"]["inputs"]["seed"] = int(take["seed"])
+    # The notes come from the seed on node 11; the noise the decoder shapes into sound
+    # comes from this one.  A sound seed of its own draws a new voice over the same notes.
+    graph["14"]["inputs"]["seed"] = int(take.get("sound_seed") or take["seed"])
     # A prefix unique to this run.  ComfyUI caches an output node whose inputs have
     # not changed and answers with the file it saved last time, which the app has
     # already taken and deleted.  With a new prefix only the save runs again.

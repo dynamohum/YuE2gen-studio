@@ -387,6 +387,14 @@ def _loudness() -> None:
         execute("ALTER TABLE takes ADD COLUMN loudness REAL")
 
 
+def _sound_seed() -> None:
+    """A take can draw its sound from a seed of its own.  The seed that chooses the notes
+    also drew the noise the decoder shapes into sound; a second one lets the voice be
+    drawn again over the same performance.  NULL means the take's own seed, as before."""
+    if "sound_seed" not in _columns("takes"):
+        execute("ALTER TABLE takes ADD COLUMN sound_seed INTEGER")
+
+
 MIGRATIONS = [
     lambda: (conn().executescript(BASE_SCHEMA), _legacy_takes()),   # -> 1
     _indexes,                                                        # -> 2
@@ -407,6 +415,7 @@ MIGRATIONS = [
     _lora_runs,                                                      # -> 17
     _lyrics_method,                                                  # -> 18
     _loudness,                                                       # -> 19
+    _sound_seed,                                                     # -> 20
 ]
 
 

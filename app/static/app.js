@@ -1173,7 +1173,7 @@ function lockGpuControls() {
   });
   Array.prototype.forEach.call(document.querySelectorAll('.takes [data-act]'), function (button) {
     var act = button.dataset.act || '';
-    if (['render', 'again', 'variations', 'replan', 'reroll'].indexOf(act) >= 0) {
+    if (['render', 'again', 'variations', 'revoice', 'replan', 'reroll'].indexOf(act) >= 0) {
       button.disabled = training;
     }
   });
@@ -3789,6 +3789,7 @@ var ICONS = {
   trash: '<path d="M4.5 7h15M9.5 7V4.8h5V7M6.5 7l1 12.2h9l1-12.2"/>',
   stems: '<path d="M12 3.2l8 4.2-8 4.2-8-4.2z"/><path d="M4 12.4l8 4.2 8-4.2"/><path d="M4 16.6l8 4.2 8-4.2"/>',
   move: '<path d="M3.5 7.5V18a1.5 1.5 0 0 0 1.5 1.5h14a1.5 1.5 0 0 0 1.5-1.5V9.5A1.5 1.5 0 0 0 19 8h-7l-2-2.5H5A1.5 1.5 0 0 0 3.5 7v.5"/><path d="M10 13.5h6m0 0l-2.5-2.5m2.5 2.5L13.5 16"/>',
+  voice: '<path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M19 11a7 7 0 0 1-14 0"/><path d="M12 18v3"/>',
   variations: '<path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9L12 17.5l-1.9-5.1L5 10.5l5.1-1.9z"/><path d="M18.5 15.2l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/>',
   stop: '<rect x="6.5" y="6.5" width="11" height="11" rx="1.6"/>'
 };
@@ -4142,6 +4143,7 @@ function paintTakes() {
     }
     if (take.realaudio) { meta.push('realaudio'); }
     meta.push('seed ' + take.seed);
+    if (take.sound_seed) { meta.push('voice ' + take.sound_seed); }
     meta.push(age(take.created_at));
     var live = '';
     if (status === 'running' && take.live) {
@@ -4233,7 +4235,9 @@ function paintTakes() {
         // Occasional, so small corner buttons rather than tiles in an already full row.
         '<div class="take-corner">' +
           (take.abc && take.abc.length > 50 && status !== 'queued' && status !== 'running'
-            ? '<button class="take-move" data-act="variations"' + id + ' title="Variations: render this score in other interpretations"' +
+            ? '<button class="take-move" data-act="revoice"' + id + ' title="New voice, same notes: render this take again with only the sound drawn afresh"' +
+              ' aria-label="New voice, same notes">' + icon('voice') + '</button>' +
+              '<button class="take-move" data-act="variations"' + id + ' title="Variations: render this score in other interpretations"' +
               ' aria-label="Variations">' + icon('variations') + '</button>'
             : '') +
           '<button class="take-move" data-act="move"' + id + ' title="Move to another space" aria-label="Move to another space">' +
@@ -5653,6 +5657,12 @@ function wire() {
       await api('/api/takes/' + id + '/replan', { method: 'POST' });
       awaitNewPlan(id);
       statusLine('Writing a new plan for the same words\u2026');
+      loadTakes();
+    }
+    if (act === 'revoice') {
+      var voiced = takeById(id);
+      await api('/api/takes/' + id + '/revoice', { method: 'POST' });
+      statusLine('Drawing a new voice for ' + (voiced ? voiced.title : 'this take') + ', same notes\u2026', 'good');
       loadTakes();
     }
     if (act === 'variations') {

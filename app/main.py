@@ -1280,8 +1280,9 @@ async def render_take(take_id: str, body: RenderIn | None = None) -> dict:
         seed = int.from_bytes(os.urandom(4), "big")
     else:
         seed = take["seed"]
-    execute("UPDATE takes SET status = 'queued', error = NULL, stage = NULL, checkpoint = ?, interpretation = ?, realaudio = ?, identity_id = ?, persona_id = ?, voice_lora = ?, voice_lora_strength = ?, style_lora = ?, style_lora_model = ?, style_lora_clip = ?, seed = ?, vocal_check = NULL, loudness = NULL WHERE id = ?",
-            (config.CHECKPOINT, interpretation, realaudio, identity_val, identity_val, voice_lora, voice_lora_strength, sl["style_lora"], sl["style_lora_model"], sl["style_lora_clip"], seed, take_id))
+    execute("UPDATE takes SET status = 'queued', error = NULL, stage = NULL, checkpoint = ?, interpretation = ?, realaudio = ?, identity_id = ?, persona_id = ?, voice_lora = ?, voice_lora_strength = ?, style_lora = ?, style_lora_model = ?, style_lora_clip = ?, seed = ?, sound_seed = ?, vocal_check = NULL, loudness = NULL WHERE id = ?",
+            (config.CHECKPOINT, interpretation, realaudio, identity_val, identity_val, voice_lora, voice_lora_strength, sl["style_lora"], sl["style_lora_model"], sl["style_lora_clip"], seed,
+             take.get("sound_seed") if seed == take["seed"] else None, take_id))
     await QUEUE.put({"kind": "render", "id": take_id})
     log.info("Queued audio render for take '%s' (%s, seed=%d)", take.get("title") or take_id, take_id, seed)
     return {"queued": True, "seed": seed}
@@ -1318,7 +1319,7 @@ async def replan_take(take_id: str, body: ReplanIn | None = None) -> dict:
     harmony = take["harmony"] if body.harmony is None else body.harmony
     seed = int.from_bytes(os.urandom(4), "big")
     execute(
-        "UPDATE takes SET seed = ?, abc = '', status = 'queued', error = NULL, stage = NULL, variety = ?, harmony = ?, checkpoint = ? WHERE id = ?",
+        "UPDATE takes SET seed = ?, sound_seed = NULL, abc = '', status = 'queued', error = NULL, stage = NULL, variety = ?, harmony = ?, checkpoint = ? WHERE id = ?",
         (seed, variety, harmony, config.CHECKPOINT, take_id),
     )
     await QUEUE.put({"kind": "plan", "id": take_id})
@@ -1330,7 +1331,36 @@ async def replan_take(take_id: str, body: ReplanIn | None = None) -> dict:
 def _base_title(title: str) -> str:
     """'Night drive · Tight' -> 'Night drive', so a variation of a variation is not 'X · Tight · Loose'."""
     head, sep, tail = title.rpartition(" \u00b7 ")
-    return head if sep and tail in INTERPRETATION_NAMES.values() else title
+    return head if sep and (tail in INTERPRETATION_NAMES.values() or tail == "new voice") else title
+
+
+# What a new voice leaves behind: the copy is a new take with its own audio and state.
+_REVOICE_FRESH = {"id", "title", "status", "stage", "error", "audio_path", "duration", "prompt_id", "created_at",
+                  "finished_at", "elapsed", "favourite", "vocal_check", "loudness", "sound_seed"}
+
+
+@app.post("/api/takes/{take_id}/revoice")
+async def revoice(take_id: str) -> dict:
+    """The same score and the same notes, with the sound drawn again: a new take beside
+    the original, identical but for the seed of its sound."""
+    _gpu_free_for_rendering()
+    take = one("SELECT * FROM takes WHERE id = ?", (take_id,))
+    if not take:
+        raise HTTPException(404, "no such take")
+    if not (take["abc"] or "").strip():
+        raise HTTPException(400, "this take has no score to render again. Write a plan first.")
+    _check_score(take["abc"], take["kind"])
+    _checkpoint()
+    record = {key: value for key, value in take.items() if key not in _REVOICE_FRESH}
+    sound_seed = int.from_bytes(os.urandom(4), "big")
+    record.update(id=uuid.uuid4().hex[:12], title=f"{_base_title(take['title'])} \u00b7 new voice",
+                  status="queued", created_at=time.time(), checkpoint=config.CHECKPOINT, sound_seed=sound_seed)
+    columns = list(record)
+    execute(f"INSERT INTO takes({', '.join(columns)}) VALUES({', '.join(':' + c for c in columns)})", record)
+    await QUEUE.put({"kind": "render", "id": record["id"]})
+    log.info("Queued a new voice for take '%s' (%s -> %s, sound seed %d)", take.get("title") or take_id,
+             take_id, record["id"], sound_seed)
+    return {"id": record["id"], "title": record["title"], "sound_seed": sound_seed}
 
 
 @app.post("/api/takes/{take_id}/variations")
@@ -1366,16 +1396,17 @@ async def variations(take_id: str, body: VariationsIn) -> dict:
             "style_lora": take.get("style_lora"),
             "style_lora_model": take.get("style_lora_model", 1.0),
             "style_lora_clip": take.get("style_lora_clip", 1.0),
+            "sound_seed": take.get("sound_seed"),
         }
         execute(
             """INSERT INTO takes(id, kind, source_id, title, style, lyrics, abc, mode, seed, checkpoint, max_duration,
                                  status, created_at, variety, harmony, space_id, interpretation, feel, realaudio,
                                  identity_id, persona_id, voice_lora, voice_lora_strength, voice_lora_clip,
-                                 style_lora, style_lora_model, style_lora_clip)
+                                 style_lora, style_lora_model, style_lora_clip, sound_seed)
                VALUES(:id, :kind, :source_id, :title, :style, :lyrics, :abc, :mode, :seed, :checkpoint, :max_duration,
                       'queued', :created_at, :variety, :harmony, :space_id, :interpretation, :feel, :realaudio,
                       :identity_id, :persona_id, :voice_lora, :voice_lora_strength, :voice_lora_clip,
-                      :style_lora, :style_lora_model, :style_lora_clip)""",
+                      :style_lora, :style_lora_model, :style_lora_clip, :sound_seed)""",
             record,
         )
         await QUEUE.put({"kind": "render", "id": record["id"]})
