@@ -58,8 +58,8 @@
 
     <div id="draft-bar" class="draft hidden" role="status">
       <span id="draft-text">Your unsaved words were kept.</span>
-      <button id="draft-restore" class="link">Restore</button>
-      <button id="draft-dismiss" class="link">Dismiss</button>
+      <button id="draft-restore" class="chip action compact">Restore</button>
+      <button id="draft-dismiss" class="chip action compact">Dismiss</button>
     </div>
 
     <div class="field">
@@ -92,7 +92,7 @@
       </div>
       <div id="lyrics-hear-job" class="hear-job hidden">
         <div class="bar"><div id="lyrics-hear-bar"></div></div>
-        <div class="hear-job-line"><span id="lyrics-hear-stage" class="muted">Waiting</span><button id="lyrics-hear-stop" class="link">stop</button></div>
+        <div class="hear-job-line"><span id="lyrics-hear-stage" class="muted">Waiting</span><button id="lyrics-hear-stop" class="chip action compact">stop</button></div>
       </div>
       <div id="source-status" class="status"></div>
       <div id="source-tempo" class="status"></div>
@@ -101,7 +101,7 @@
     <details id="score-box" class="block">
       <summary>
         <span id="score-label">Score</span> <span id="score-badge" class="badge">no score</span>
-        <button id="score-expand" class="link" title="Open a full size editor">Expand</button>
+        <button id="score-expand" class="chip action compact" title="Open a full size editor">Expand</button>
       </summary>
       <p class="hint">Chords live in the quoted symbols. Change them and the next render follows your harmony.</p>
       <textarea id="abc" spellcheck="false" placeholder="Transcribe a recording, or write a score plan, to fill this in."></textarea>
@@ -174,8 +174,8 @@
       <div class="label-row">
         <label for="lyrics">Lyrics</label>
         <span class="label-actions">
-          <button id="lyrics-write" class="link" title="Draft lyrics from a short description">Write lyrics</button>
-          <button id="lyrics-expand" class="link" title="Open a full size editor">Expand</button>
+          <button id="lyrics-write" class="chip action compact" title="Draft lyrics from a short description">Write lyrics</button>
+          <button id="lyrics-expand" class="chip action compact" title="Open a full size editor">Expand</button>
         </span>
       </div>
       <textarea id="lyrics" class="lyrics" spellcheck="false" placeholder="[Verse]&#10;First line&#10;Second line&#10;&#10;[Chorus]&#10;..."></textarea>
@@ -262,10 +262,10 @@
       </div>
       <div class="hint" id="style-lora-hint">Planner shapes what is played, Sound how it sounds.</div>
       <div class="row lora-share">
-        <button id="lora-reload" type="button" class="link" title="Read models/loras again, so a LoRA file added by hand shows in the list">Rescan</button>
-        <a id="lora-download" class="link hidden" href="#" title="This LoRA and its note, learned styles included, in one zip to give to someone else">Download</a>
-        <button id="lora-install" type="button" class="link" title="Add a LoRA someone shared: the zip from their Download, or a .safetensors file">Install</button>
-        <button id="lora-delete" type="button" class="link hidden" title="Remove this LoRA, its note and its group line from models/loras">Delete</button>
+        <button id="lora-reload" type="button" class="chip action" title="Read models/loras again, so a LoRA file added by hand shows in the list">Rescan</button>
+        <a id="lora-download" class="chip action hidden" href="#" title="This LoRA and its note, learned styles included, in one zip to give to someone else">Download</a>
+        <button id="lora-install" type="button" class="chip action" title="Add a LoRA someone shared: the zip from their Download, or a .safetensors file">Install</button>
+        <button id="lora-delete" type="button" class="chip action hidden" title="Remove this LoRA, its note and its group line from models/loras">Delete</button>
         <input id="lora-install-file" type="file" accept=".zip,.safetensors" class="hidden">
         <span id="lora-install-status" class="status"></span>
       </div>
@@ -293,9 +293,9 @@
     <div class="spacebar">
       <label for="space" class="space-label">Space</label>
       <select id="space" title="Each space holds its own takes"></select>
-      <button id="space-new" class="chip">New space</button>
-      <button id="space-rename" class="chip">Rename</button>
-      <button id="space-delete" class="chip">Delete</button>
+      <button id="space-new" class="chip action">New space</button>
+      <button id="space-rename" class="chip action">Rename</button>
+      <button id="space-delete" class="chip action">Delete</button>
     </div>
     <div class="libhead">
       <h2 id="takes-heading">Your takes</h2>
