@@ -23,6 +23,25 @@ Release notes live in two places and neither is a file in this repository: this 
 history, and each GitHub release holds its published notes. `RELEASE-NOTES-*.md` is ignored so it
 cannot creep back in.
 
+## 0.0.26 - 2026-09-24
+
+### New
+
+- **New voice.** A mic icon in each take's corner sings the same score again with a new seed, as a
+  new take beside the original. The melody, chords and words stay; the voice and the backing are
+  drawn afresh. Useful for keeping a take you like while trying other voices, or for finding the
+  voice again after changing the length, which re-sings the song.
+- **The Style LoRA list folds by group.** Click a heading to open or close it; the picker
+  remembers which groups you left open, and the group holding the current LoRA opens with it.
+- **Buttons instead of underlined links** in the left panel: Rescan, Download, Install, Delete,
+  Write lyrics, Expand, and the draft bar's Restore and Dismiss. The space buttons get the same
+  lighter fill, so they stand out on the dark panels.
+
+### Fixed
+
+- A reload returns to the mode the page was left in (Cover, Song or Instrumental); it always
+  opened on Cover.
+
 ## 0.0.25 - 2026-09-24
 
 ### New
