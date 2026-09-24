@@ -115,9 +115,9 @@ will not end.
 
 Open **Corpora** from the menu. The app prepares a **corpus** — a folder of one artist's songs,
 each vocal separated, its key, tempo and sections found and its lyrics drafted — exports it as a
-training set, and trains a style LoRA from it. Training holds the GPU until it finishes, keeps a
-snapshot every 50 steps so you can pick one by ear, and the LoRA appears in the Style LoRA list,
-with a style chip for each song it learned from. To share it, press **Download** under the picker:
+training set, and trains a style LoRA from it. Training holds the GPU until it finishes, and the
+LoRA appears in the Style LoRA list, with a style chip for each song it learned from. A snapshot is
+kept every 50 steps, under **Training checkpoints** in the same list, so you can pick one by ear. To share it, press **Download** under the picker:
 the zip carries its chips, and the other person adds it with **Install**.
 
 It does most in a song from a prompt, where the LoRA writes the tune: Planner and Sound up to

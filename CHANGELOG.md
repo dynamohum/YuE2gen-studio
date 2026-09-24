@@ -23,6 +23,30 @@ Release notes live in two places and neither is a file in this repository: this 
 history, and each GitHub release holds its published notes. `RELEASE-NOTES-*.md` is ignored so it
 cannot creep back in.
 
+## 0.0.29 - 2026-09-24
+
+### What's new
+
+- **Normalise volume.** Tick it in the form and each take made while it is ticked is brought to the
+  usual loudness when it finishes. A take flagged *Weak render* can be normalised from its warning
+  ("click here to normalise, or try another seed"). A normalised take is marked *Normalised*, and
+  the file as rendered is kept beside it. Nothing is normalised unless you ask.
+- **Cancel a job waiting in Up next** before it starts. Cancelling a corpus song's re-analysis keeps
+  the style, or key and tempo, it had before.
+- **A take that ran on to the Length cap says so.** When a render keeps going past the end of its
+  score and is cut at the cap, its ending may loop, wander or stop dead; the card now says so. A
+  take capped short on purpose is not flagged.
+
+### Improved
+
+- **Training checkpoints have their own group** in the Style LoRA list, closed until opened and in
+  step order, instead of sitting among your finished corpus LoRAs.
+- **Learned styles sit in a box that scrolls**, so a large corpus no longer pushes the form down the
+  page. A long song title is shortened, with the full style in its tooltip.
+- **The header:** the version and Logs sit right-aligned under the status badges, and the name
+  lines up with the first badge.
+- The queue names corpus jobs as *Corpus analysis*.
+
 ## 0.0.28 - 2026-09-24
 
 ### Fixed
