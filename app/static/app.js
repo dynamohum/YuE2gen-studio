@@ -1200,6 +1200,17 @@ function syncScoreFromBig() {
   updateScoreCount();
 }
 
+/* A window closes when its backdrop is clicked, but only a click that began there.
+   Pressing inside a window (to select text, or drag its scrollbar) and letting go a
+   little outside it makes the browser report a click on the backdrop, and the window
+   closed under the pointer. */
+var PRESSED_ON = null;
+document.addEventListener('pointerdown', function (event) { PRESSED_ON = event.target; }, true);
+
+function backdropClick(event, backdrop) {
+  return event.target === backdrop && PRESSED_ON === backdrop;
+}
+
 function openLyricsEditor() {
   $('lyrics-big').value = $('lyrics').value;
   updateLyricsCount();
@@ -5485,7 +5496,7 @@ function wire() {
   $('sung-render').addEventListener('click', renderAnyway);
   $('sung-replan').addEventListener('click', replanInstead);
   $('sung-modal').addEventListener('click', function (event) {
-    if (event.target === $('sung-modal')) { closeSungWarning(); }
+    if (backdropClick(event, $('sung-modal'))) { closeSungWarning(); }
   });
   $('reroll').addEventListener('click', doReroll);
   document.querySelector('.modes').addEventListener('click', function (event) {
@@ -5723,12 +5734,12 @@ function wire() {
   $('write-close').addEventListener('click', closeWrite);
   $('write-go').addEventListener('click', doWrite);
   $('write-stop').addEventListener('click', stopWrite);
-  $('write-modal').addEventListener('click', function (event) { if (event.target === $('write-modal')) { closeWrite(); } });
+  $('write-modal').addEventListener('click', function (event) { if (backdropClick(event, $('write-modal'))) { closeWrite(); } });
   $('variations-close').addEventListener('click', closeVariations);
   $('variations-go').addEventListener('click', doVariations);
   $('variations-list').addEventListener('change', paintVariationsEstimate);
   $('variations-modal').addEventListener('click', function (event) {
-    if (event.target === $('variations-modal')) { closeVariations(); }
+    if (backdropClick(event, $('variations-modal'))) { closeVariations(); }
   });
   $('space').addEventListener('change', function () { showSpace($('space').value); });
   $('space-new').addEventListener('click', newSpace);
@@ -5736,7 +5747,7 @@ function wire() {
   $('space-delete').addEventListener('click', deleteSpace);
   $('move-close').addEventListener('click', closeMoveModal);
   $('move-modal').addEventListener('click', function (event) {
-    if (event.target === $('move-modal')) { closeMoveModal(); }
+    if (backdropClick(event, $('move-modal'))) { closeMoveModal(); }
   });
   $('move-list').addEventListener('click', function (event) {
     var button = event.target.closest('button[data-space]');
@@ -6046,7 +6057,7 @@ function wire() {
   });
   $('settings-close').addEventListener('click', closeSettings);
   $('settings-modal').addEventListener('click', function (event) {
-    if (event.target === $('settings-modal')) { closeSettings(); }
+    if (backdropClick(event, $('settings-modal'))) { closeSettings(); }
   });
   $('settings-list').addEventListener('change', function (event) {
     if (event.target && event.target.id === 'select-llm-model') {
@@ -6111,7 +6122,7 @@ function wire() {
   $('stems-run').addEventListener('click', runStems);
   $('stems-model').addEventListener('change', paintStemChoices);
   $('stems-modal').addEventListener('click', function (event) {
-    if (event.target === $('stems-modal')) { closeStemsModal(); }
+    if (backdropClick(event, $('stems-modal'))) { closeStemsModal(); }
   });
   $('lyrics-expand').addEventListener('click', openLyricsEditor);
   $('score-expand').addEventListener('click', function (event) {
@@ -6135,7 +6146,7 @@ function wire() {
     syncScoreFromBig();
   });
   $('score-modal').addEventListener('click', function (event) {
-    if (event.target === $('score-modal')) { closeScoreEditor(); }
+    if (backdropClick(event, $('score-modal'))) { closeScoreEditor(); }
   });
   $('score-views').addEventListener('click', function (event) {
     var chip = event.target.closest('[data-view]');
@@ -6155,7 +6166,7 @@ function wire() {
   $('lyrics-close').addEventListener('click', closeLyricsEditor);
   $('lyrics-big').addEventListener('input', syncLyricsFromBig);
   $('lyrics-modal').addEventListener('click', function (event) {
-    if (event.target === $('lyrics-modal')) { closeLyricsEditor(); }
+    if (backdropClick(event, $('lyrics-modal'))) { closeLyricsEditor(); }
   });
   document.querySelector('.modal-tools').addEventListener('click', function (event) {
     var button = event.target.closest('[data-tag]');
