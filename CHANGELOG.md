@@ -23,6 +23,23 @@ Release notes live in two places and neither is a file in this repository: this 
 history, and each GitHub release holds its published notes. `RELEASE-NOTES-*.md` is ignored so it
 cannot creep back in.
 
+## 0.0.27 - 2026-09-24
+
+### New
+
+- **A LoRA can keep its own strengths.** When you find the right Planner and Sound for a LoRA,
+  press **Save strengths** under the picker. Choosing that LoRA then starts at them, and the note
+  says so. They are kept in the LoRA's note, so they travel with it when you share it.
+- **Getting back to them.** Load a take made at other strengths, or move a slider, and the note
+  offers **use** to put the saved pair back. Choosing the same LoRA again does the same.
+- **Architecture document.** `docs/ARCHITECTURE.md` explains how the app drives ComfyUI and YuE2,
+  where LoRAs attach, the LLMs, Whisper and demucs, and the app's API with examples, with diagrams.
+
+### Changed
+
+- **Delete LoRA** says what the button deletes.
+- A LoRA with saved strengths no longer shows the general strength advice beside them.
+
 ## 0.0.26 - 2026-09-24
 
 ### New
