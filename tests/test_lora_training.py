@@ -69,7 +69,8 @@ def test_a_running_loRA_keeps_the_engine_to_itself(client, monkeypatch, tmp_path
 
 def test_a_finished_run_is_named_after_the_corpus_and_keeps_its_snapshots(client, monkeypatch, tmp_path):
     """The best goes under the plain name and its copy is dropped.  The snapshots stay,
-    each named for its step, because a published LoRA is a checkpoint picked by ear."""
+    each named for its step, because a published LoRA is a checkpoint picked by ear,
+    but in a group of their own so they do not read as more finished LoRAs."""
     import asyncio
     from app import jobs, loras
 
@@ -95,6 +96,9 @@ def test_a_finished_run_is_named_after_the_corpus_and_keeps_its_snapshots(client
     assert (root / "alicia_lora.safetensors").read_bytes() == b"alicia_lora_best"
     assert (root / "alicia_lora.txt").read_text(encoding="utf-8").split("\n")[0] == "Alicia"
     assert (root / "alicia_lora_step50.txt").read_text(encoding="utf-8").split("\n")[0] == "Alicia · step 50"
+    assert loras.families(root) == {"alicia_lora": "Your corpora", "alicia_lora_step50": "Training checkpoints",
+                                    "alicia_lora_step100": "Training checkpoints"}
+    assert "\n\n" not in (root / "families.txt").read_text(encoding="utf-8")
     assert one("SELECT lora FROM identities WHERE id = 'corpus1'")["lora"] == "alicia_lora.safetensors"
 
 

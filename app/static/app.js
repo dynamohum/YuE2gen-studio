@@ -330,6 +330,8 @@ function loraGroupKey(item) {
   return item.family || loraFamily(item.name);
 }
 
+var LORA_CHECKPOINTS = 'Training checkpoints';
+
 function loraGroups(list) {
   var counts = {};
   list.forEach(function (item) {
@@ -352,11 +354,17 @@ function paintStyleLoras() {
   $('style-lora-field').classList.remove('hidden');
   var chosen = select.value;
   var groups = loraGroups(list);
+  // Other goes last, and a training run's checkpoints just above it, under every
+  // finished LoRA.  Their steps are counted, not spelt: 50 comes before 100.
+  var rank = function (name) { return name === 'other' ? 2 : name === LORA_CHECKPOINTS ? 1 : 0; };
   var names = Object.keys(groups).sort(function (a, b) {
-    if (a === 'other') { return 1; }
-    if (b === 'other') { return -1; }
-    return a.localeCompare(b);
+    return rank(a) - rank(b) || a.localeCompare(b);
   });
+  if (groups[LORA_CHECKPOINTS]) {
+    groups[LORA_CHECKPOINTS].sort(function (a, b) {
+      return (a.title || a.name).localeCompare(b.title || b.name, undefined, { numeric: true });
+    });
+  }
   var option = function (item) {
     var note = LORA_KINDS[item.kind] ? ' \u2014 ' + LORA_KINDS[item.kind] : '';
     // The author's own name for it beats a file name every time.

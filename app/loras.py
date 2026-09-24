@@ -297,9 +297,13 @@ def install(source: Path, name: str, trigger: str, corpus: str, root: Path | Non
 # The group every LoRA made from one of your corpora shares.  Its own note names it,
 # so a group per corpus would only repeat that name above it.
 CORPUS_FAMILY = "Your corpora"
+# The checkpoints a training run writes along the way.  Kept, since an earlier one can
+# suit a voice better than the last, but in a group of their own below the finished LoRAs.
+CHECKPOINT_FAMILY = "Training checkpoints"
 
 
-def write_note(path: Path, trigger: str, corpus: str, title: str = "", root: Path | None = None) -> Path:
+def write_note(path: Path, trigger: str, corpus: str, title: str = "", root: Path | None = None,
+               family: str = CORPUS_FAMILY) -> Path:
     """The text file the picker reads: what the file is called, its trigger word, and
     where it came from.  Used for a LoRA installed by hand and for one trained here."""
     root = root or path.parent
@@ -318,9 +322,11 @@ def write_note(path: Path, trigger: str, corpus: str, title: str = "", root: Pat
     # first name here, and paul_mccartney would take in paul_shields.
     if stem.lower() not in families(root):
         path_families = root / "families.txt"
-        header = "" if path_families.exists() else "# The picker groups LoRAs by the word in front of the file name.\n"
+        existing = path_families.read_text(encoding="utf-8") if path_families.exists() else None
+        header = ("# The picker groups LoRAs by the word in front of the file name.\n" if existing is None
+                  else "" if existing.endswith("\n") or not existing else "\n")
         with path_families.open("a", encoding="utf-8") as handle:
-            handle.write(header + f"\n{stem.lower()} = {CORPUS_FAMILY}\n")
+            handle.write(header + f"{stem.lower()} = {family}\n")
     return note_path
 
 
