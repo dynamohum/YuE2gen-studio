@@ -23,6 +23,18 @@ Release notes live in two places and neither is a file in this repository: this 
 history, and each GitHub release holds its published notes. `RELEASE-NOTES-*.md` is ignored so it
 cannot creep back in.
 
+## 0.0.24 - 2026-09-24
+
+- **Training a LoRA from your own songs is on by default.** Corpora and LoRA training are part of
+  the standard build. Open **Corpora** from the menu, point it at a folder of one artist's songs,
+  and train a style LoRA from it. It shows most in a song from a prompt, where the LoRA writes the
+  tune: Planner and Sound up to about 0.70, Plan variety Calm or Normal. In a cover, keep Sound
+  near 0.50.
+- To leave it out, set `TRAINING_ENABLED: "0"` on the app, or build the engine with
+  `WITH_TRAINER=0`. An engine image built before this does not include the trainer: run
+  `docker compose build engine` to add it.
+- The README opens with a short list of what the app does.
+
 ## 0.0.23 - 2026-09-23
 
 - **Style LoRAs trained from your own songs (experimental, off by default).** Prepare a corpus from
