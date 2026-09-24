@@ -20,3 +20,25 @@ def test_a_single_model():
     steps = run(1, [0, 50, 100])
     assert steps[1] == (0.5, "Separating")
     assert steps[-1] == (0.95, "Separating")
+
+
+def test_asking_for_stems_is_answered_for_a_take_and_a_recording(client, tmp_path):
+    """The request queues the job and says so.  A log line after the queueing once
+    named a field the request does not have, and every request came back as an error
+    although the stems were made."""
+    from app.db import execute
+    from app.jobs import STEM_QUEUE
+    from conftest import make_take, tone
+
+    audio = tone(tmp_path / "take.flac", 1.0)
+    take = make_take(audio_path=str(audio))
+    execute("""INSERT INTO sources(id, title, filename, stored_path, sha256, created_at)
+               VALUES('src1', 'Song', 'song.flac', ?, 'abc', 1.0)""", (str(audio),))
+    try:
+        for url in (f"/api/takes/{take['id']}/stems", "/api/sources/src1/stems"):
+            answer = client.post(url, json={"model": "htdemucs", "stems": ["vocals"]})
+            assert answer.status_code == 200, answer.text
+            assert answer.json()["id"]
+    finally:
+        while not STEM_QUEUE.empty():
+            STEM_QUEUE.get_nowait()

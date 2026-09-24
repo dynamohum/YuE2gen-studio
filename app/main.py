@@ -2297,7 +2297,7 @@ def queue_stems(kind: str, ref_id: str, body: StemsIn) -> dict:
 async def take_stems(take_id: str, body: StemsIn) -> dict:
     result = queue_stems("take", take_id, body)
     await STEM_QUEUE.put({"id": result["id"]})
-    log.info("Queued stem separation for take %s (%s, model=%s, wanted=%s)", take_id, result["id"], body.model, body.wanted)
+    log.info("Queued stem separation for take %s (%s, model=%s, wanted=%s)", take_id, result["id"], body.model, body.stems or "all")
     return result
 
 
@@ -2305,7 +2305,7 @@ async def take_stems(take_id: str, body: StemsIn) -> dict:
 async def source_stems(source_id: str, body: StemsIn) -> dict:
     result = queue_stems("source", source_id, body)
     await STEM_QUEUE.put({"id": result["id"]})
-    log.info("Queued stem separation for source %s (%s, model=%s, wanted=%s)", source_id, result["id"], body.model, body.wanted)
+    log.info("Queued stem separation for source %s (%s, model=%s, wanted=%s)", source_id, result["id"], body.model, body.stems or "all")
     return result
 
 
