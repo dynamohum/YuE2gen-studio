@@ -29,7 +29,7 @@ Unicode true
 
 Name "${APPNAME}"
 OutFile "${OUTFILE}"
-InstallDir "$LOCALAPPDATA\YuE2Studio"
+InstallDir "$LOCALAPPDATA\Programs\YuE2Studio"   ; where per-user programs go (VS Code, Discord)
 InstallDirRegKey HKCU "Software\YuE2Studio" "InstallDir"
 RequestExecutionLevel user
 SetCompressor /SOLID lzma

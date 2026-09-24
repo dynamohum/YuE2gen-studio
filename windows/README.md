@@ -7,7 +7,7 @@ on Windows: no Docker, no WSL and no administrator prompt. **First pass: being t
 
 1. **Shows the terms** of each part (`terms.txt`) and asks whether to include Gemma, for lyric
    drafts on this PC (8 GB).
-2. **Copies our own files** into `%LOCALAPPDATA%\YuE2Studio`: the app, our engine node,
+2. **Copies our own files** into `%LOCALAPPDATA%\Programs\YuE2Studio`: the app, our engine node,
    `setup.ps1`, `launcher.py` and the notices.
 3. **Runs `setup.ps1`** in a window that shows its progress.
    - It checks the PC: Windows 10 22H2 or 11, an NVIDIA card of compute capability 8.0 or
