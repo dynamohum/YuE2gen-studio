@@ -23,6 +23,14 @@ Release notes live in two places and neither is a file in this repository: this 
 history, and each GitHub release holds its published notes. `RELEASE-NOTES-*.md` is ignored so it
 cannot creep back in.
 
+## 0.0.30 - 2026-09-24
+
+### Fixed
+
+- **Normalising a take from its warning now shows it is working.** The card says *Normalising…*
+  from the click until the take is done, then *Normalised*. Before, nothing changed for several
+  seconds, and it was not clear the click had been taken.
+
 ## 0.0.29 - 2026-09-24
 
 ### What's new
