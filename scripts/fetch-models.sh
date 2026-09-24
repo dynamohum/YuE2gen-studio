@@ -18,6 +18,7 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 YUE2=https://huggingface.co/Comfy-Org/YuE2/resolve/main
 GEMMA=https://huggingface.co/Comfy-Org/gemma-4/resolve/main
 INSTRUMENTAL=https://huggingface.co/Mothersuperior/YuE2-instrumental-cot-full-loras/resolve/main
+REAL_AUDIO=https://huggingface.co/Mothersuperior/yue2-mothersuperior-realaudio-tokenizer-v4/resolve/main
 REGULARIZER=https://huggingface.co/Mothersuperior/YuE2-hum-to-song/resolve/main
 
 mkdir -p "$ROOT/models/checkpoints" "$ROOT/models/audio_encoders" "$ROOT/models/text_encoders" "$ROOT/models/loras" "$ROOT/models/fs_audio"

@@ -52,6 +52,14 @@ differ, the publisher's terms apply.
 - Audio Tokenizer head (`tokenizer_head_joint_v9.safetensors`) enables vocal token extraction in conjunction with MERT-v2.
 - User consent: only use audio recordings that are your own voice or with explicit written consent from the performer.
 
+### YuE2 hum-to-song regularizer pack (LoRA training)
+
+- By Mothersuperior. **CC BY-NC 4.0**.
+  Source: [Mothersuperior/YuE2-hum-to-song](https://huggingface.co/Mothersuperior/YuE2-hum-to-song)
+  (`minted_regularizer_pack_v2.pt`). Training uses it to keep a LoRA close to the base model's
+  general musicianship while it learns a corpus.
+- Official licence: as declared on its [model card](https://huggingface.co/Mothersuperior/YuE2-hum-to-song).
+
 ### Gemma 4 E4B (lyric drafts)
 
 - By Google. **Apache 2.0**.
@@ -73,6 +81,13 @@ differ, the publisher's terms apply.
 - It is not part of this repository. `engine/Dockerfile` builds it from its upstream source, and
   it runs as a separate container that the app talks to over HTTP.
 - Official licence: [ComfyUI LICENSE](https://github.com/comfyanonymous/ComfyUI/blob/master/LICENSE)
+
+### FS_Audio Suite (LoRA training)
+
+- By Make the Robot Do It. **CC BY-NC 4.0**, as declared in its `pyproject.toml`.
+  Source: [KytraScript/ComfyUI-FS_Audio_Suite](https://github.com/KytraScript/ComfyUI-FS_Audio_Suite).
+- It is not part of this repository. `engine/Dockerfile` installs it into the engine at a pinned
+  commit (unless built with `WITH_TRAINER=0`), where it trains the style LoRAs made from a corpus.
 
 ### abcjs (staff notation)
 
