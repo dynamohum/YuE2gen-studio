@@ -23,6 +23,21 @@ Release notes live in two places and neither is a file in this repository: this 
 history, and each GitHub release holds its published notes. `RELEASE-NOTES-*.md` is ignored so it
 cannot creep back in.
 
+## 0.0.32 - 2026-09-24
+
+### Fixed
+
+- **`scripts/fetch-models.sh` stopped partway through on a fresh install** (since 0.0.14), with
+  `REAL_AUDIO: parameter not set`. The Production polish LoRA, its tokenizer head and the training
+  regularizer pack were never downloaded, so Production polish stayed greyed out and training
+  failed. An install that already has those files was not affected. **If you installed from a
+  release since 0.0.14, run `sh scripts/fetch-models.sh` again**; it skips what you already have.
+
+### Notices
+
+- `THIRD_PARTY_NOTICES.md` now names FS_Audio Suite (the trainer) and the hum-to-song regularizer
+  pack, both CC BY-NC 4.0.
+
 ## 0.0.31 - 2026-09-24
 
 ### What's new
