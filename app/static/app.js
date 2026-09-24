@@ -5175,6 +5175,33 @@ function openLogsModal() {
   }, 1500);
 }
 
+/* The pop-out window beats every two seconds while it is open.  A stale beat means
+   it was closed without saying so. */
+function logsPoppedOut() {
+  try {
+    var beat = parseInt(localStorage.getItem('yue2.logs-popout') || '0', 10);
+    return Date.now() - beat < 5000;
+  } catch (err) { return false; }
+}
+
+/* The Logs button and menu item: with the pop-out open, bring it forward. Opening it
+   by name finds the window that is already there, without reloading it. */
+function showLogs() {
+  if (logsPoppedOut()) {
+    var popout = window.open('', 'yue2_logs');
+    if (popout) {
+      // A window of that name that is not the pop-out (a blank one, if it had gone)
+      // is sent to it.
+      try {
+        if (!popout.location.pathname || popout.location.pathname.indexOf('/logs') !== 0) { popout.location = '/logs'; }
+      } catch (err) { /* another origin: leave it */ }
+      popout.focus();
+      return;
+    }
+  }
+  openLogsModal();
+}
+
 function closeLogsModal() {
   LogsState.open = false;
   var panel = $('logs-panel');
@@ -5233,13 +5260,13 @@ function renderLogs(logs) {
 
 function wireLogs() {
   var openBtn = $('open-logs');
-  if (openBtn) { openBtn.addEventListener('click', openLogsModal); }
+  if (openBtn) { openBtn.addEventListener('click', showLogs); }
   var menuBtn = $('menu-logs');
   if (menuBtn) {
     menuBtn.addEventListener('click', function () {
       var menu = $('brand-menu');
       if (menu) { menu.classList.add('hidden'); }
-      openLogsModal();
+      showLogs();
     });
   }
   // The guide opens in its own tab, so this page stays, and so would the menu.

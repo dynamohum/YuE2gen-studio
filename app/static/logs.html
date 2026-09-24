@@ -232,6 +232,17 @@ setInterval(function () {
 }, 1500);
 var tailBox = document.getElementById('logs-tail');
 if (tailBox) { tailBox.addEventListener('change', function () { if (tailBox.checked) { fetchLogs(); } }); }
+
+// Says it is open, so the app's Logs button brings this window forward rather than
+// opening its panel as well. A heartbeat, since a window that crashes says nothing.
+function beat() {
+  try { localStorage.setItem('yue2.logs-popout', String(Date.now())); } catch (err) { /* private mode */ }
+}
+beat();
+setInterval(beat, 2000);
+window.addEventListener('pagehide', function () {
+  try { localStorage.removeItem('yue2.logs-popout'); } catch (err) { /* private mode */ }
+});
 </script>
 </body>
 </html>
