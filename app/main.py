@@ -2067,12 +2067,12 @@ async def normalise_take(take_id: str, undo: bool = False) -> dict:
     except (subprocess.SubprocessError, OSError, RuntimeError) as exc:
         log.warning("Could not normalise take '%s': %s", take["title"] or take_id, exc)
         raise HTTPException(500, "could not normalise this take") from exc
-    level = await asyncio.to_thread(library.loudness, audio)
-    execute("UPDATE takes SET loudness = ?, normalised = ? WHERE id = ?", (level, 0 if undo else 1, take_id))
+    # The recorded level stays the one it was rendered at: that is what says whether
+    # the render went wrong, and normalising does not change that.
+    execute("UPDATE takes SET normalised = ? WHERE id = ?", (0 if undo else 1, take_id))
     await asyncio.to_thread(ensure_peaks, audio)
-    log.info("%s take '%s' (now %s dB)", "Restored the rendered level of" if undo else "Normalised",
-             take["title"] or take_id, level)
-    return {"normalised": not undo, "loudness": level}
+    log.info("%s take '%s'", "Restored the rendered level of" if undo else "Normalised", take["title"] or take_id)
+    return {"normalised": not undo}
 
 
 @app.get("/api/takes/{take_id}/peaks")

@@ -165,10 +165,13 @@ def loudness(path: Path) -> float | None:
 
 
 def fill_loudness() -> int:
-    """Read the level of finished takes made before it was recorded."""
+    """Read the level of finished takes made before it was recorded.  It is the level
+    as rendered, so a normalised take is read from the file kept from before."""
     done = 0
     for row in rows("SELECT id, audio_path FROM takes WHERE status = 'done' AND loudness IS NULL AND audio_path IS NOT NULL"):
         path = Path(row["audio_path"])
+        if original_path(path).exists():
+            path = original_path(path)
         level = loudness(path) if path.exists() else None
         if level is not None:
             execute("UPDATE takes SET loudness = ? WHERE id = ?", (level, row["id"]))

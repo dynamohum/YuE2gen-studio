@@ -594,6 +594,9 @@ async def _finish(kind: str, ref_id: str, record: dict, job: dict, started: floa
         return
     # A new render replaces any level set before, and the file kept from before it.
     original_path(dest).unlink(missing_ok=True)
+    # The level as rendered, before any normalising: a render far quieter than usual
+    # has often gone wrong, and a louder copy of it has not been put right.
+    level = await asyncio.to_thread(loudness, dest)
     normalised = 0
     if record.get("normalise"):
         try:
@@ -603,7 +606,6 @@ async def _finish(kind: str, ref_id: str, record: dict, job: dict, started: floa
             log.warning("Could not normalise '%s'; it keeps the level it was rendered at: %s",
                         record.get("title") or ref_id, exc)
     duration = await asyncio.to_thread(audio_duration, dest)
-    level = await asyncio.to_thread(loudness, dest)
     # An instrumental is checked for singing before it is called finished, so no
     # one is told it is ready and left to discover otherwise.
     sung = await asyncio.to_thread(singing_share, dest) if record.get("kind") == "instrumental" else None

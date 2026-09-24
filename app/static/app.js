@@ -4269,8 +4269,12 @@ function paintTakes() {
     } else if (weakRender(take)) {
       // A render that loses its footing comes out quiet from end to end, and
       // sounds thin or distorted. Another seed usually fixes it.
-      live = '<button class="take-status weak" data-act="normalise"' + ' data-id="' + take.id + '" title="Came out at ' + take.loudness.toFixed(1) +
-        ' dB, far below the usual level. Takes like this often sound thin or distorted, and some are only quiet. If it still sounds wrong once normalised, try another seed.">Weak render: click here to normalise, or try another seed</button>';
+      // Normalising raises the level and nothing else, so a take that was quiet as
+      // rendered keeps saying so, and a listen tells a good quiet take from a bad one.
+      live = take.normalised
+        ? '<div class="take-status weak" title="Came out at ' + take.loudness.toFixed(1) + ' dB as rendered, far below the usual level, and has been normalised. Takes like this often sound thin or distorted, and some were only quiet.">Weak render, normalised: try another seed if it sounds thin</div>'
+        : '<button class="take-status weak" data-act="normalise"' + ' data-id="' + take.id + '" title="Came out at ' + take.loudness.toFixed(1) +
+          ' dB, far below the usual level. Takes like this often sound thin or distorted, and some are only quiet. If it still sounds wrong once normalised, try another seed.">Weak render: click here to normalise, or try another seed</button>';
     } else if (take.ran_to_cap) {
       // The model never wrote the song's end, so it ran on until the Length cap cut it.
       live = '<div class="take-status weak" title="The score ends well before the ' + Math.round(take.max_duration) +
@@ -4461,7 +4465,7 @@ function playTake(id) {
   State.playRequestedAt = Date.now();
   wave.kind = take.kind;   // the waveform takes the colour of what is playing
   var audio = $('audio');
-  var version = take.normalised ? '?level=n' + take.loudness : '';
+  var version = take.normalised ? '?level=normalised' : '';
   var url = '/api/takes/' + id + '/audio' + version;
   if (State.loadedId === id && audio.src) {
     // Same take: resume.  Assigning src again would reload the media and throw the

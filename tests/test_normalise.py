@@ -4,7 +4,7 @@ import subprocess
 from pathlib import Path
 
 from app import config
-from app.db import one
+from app.db import execute, one
 from app.library import loudness, original_path
 
 from conftest import make_take
@@ -29,16 +29,19 @@ def test_normalising_lifts_a_weak_take_and_keeps_the_rendered_file(client, tmp_p
     take = make_take(audio_path=str(audio))
     assert before < config.WEAK_RENDER_DB
 
-    answer = client.post(f"/api/takes/{take['id']}/normalise").json()
-    assert answer["normalised"] and answer["loudness"] > config.WEAK_RENDER_DB
+    execute("UPDATE takes SET loudness = ? WHERE id = ?", (before, take["id"]))
+
+    assert client.post(f"/api/takes/{take['id']}/normalise").json() == {"normalised": True}
+    louder = loudness(audio)
+    assert louder > config.WEAK_RENDER_DB
     assert original_path(audio).exists() and loudness(original_path(audio)) == before
     assert rate_of(audio) == "44100", "loudnorm works at 192 kHz; the take comes back at its own rate"
     row = one("SELECT normalised, loudness FROM takes WHERE id = ?", (take["id"],))
-    assert row["normalised"] == 1 and row["loudness"] == answer["loudness"]
+    assert row["normalised"] == 1 and row["loudness"] == before, "the level recorded is the one it was rendered at"
 
     # Twice gives the same: it always starts from the file as rendered.
-    again = client.post(f"/api/takes/{take['id']}/normalise").json()
-    assert abs(again["loudness"] - answer["loudness"]) < 0.2
+    client.post(f"/api/takes/{take['id']}/normalise")
+    assert abs(loudness(audio) - louder) < 0.2
 
 
 def test_undo_puts_back_the_rendered_level(client, tmp_path):
@@ -48,7 +51,7 @@ def test_undo_puts_back_the_rendered_level(client, tmp_path):
     client.post(f"/api/takes/{take['id']}/normalise")
 
     answer = client.post(f"/api/takes/{take['id']}/normalise?undo=true").json()
-    assert answer == {"normalised": False, "loudness": before}
+    assert answer == {"normalised": False} and loudness(audio) == before
     assert not original_path(audio).exists()
     assert one("SELECT normalised FROM takes WHERE id = ?", (take["id"],))["normalised"] == 0
     assert client.post(f"/api/takes/{take['id']}/normalise?undo=true").status_code == 409
@@ -70,7 +73,6 @@ def test_a_take_asked_to_be_normalised_is_when_its_render_finishes(monkeypatch, 
     import asyncio
 
     from app import jobs
-    from app.db import execute
     from test_jobs import ABC, FakeEngine, render_history, use
 
     rendered = quiet_tone(data_dir / "engine" / "take_00001_.flac")
@@ -80,7 +82,9 @@ def test_a_take_asked_to_be_normalised_is_when_its_render_finishes(monkeypatch, 
     use(monkeypatch, FakeEngine([render_history()], audio=rendered))
     asyncio.run(jobs.run_job("render", take["id"]))
     row = one("SELECT * FROM takes WHERE id = ?", (take["id"],))
-    assert row["status"] == "done" and row["normalised"] == 1 and row["loudness"] > config.WEAK_RENDER_DB
+    assert row["status"] == "done" and row["normalised"] == 1
+    assert loudness(Path(row["audio_path"])) > config.WEAK_RENDER_DB
+    assert row["loudness"] < config.WEAK_RENDER_DB, "still known as weak: the level is the one it was rendered at"
     assert original_path(Path(row["audio_path"])).exists()
 
 
@@ -89,3 +93,15 @@ def test_the_form_choice_is_kept_on_the_take(client):
     assert one("SELECT normalise FROM takes WHERE id = ?", (made["id"],))["normalise"] == 1
     plain = client.post("/api/songs", json={"lyrics": "[Verse]\nla la"}).json()
     assert one("SELECT normalise FROM takes WHERE id = ?", (plain["id"],))["normalise"] == 0
+
+
+def test_a_take_normalised_before_keeps_its_rendered_level_once_read_again(client, tmp_path):
+    from app.library import fill_loudness
+
+    audio = quiet_tone(tmp_path / "takes" / "t4" / "song.flac")
+    before = loudness(audio)
+    take = make_take(audio_path=str(audio))
+    client.post(f"/api/takes/{take['id']}/normalise")
+    execute("UPDATE takes SET loudness = NULL WHERE id = ?", (take["id"],))
+    assert fill_loudness() == 1
+    assert one("SELECT loudness FROM takes WHERE id = ?", (take["id"],))["loudness"] == before

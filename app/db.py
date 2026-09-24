@@ -406,6 +406,13 @@ def _normalised() -> None:
         execute("ALTER TABLE takes ADD COLUMN normalised INTEGER NOT NULL DEFAULT 0")
 
 
+def _rendered_level() -> None:
+    """A take's recorded level is the one it was rendered at.  Takes normalised before
+    that was so had theirs replaced by the louder level; they are read again, from the
+    file kept beside them, when the app starts."""
+    execute("UPDATE takes SET loudness = NULL WHERE normalised = 1")
+
+
 MIGRATIONS = [
     lambda: (conn().executescript(BASE_SCHEMA), _legacy_takes()),   # -> 1
     _indexes,                                                        # -> 2
@@ -428,6 +435,7 @@ MIGRATIONS = [
     _loudness,                                                       # -> 19
     _sound_seed,                                                     # -> 20
     _normalised,                                                     # -> 21
+    _rendered_level,                                                 # -> 22
 ]
 
 
