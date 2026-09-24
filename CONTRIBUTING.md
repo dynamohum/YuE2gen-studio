@@ -1,5 +1,7 @@
 # Contributing
 
+Start with [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the pieces fit together.
+
 ## Branches, and trying a change before it lands
 
 Work on a branch, and use the test instance rather than production:

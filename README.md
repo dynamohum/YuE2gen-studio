@@ -232,6 +232,9 @@ It is also in the app itself, under the menu in the top left, or at
 <http://localhost:8090/guide> — which is where it is most useful, since trigger words and LoRA
 strengths are things you need while filling the form.
 
+How it is built — the two containers, how the app drives ComfyUI, what YuE2 does inside it, the
+LLMs and the API, with diagrams — is in **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
+
 ## Settings
 
 Press **YuE2 Studio** in the top left. The settings are stored on the server, so they follow you to
