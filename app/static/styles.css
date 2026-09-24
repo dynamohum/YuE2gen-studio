@@ -440,6 +440,14 @@ button.icon { width: 42px; padding: 8px 0; text-align: center; }
 .cover.grad-song, .np-cover.grad-song { background: linear-gradient(135deg, var(--song-a), var(--song-b)); }
 .cover.grad-inst, .np-cover.grad-inst { background: linear-gradient(135deg, var(--inst-a), var(--inst-b)); color: #07140c; }
 .chips { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 9px; }
+/* A corpus gives one chip per song, so a big one would push the form down the page.
+   They sit in a box of their own that scrolls past about five rows; the half row
+   showing at the bottom says there is more. */
+#lora-presets {
+  max-height: 190px; overflow-y: auto; align-content: flex-start;
+  padding: 8px; border: 1px solid var(--line); border-radius: 12px;
+}
+#lora-presets .chip { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chip {
   font-size: 12.5px; padding: 5px 11px; border-radius: 999px;
   border: 1px solid var(--line); background: transparent; color: var(--muted); cursor: pointer;
