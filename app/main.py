@@ -986,6 +986,17 @@ def _attach_stem_sets(takes: list[dict]) -> None:
         take["stem_sets"] = by_take[take["id"]]
 
 
+def ran_to_cap(take: dict) -> bool:
+    """A render that was still going at its Length cap and was cut there, though its
+    score ended well before: the model never wrote its end, and the take stops
+    mid-stream.  A take capped short on purpose, shorter than its score, is not this."""
+    duration, cap = take.get("duration"), take.get("max_duration")
+    if not duration or not cap or duration < cap - 0.5:
+        return False
+    planned = score.estimate(take.get("abc") or "")
+    return bool(planned and planned["seconds"] < cap - 10)
+
+
 @app.get("/api/takes")
 def list_takes(
     request: Request,
@@ -1010,6 +1021,7 @@ def list_takes(
     got = rows(f"SELECT * FROM takes {clause} ORDER BY created_at DESC LIMIT ?", (*args, limit))
     for take in got:
         take["has_audio"] = bool(take["audio_path"] and Path(take["audio_path"]).exists())
+        take["ran_to_cap"] = ran_to_cap(take)
         if take.get("prompt_id") and take["status"] == "running":
             take["live"] = ENGINE.snapshot(take["prompt_id"])
     _attach_stem_sets(got)
@@ -1027,6 +1039,7 @@ def get_take(take_id: str) -> dict:
     if not take:
         raise HTTPException(404, "no such take")
     take["has_audio"] = bool(take["audio_path"] and Path(take["audio_path"]).exists())
+    take["ran_to_cap"] = ran_to_cap(take)
     if take.get("prompt_id") and take["status"] == "running":
         take["live"] = ENGINE.snapshot(take["prompt_id"])
     return take

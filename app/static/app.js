@@ -4255,6 +4255,10 @@ function paintTakes() {
       // sounds thin or distorted. Another seed usually fixes it.
       live = '<div class="take-status weak" title="Came out at ' + take.loudness.toFixed(1) +
         ' dB, far below the usual level. Takes like this usually sound thin or distorted.">Weak render: try another seed</div>';
+    } else if (take.ran_to_cap) {
+      // The model never wrote the song's end, so it ran on until the Length cap cut it.
+      live = '<div class="take-status weak" title="The score ends well before the ' + Math.round(take.max_duration) +
+        ' s cap, but the music kept going and was cut at the cap. The end may loop, wander or stop dead. Another seed usually ends properly.">Ran to the length cap: may not end cleanly</div>';
     }
     var id = ' data-id="' + take.id + '"';
     var actions = '';
