@@ -458,9 +458,10 @@ function paintStyleLoraNote() {
       parts.push('<b>Sound texture:</b> Sound strength around <b>~0.55–0.60</b> applies the corpus acoustic texture cleanly.');
     }
   } else if (loraTrainedHere(item.name)) {
-    parts.push('<b>Locally trained dual LoRA</b>: for focused, single-era corpora, strengths around Planner ~0.85 / Sound ~0.80 work well. If the training corpus was diverse across genres or eras, lower strengths like Planner ~0.60 / Sound ~0.50\u20130.55 keep the audio clean while preserving artist character.');
+    parts.push(State.mode === 'cover'
+      ? '<b>In a cover</b>, keep Sound near 0.50: your recording sets the tune.'
+      : '<b>Trained from a corpus:</b> up to about 0.70 / 0.70, with Plan variety Calm or Normal.');
   }
-  parts.push('<button class="link" id="lora-reload" type="button">Look for new LoRAs</button>');
   hint.innerHTML = parts.join('<br>');
 }
 
@@ -476,9 +477,8 @@ async function reloadLoras() {
     statusLine('The engine lists ' + found.loras + ' LoRAs.', 'good');
   } catch (err) {
     statusLine('Could not read the engine\u2019s list: ' + err.message, 'bad');
-    var again = $('lora-reload');
-    if (again) { again.textContent = 'Look for new LoRAs'; }
   }
+  if (button) { button.textContent = 'Look for new LoRAs'; }
 }
 
 /* A strength of zero on a half the file does hold is the same as not choosing the
