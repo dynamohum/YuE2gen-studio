@@ -63,16 +63,28 @@ VIAddVersionKey "LegalCopyright" "Apache License 2.0"
 !insertmacro MUI_UNPAGE_INSTFILES
 !insertmacro MUI_LANGUAGE "English"
 
-Var PowerShell
+; This installer is 32-bit, and Windows shows a 32-bit program SysWOW64 wherever it
+; asks for System32, on whichever thread asks, so the 32-bit PowerShell would start.
+; Sysnative is the way through to the real one.  Shortcuts are opened by Explorer,
+; which is 64-bit and has no Sysnative, so they name System32.
+Var PowerShell      ; for running, from here
+Var PowerShellLink  ; for shortcuts
+
+!macro FindPowerShell
+  StrCpy $PowerShellLink "$WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe"
+  ${If} ${RunningX64}
+    StrCpy $PowerShell "$WINDIR\Sysnative\WindowsPowerShell\v1.0\powershell.exe"
+  ${Else}
+    StrCpy $PowerShell $PowerShellLink
+  ${EndIf}
+!macroend
 
 Function .onInit
-  ${DisableX64FSRedirection}
-  StrCpy $PowerShell "$WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe"
+  !insertmacro FindPowerShell
 FunctionEnd
 
 Function un.onInit
-  ${DisableX64FSRedirection}
-  StrCpy $PowerShell "$WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe"
+  !insertmacro FindPowerShell
 FunctionEnd
 
 Function StartNow
@@ -132,7 +144,7 @@ Section "-Setup"
   SetOutPath "$INSTDIR"
   CreateDirectory "$SMPROGRAMS\${APPNAME}"
   CreateShortCut "$SMPROGRAMS\${APPNAME}\${APPNAME}.lnk" "$INSTDIR\venv\Scripts\python.exe" '"$INSTDIR\launcher.py"' "$INSTDIR\yue2studio.ico"
-  CreateShortCut "$SMPROGRAMS\${APPNAME}\Repair ${APPNAME}.lnk" "$PowerShell" '-NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\setup.ps1" -InstallDir "$INSTDIR"' "$INSTDIR\yue2studio.ico"
+  CreateShortCut "$SMPROGRAMS\${APPNAME}\Repair ${APPNAME}.lnk" "$PowerShellLink" '-NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\setup.ps1" -InstallDir "$INSTDIR"' "$INSTDIR\yue2studio.ico"
   CreateShortCut "$SMPROGRAMS\${APPNAME}\Uninstall ${APPNAME}.lnk" "$INSTDIR\Uninstall.exe"
   CreateShortCut "$DESKTOP\${APPNAME}.lnk" "$INSTDIR\venv\Scripts\python.exe" '"$INSTDIR\launcher.py"' "$INSTDIR\yue2studio.ico"
 SectionEnd

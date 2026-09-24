@@ -26,7 +26,7 @@ cp "$ROOT/windows/setup.ps1" "$ROOT/windows/launcher.py" "$ROOT/windows/yue2stud
 
 EXE="YuE2Studio-Setup-$VERSION${TEST_BUILD:+-test}.exe"
 # TEST_BUILD=1 makes an installer whose setup skips the 18 GB of models.
-EXTRA=${TEST_BUILD:+-DSETUP_ARGS=-SkipModels}
+EXTRA=${TEST_BUILD:+-DSETUP_ARGS=${TEST_ARGS:--SkipModels}}
 if command -v makensis >/dev/null 2>&1; then
   makensis -V2 $EXTRA -DVERSION="$VERSION" -DSTAGE="$STAGE" -DOUTFILE="$OUT/$EXE" "$ROOT/windows/installer.nsi"
 else

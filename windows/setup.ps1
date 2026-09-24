@@ -14,6 +14,16 @@ param(
     [switch]$SkipModels
 )
 
+# 32-bit PowerShell sees SysWOW64 where System32 should be, so it cannot find
+# nvidia-smi, among other things.  Start again in the 64-bit one.
+if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProcess) {
+    $native = Join-Path $env:WINDIR 'Sysnative\WindowsPowerShell\v1.0\powershell.exe'
+    $again = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $PSCommandPath, '-InstallDir', $InstallDir)
+    foreach ($flag in @('NoLyrics', 'CheckOnly', 'SkipModels')) { if ($PSBoundParameters[$flag]) { $again += "-$flag" } }
+    & $native @again
+    exit $LASTEXITCODE
+}
+
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'   # Invoke-WebRequest's bar is very slow in 5.1
 $Host.UI.RawUI.WindowTitle = 'Setting up YuE2 Studio'
@@ -167,7 +177,7 @@ $warnings = New-Object System.Collections.ArrayList
 $os = [Environment]::OSVersion.Version
 if (-not [Environment]::Is64BitOperatingSystem) { [void]$problems.Add('Windows must be 64-bit.') }
 if ($os.Build -lt 19045) { [void]$problems.Add("Windows 10 22H2 or Windows 11 is needed (this is build $($os.Build)).") }
-Say ("Windows build {0}" -f $os.Build)
+Say ("Windows build {0}, PowerShell {1}, {2}-bit" -f $os.Build, $PSVersionTable.PSVersion, $(if ([Environment]::Is64BitProcess) { 64 } else { 32 }))
 
 $variant = $null
 $smi = Join-Path $env:SystemRoot 'System32\nvidia-smi.exe'
