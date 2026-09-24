@@ -20,6 +20,8 @@ lyrics is optional.
                    v
                  engine  (ComfyUI + the YuE2 nodes)  owns the GPU
 
+If you want to buy me a beer, then please use [PayPal](https://paypal.me/dynamohums).
+
 ## What it looks like
 
 Covering a recording, with the score editor open:
