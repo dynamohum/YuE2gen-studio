@@ -3887,7 +3887,8 @@ var ICONS = {
   move: '<path d="M3.5 7.5V18a1.5 1.5 0 0 0 1.5 1.5h14a1.5 1.5 0 0 0 1.5-1.5V9.5A1.5 1.5 0 0 0 19 8h-7l-2-2.5H5A1.5 1.5 0 0 0 3.5 7v.5"/><path d="M10 13.5h6m0 0l-2.5-2.5m2.5 2.5L13.5 16"/>',
   voice: '<path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M19 11a7 7 0 0 1-14 0"/><path d="M12 18v3"/>',
   variations: '<path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9L12 17.5l-1.9-5.1L5 10.5l5.1-1.9z"/><path d="M18.5 15.2l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/>',
-  stop: '<rect x="6.5" y="6.5" width="11" height="11" rx="1.6"/>'
+  stop: '<rect x="6.5" y="6.5" width="11" height="11" rx="1.6"/>',
+  level: '<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/>'
 };
 
 function icon(name) {
@@ -4352,6 +4353,11 @@ function paintTakes() {
               ' aria-label="Sing again">' + icon('voice') + '</button>' +
               '<button class="take-move" data-act="variations"' + id + ' title="Variations: render this score in other interpretations"' +
               ' aria-label="Variations">' + icon('variations') + '</button>'
+            : '') +
+          // Once normalised it has nothing left to offer, so it goes.
+          (status === 'done' && take.has_audio && !take.normalised && !State.normalising[take.id]
+            ? '<button class="take-move" data-act="normalise"' + id + ' title="Normalise: bring this take to the usual loudness. The file as rendered is kept"' +
+              ' aria-label="Normalise">' + icon('level') + '</button>'
             : '') +
           '<button class="take-move" data-act="move"' + id + ' title="Move to another space" aria-label="Move to another space">' +
             icon('move') + '</button>' +

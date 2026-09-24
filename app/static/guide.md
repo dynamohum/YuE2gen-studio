@@ -470,7 +470,8 @@ seed, and keep that LoRA's Sound at 0.5 or below. It happens most in covers thro
 trained here.
 
 **Normalise volume.** Tick it in the form and each take made while it is ticked is brought to the
-usual loudness when it finishes, and marked *Normalised*. The file as rendered is kept beside it.
+usual loudness when it finishes, and marked *Normalised*. A take made without it can be normalised
+later with the speaker button at the top of its card. The file as rendered is kept beside it.
 Unticked, a take keeps the level it was rendered at.
 
 **An instrumental sang.** See *When an instrumental sings* above. It is a model failure; a new seed
