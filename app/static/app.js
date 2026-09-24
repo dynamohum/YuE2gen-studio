@@ -770,8 +770,17 @@ function saveForm() {
     data.awaiting = awaitingPlanId() || '';
     data.structure = { kind: STRUCTURE.kind, sections: STRUCTURE.sections };
     data.feel = FEEL.value;
+    data.ui_mode = State.mode;
     localStorage.setItem(FORM_KEY, JSON.stringify(data));
   } catch (err) { /* private mode, or storage full. Not worth a message. */ }
+}
+
+/* Cover, Song or Instrumental, as the page was left.  Cover the first time. */
+function savedMode() {
+  try {
+    var mode = JSON.parse(localStorage.getItem(FORM_KEY) || '{}').ui_mode;
+    return ['cover', 'song', 'inst'].indexOf(mode) >= 0 ? mode : 'cover';
+  } catch (err) { return 'cover'; }
 }
 
 function loadForm() {
@@ -5282,7 +5291,7 @@ function wire() {
   $('reroll').addEventListener('click', doReroll);
   document.querySelector('.modes').addEventListener('click', function (event) {
     var button = event.target.closest('[data-mode]');
-    if (button) { setMode(button.dataset.mode); }
+    if (button) { setMode(button.dataset.mode); saveForm(); }
   });
 
   $('save-score').addEventListener('click', async function () {
@@ -5944,7 +5953,7 @@ paintHarmony();
 loadWorkingScore();
 setScoreActions();
 refreshTitleHint();
-setMode('cover');
+setMode(savedMode());
 pollState();
 loadSources();
 loadSpaces().catch(function () { /* the takes poll retries */ });
