@@ -88,6 +88,15 @@ a, .link {
   border: 1px solid var(--line); color: var(--muted); background: var(--panel);
 }
 .version { font-size: 12px; color: var(--muted); margin-right: 12px; letter-spacing: 0.02em; }
+/* The status badges stack on the right, and the version and Logs sit under the last
+   one. Grid order does it without touching the markup: the pills span both columns,
+   the version and Logs come last and share one right-aligned row. */
+.topbar-right {
+  display: grid; grid-template-columns: 1fr auto; gap: 6px 10px; align-items: center;
+}
+.topbar-right > .pill:not(.logs-btn) { grid-column: 1 / -1; order: 0; }
+.topbar-right > .version { order: 1; margin-right: 0; justify-self: end; }
+.topbar-right > .logs-btn { order: 1; }
 .pill-on { color: var(--good); border-color: rgba(52, 211, 153, 0.35); }
 
 /* The main page says what the app is doing. A corpus being prepared works on the CPU
