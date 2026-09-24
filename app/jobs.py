@@ -17,7 +17,8 @@ from pathlib import Path
 from . import config, identities, instrumental, llm, loras, lyrics, score, stems
 from .db import bump_average, execute, get_setting, one, rows
 from .engine import Engine, load_template
-from .library import audio_duration, ensure_peaks, loudness, inside, remove_tree, take_audio_path, vocal_path, write_take_note
+from .library import (audio_duration, ensure_peaks, loudness, inside, normalise, original_path, remove_tree, take_audio_path,
+                      vocal_path, write_take_note)
 
 personas = identities
 
@@ -591,6 +592,16 @@ async def _finish(kind: str, ref_id: str, record: dict, job: dict, started: floa
     if ref_id in CANCELLED or not one("SELECT id FROM takes WHERE id = ?", (ref_id,)):
         remove_tree(dest.parent)
         return
+    # A new render replaces any level set before, and the file kept from before it.
+    original_path(dest).unlink(missing_ok=True)
+    normalised = 0
+    if record.get("normalise"):
+        try:
+            await asyncio.to_thread(normalise, dest)
+            normalised = 1
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Could not normalise '%s'; it keeps the level it was rendered at: %s",
+                        record.get("title") or ref_id, exc)
     duration = await asyncio.to_thread(audio_duration, dest)
     level = await asyncio.to_thread(loudness, dest)
     # An instrumental is checked for singing before it is called finished, so no
@@ -598,8 +609,8 @@ async def _finish(kind: str, ref_id: str, record: dict, job: dict, started: floa
     sung = await asyncio.to_thread(singing_share, dest) if record.get("kind") == "instrumental" else None
     elapsed = time.time() - started
     execute(
-        "UPDATE takes SET status = 'done', stage = NULL, audio_path = ?, duration = ?, finished_at = ?, elapsed = ?, error = NULL, vocal_check = ?, loudness = ? WHERE id = ?",
-        (str(dest), duration, time.time(), elapsed, sung, level, ref_id),
+        "UPDATE takes SET status = 'done', stage = NULL, audio_path = ?, duration = ?, finished_at = ?, elapsed = ?, error = NULL, vocal_check = ?, loudness = ?, normalised = ? WHERE id = ?",
+        (str(dest), duration, time.time(), elapsed, sung, level, normalised, ref_id),
     )
     fresh = one("SELECT * FROM takes WHERE id = ?", (ref_id,))
     if fresh:

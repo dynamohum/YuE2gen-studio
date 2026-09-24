@@ -463,9 +463,15 @@ length cap will stop it regardless.
 **A LoRA seems to do nothing.** Check the trigger word is in the Style, and that the strength you
 raised is one the file actually holds — the picker greys out the other.
 
-**A take says *Weak render*.** It came out far quieter than usual all the way through, and takes
-like that sound thin or distorted. It happens most in covers through a style LoRA trained here. Try
-another seed, and keep that LoRA's Sound at 0.5 or below.
+**A take says *Weak render*.** It came out far quieter than usual all the way through. Some takes
+like that are only quiet; others sound thin or distorted. Click the warning to normalise it, which
+brings it up to the usual loudness and marks it *Normalised*. If it still sounds wrong, try another
+seed, and keep that LoRA's Sound at 0.5 or below. It happens most in covers through a style LoRA
+trained here.
+
+**Normalise volume.** Tick it in the form and each take made while it is ticked is brought to the
+usual loudness when it finishes, and marked *Normalised*. The file as rendered is kept beside it.
+Unticked, a take keeps the level it was rendered at.
 
 **An instrumental sang.** See *When an instrumental sings* above. It is a model failure; a new seed
 usually fixes it.

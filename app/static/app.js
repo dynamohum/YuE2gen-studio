@@ -811,6 +811,13 @@ function withStyleLora(data) {
 var FORM_KEY = 'yue2.form.v1';
 var FORM_FIELDS = ['title', 'style', 'lyrics', 'mode', 'seed', 'interpretation', 'max-duration', 'variety', 'harmony'];
 
+/* The page's HTML is read once at start-up and the script on every load, so the
+   box may not exist yet; then nothing is normalised, as before it was added. */
+function normaliseWanted() {
+  var box = $('normalise');
+  return Boolean(box && box.checked);
+}
+
 function saveForm() {
   try {
     var data = {};
@@ -818,6 +825,7 @@ function saveForm() {
     data.auto_render = $('auto-render').checked;
     data.seed_fixed = $('seed-fixed').checked;
     data.realaudio = $('realaudio').checked;
+    data.normalise = normaliseWanted();
     data.source = $('source-select') ? $('source-select').value : '';
     data.style_lora = $('style-lora') ? $('style-lora').value : '';
     data.style_lora_model = $('style-lora-model') ? $('style-lora-model').value : '1';
@@ -856,6 +864,7 @@ function loadForm() {
   if (typeof data.seed_fixed === 'boolean') { $('seed-fixed').checked = data.seed_fixed; }
   if (typeof data.realaudio === 'boolean') { $('realaudio').checked = data.realaudio; }
   else { $('realaudio').checked = true; }
+  if ($('normalise')) { $('normalise').checked = data.normalise === true; }
   // The list arrives from the server, so the name is held until it exists.
   if (typeof data.source === 'string') { State.wantedSource = data.source; }
   if (data.lora_trigger) { State.loraTrigger = data.lora_trigger; }
@@ -2616,7 +2625,7 @@ async function doPlan() {
         variety: $('variety').value,
         harmony: harmonyStep(),
         space_id: State.spaceId,
-        realaudio: $('realaudio').checked
+        realaudio: $('realaudio').checked, normalise: normaliseWanted()
       }))
     });
     setSelection({ formTakeId: take.id, boxKind: 'none', boxId: null, awaiting: take.id });
@@ -2641,7 +2650,7 @@ async function doRenderTake() {
     });
     var payload = {
       interpretation: $('interpretation').value,
-      realaudio: $('realaudio').checked,
+      realaudio: $('realaudio').checked, normalise: normaliseWanted(),
       style_lora: $('style-lora') ? $('style-lora').value : '',
       style_lora_model: $('style-lora-model') && !$('style-lora-model').disabled ? parseFloat($('style-lora-model').value) : 0,
       style_lora_clip: $('style-lora-clip') && !$('style-lora-clip').disabled ? parseFloat($('style-lora-clip').value) : 0
@@ -3031,7 +3040,7 @@ async function doInstrumental() {
         variety: $('variety').value,
         harmony: harmonyStep(),
         space_id: State.spaceId,
-        realaudio: $('realaudio').checked
+        realaudio: $('realaudio').checked, normalise: normaliseWanted()
       }))
     });
     setSelection({ formTakeId: take.id, boxKind: 'none', boxId: null, awaiting: take.id });
@@ -3958,6 +3967,9 @@ function selectTake(take) {
   if (take.realaudio !== undefined) {
     $('realaudio').checked = Boolean(take.realaudio);
   }
+  if (take.normalise !== undefined && $('normalise')) {
+    $('normalise').checked = Boolean(take.normalise);
+  }
   if (take.seed != null) {
     $('seed').value = take.seed;
     $('seed-fixed').checked = true;
@@ -4253,12 +4265,14 @@ function paintTakes() {
     } else if (weakRender(take)) {
       // A render that loses its footing comes out quiet from end to end, and
       // sounds thin or distorted. Another seed usually fixes it.
-      live = '<div class="take-status weak" title="Came out at ' + take.loudness.toFixed(1) +
-        ' dB, far below the usual level. Takes like this usually sound thin or distorted.">Weak render: try another seed</div>';
+      live = '<button class="take-status weak" data-act="normalise"' + ' data-id="' + take.id + '" title="Came out at ' + take.loudness.toFixed(1) +
+        ' dB, far below the usual level. Takes like this often sound thin or distorted, and some are only quiet. If it still sounds wrong once normalised, try another seed.">Weak render: click here to normalise, or try another seed</button>';
     } else if (take.ran_to_cap) {
       // The model never wrote the song's end, so it ran on until the Length cap cut it.
       live = '<div class="take-status weak" title="The score ends well before the ' + Math.round(take.max_duration) +
         ' s cap, but the music kept going and was cut at the cap. The end may loop, wander or stop dead. Another seed usually ends properly.">Ran to the length cap: may not end cleanly</div>';
+    } else if (take.normalised) {
+      live = '<div class="take-status normalised" title="Brought up to the usual loudness. The file as rendered is kept beside it.">Normalised</div>';
     }
     var id = ' data-id="' + take.id + '"';
     var actions = '';
@@ -4443,7 +4457,8 @@ function playTake(id) {
   State.playRequestedAt = Date.now();
   wave.kind = take.kind;   // the waveform takes the colour of what is playing
   var audio = $('audio');
-  var url = '/api/takes/' + id + '/audio';
+  var version = take.normalised ? '?level=n' + take.loudness : '';
+  var url = '/api/takes/' + id + '/audio' + version;
   if (State.loadedId === id && audio.src) {
     // Same take: resume.  Assigning src again would reload the media and throw the
     // position away, which is what made Pause behave like Stop.
@@ -4453,7 +4468,7 @@ function playTake(id) {
     State.loadedId = id;
     audio.src = url;
     audio.play().catch(function () {});
-    loadWave(url, '/api/takes/' + id + '/peaks');
+    loadWave(url, '/api/takes/' + id + '/peaks' + version);
   }
   $('np-title').textContent = take.title;
   var position = takePosition(id);
@@ -4949,7 +4964,7 @@ async function doRender() {
     interpretation: $('interpretation').value,
     max_duration: parseFloat($('max-duration').value) || 360,
     space_id: State.spaceId,
-    realaudio: $('realaudio').checked
+    realaudio: $('realaudio').checked, normalise: normaliseWanted()
   };
   withStyleLora(body);
   status.textContent = 'Queued\u2026';
@@ -5098,7 +5113,7 @@ async function renderAnyway() {
   selectTake(takeById(id));
   await api('/api/takes/' + id + '/render', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ realaudio: $('realaudio').checked, reseed: reseed })
+    body: JSON.stringify({ realaudio: $('realaudio').checked, normalise: normaliseWanted(), reseed: reseed })
   });
   if (reseed) { statusLine('Rendering the same score again with a new seed\u2026'); }
   loadTakes();
@@ -5712,6 +5727,20 @@ function wire() {
       await api('/api/stem-sets/' + button.dataset.set, { method: 'DELETE' });
       loadTakes();
     }
+    if (act === 'normalise') {
+      button.disabled = true;
+      try {
+        await api('/api/takes/' + id + '/normalise', { method: 'POST' });
+        // The same take loaded in the player would carry on with the old file.
+        if (State.loadedId === id) { State.loadedId = null; }
+        statusLine('Normalised.', 'good');
+      } catch (err) {
+        statusLine('Could not normalise the take: ' + err.message, 'bad');
+      }
+      button.disabled = false;
+      loadTakes();
+      return;
+    }
     if (act === 'sung') {
       var spoiled = takeById(id);
       if (spoiled) { openSungWarning(spoiled); }
@@ -5728,7 +5757,7 @@ function wire() {
       selectTake(takeById(id));
       var payload = {
         interpretation: $('interpretation').value,
-        realaudio: $('realaudio').checked,
+        realaudio: $('realaudio').checked, normalise: normaliseWanted(),
         style_lora: $('style-lora') ? $('style-lora').value : '',
         style_lora_model: $('style-lora-model') && !$('style-lora-model').disabled ? parseFloat($('style-lora-model').value) : 0,
         style_lora_clip: $('style-lora-clip') && !$('style-lora-clip').disabled ? parseFloat($('style-lora-clip').value) : 0
@@ -5844,6 +5873,7 @@ function wire() {
   $('auto-render').addEventListener('change', saveForm);
   $('seed-fixed').addEventListener('change', saveForm);
   $('realaudio').addEventListener('change', saveForm);
+  if ($('normalise')) { $('normalise').addEventListener('change', saveForm); }
   $('style-lora-field').addEventListener('click', function (event) {
     if (event.target.closest('#lora-reload')) { reloadLoras(); }
     if (event.target.closest('#lora-use-saved')) {

@@ -37,7 +37,7 @@ from fastapi.exceptions import RequestValidationError
 from starlette.background import BackgroundTask
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from . import config, identities, instrumental, jobs, llm, logging_setup, loras, lyrics, score, stems
+from . import config, identities, instrumental, jobs, library, llm, logging_setup, loras, lyrics, score, stems
 from .db import DEFAULT_SPACE, execute, get_setting, migrate, one, rows, set_setting
 
 personas = identities
@@ -378,6 +378,7 @@ class SongIn(BaseModel):
     harmony: int = Field(0, ge=0, le=len(HARMONY_STEPS) - 1)
     space_id: str = Field(DEFAULT_SPACE, max_length=64)
     realaudio: bool = True
+    normalise: bool = False
     identity_id: str | None = Field(None, max_length=64)
     persona_id: str | None = Field(None, max_length=64)
     voice_lora: str | None = Field(None, max_length=200)
@@ -418,6 +419,7 @@ class TakeIn(BaseModel):
     space_id: str = Field(DEFAULT_SPACE, max_length=64)
     interpretation: str = "standard"
     realaudio: bool = True
+    normalise: bool = False
     identity_id: str | None = Field(None, max_length=64)
     persona_id: str | None = Field(None, max_length=64)
     voice_lora: str | None = Field(None, max_length=200)
@@ -441,6 +443,7 @@ class InstrumentalIn(BaseModel):
     interpretation: str = "standard"
     feel: str = "steady"
     realaudio: bool = True
+    normalise: bool = False
     identity_id: str | None = Field(None, max_length=64)
     persona_id: str | None = Field(None, max_length=64)
     voice_lora: str | None = Field(None, max_length=200)
@@ -501,6 +504,7 @@ class RenderIn(BaseModel):
     # sang. The plan is kept; only the rendering of it changes.
     reseed: bool = False
     realaudio: bool | None = None
+    normalise: bool | None = None
     identity_id: str | None = Field(None, max_length=64)
     persona_id: str | None = Field(None, max_length=64)
     voice_lora: str | None = Field(None, max_length=200)
@@ -511,6 +515,7 @@ class RenderIn(BaseModel):
 class VariationsIn(BaseModel):
     interpretations: list[str] = Field(min_length=1, max_length=len(INTERPRETATIONS))
     realaudio: bool | None = None
+    normalise: bool | None = None
     identity_id: str | None = Field(None, max_length=64)
     persona_id: str | None = Field(None, max_length=64)
     voice_lora: str | None = Field(None, max_length=200)
@@ -1138,6 +1143,7 @@ async def create_take(body: TakeIn) -> dict:
         "space_id": body.space_id,
         "interpretation": _interpretation(body.interpretation),
         "realaudio": 1 if body.realaudio else 0,
+        "normalise": 1 if body.normalise else 0,
         "identity_id": body.identity_id or body.persona_id,
         "persona_id": body.identity_id or body.persona_id,
         "voice_lora": body.voice_lora,
@@ -1147,10 +1153,10 @@ async def create_take(body: TakeIn) -> dict:
     }
     execute(
         """INSERT INTO takes(id, source_id, title, style, lyrics, abc, mode, seed, checkpoint, max_duration, status, created_at,
-                             space_id, interpretation, realaudio, identity_id, persona_id, voice_lora, voice_lora_strength, voice_lora_clip,
+                             space_id, interpretation, realaudio, normalise, identity_id, persona_id, voice_lora, voice_lora_strength, voice_lora_clip,
                              style_lora, style_lora_model, style_lora_clip)
            VALUES(:id, :source_id, :title, :style, :lyrics, :abc, :mode, :seed, :checkpoint, :max_duration, 'queued', :created_at,
-                  :space_id, :interpretation, :realaudio, :identity_id, :persona_id, :voice_lora, :voice_lora_strength, :voice_lora_clip,
+                  :space_id, :interpretation, :realaudio, :normalise, :identity_id, :persona_id, :voice_lora, :voice_lora_strength, :voice_lora_clip,
                   :style_lora, :style_lora_model, :style_lora_clip)""",
         record,
     )
@@ -1213,6 +1219,7 @@ async def _plan_new_take(kind: str, title: str, words: str, body: SongIn | Instr
         "interpretation": _interpretation(body.interpretation),
         "feel": getattr(body, "feel", "steady"),
         "realaudio": 1 if getattr(body, "realaudio", True) else 0,
+        "normalise": 1 if getattr(body, "normalise", False) else 0,
         "identity_id": getattr(body, "identity_id", None) or getattr(body, "persona_id", None),
         "persona_id": getattr(body, "identity_id", None) or getattr(body, "persona_id", None),
         "voice_lora": getattr(body, "voice_lora", None),
@@ -1223,11 +1230,11 @@ async def _plan_new_take(kind: str, title: str, words: str, body: SongIn | Instr
     execute(
         """INSERT INTO takes(id, kind, source_id, title, style, lyrics, abc, mode, seed, checkpoint,
                              max_duration, status, created_at, auto_render, variety, harmony, space_id, interpretation, feel, realaudio,
-                             identity_id, persona_id, voice_lora, voice_lora_strength, voice_lora_clip,
+                             normalise, identity_id, persona_id, voice_lora, voice_lora_strength, voice_lora_clip,
                              style_lora, style_lora_model, style_lora_clip)
            VALUES(:id, :kind, NULL, :title, :style, :lyrics, '', :mode, :seed, :checkpoint,
                   :max_duration, 'queued', :created_at, :auto_render, :variety, :harmony, :space_id, :interpretation, :feel, :realaudio,
-                  :identity_id, :persona_id, :voice_lora, :voice_lora_strength, :voice_lora_clip,
+                  :normalise, :identity_id, :persona_id, :voice_lora, :voice_lora_strength, :voice_lora_clip,
                   :style_lora, :style_lora_model, :style_lora_clip)""",
         record,
     )
@@ -1327,6 +1334,7 @@ async def render_take(take_id: str, body: RenderIn | None = None) -> dict:
     _checkpoint()
     interpretation = take["interpretation"] if body is None or body.interpretation is None else _interpretation(body.interpretation)
     realaudio = take["realaudio"] if body is None or body.realaudio is None else (1 if body.realaudio else 0)
+    normalise = take.get("normalise", 0) if body is None or body.normalise is None else (1 if body.normalise else 0)
     identity_val = None
     if body is not None:
         identity_val = body.identity_id or body.persona_id
@@ -1345,8 +1353,8 @@ async def render_take(take_id: str, body: RenderIn | None = None) -> dict:
         seed = int.from_bytes(os.urandom(4), "big")
     else:
         seed = take["seed"]
-    execute("UPDATE takes SET status = 'queued', error = NULL, stage = NULL, checkpoint = ?, interpretation = ?, realaudio = ?, identity_id = ?, persona_id = ?, voice_lora = ?, voice_lora_strength = ?, style_lora = ?, style_lora_model = ?, style_lora_clip = ?, seed = ?, sound_seed = ?, vocal_check = NULL, loudness = NULL WHERE id = ?",
-            (config.CHECKPOINT, interpretation, realaudio, identity_val, identity_val, voice_lora, voice_lora_strength, sl["style_lora"], sl["style_lora_model"], sl["style_lora_clip"], seed,
+    execute("UPDATE takes SET status = 'queued', error = NULL, stage = NULL, checkpoint = ?, interpretation = ?, realaudio = ?, normalise = ?, identity_id = ?, persona_id = ?, voice_lora = ?, voice_lora_strength = ?, style_lora = ?, style_lora_model = ?, style_lora_clip = ?, seed = ?, sound_seed = ?, vocal_check = NULL, loudness = NULL WHERE id = ?",
+            (config.CHECKPOINT, interpretation, realaudio, normalise, identity_val, identity_val, voice_lora, voice_lora_strength, sl["style_lora"], sl["style_lora_model"], sl["style_lora_clip"], seed,
              take.get("sound_seed") if seed == take["seed"] else None, take_id))
     await QUEUE.put({"kind": "render", "id": take_id})
     log.info("Queued audio render for take '%s' (%s, seed=%d)", take.get("title") or take_id, take_id, seed)
@@ -1401,7 +1409,7 @@ def _base_title(title: str) -> str:
 
 # What Sing again leaves behind: the copy is a new take with its own audio and state.
 _REVOICE_FRESH = {"id", "title", "status", "stage", "error", "audio_path", "duration", "prompt_id", "created_at",
-                  "finished_at", "elapsed", "favourite", "vocal_check", "loudness", "sound_seed"}
+                  "finished_at", "elapsed", "favourite", "vocal_check", "loudness", "sound_seed", "normalised"}
 
 
 @app.post("/api/takes/{take_id}/revoice")
@@ -1448,6 +1456,7 @@ async def variations(take_id: str, body: VariationsIn) -> dict:
     now = time.time()
     created = []
     realaudio = take.get("realaudio", 0) if body.realaudio is None else (1 if body.realaudio else 0)
+    normalise = take.get("normalise", 0) if body.normalise is None else (1 if body.normalise else 0)
     identity_val = (body.identity_id or body.persona_id) if (body.identity_id is not None or body.persona_id is not None) else (take.get("identity_id") or take.get("persona_id"))
     voice_lora = take.get("voice_lora") if body.voice_lora is None else (body.voice_lora or None)
     voice_lora_strength = take.get("voice_lora_strength", 1.0) if body.voice_lora_strength is None else body.voice_lora_strength
@@ -1458,7 +1467,7 @@ async def variations(take_id: str, body: VariationsIn) -> dict:
             "abc": take["abc"], "mode": take["mode"], "seed": take["seed"], "checkpoint": config.CHECKPOINT,
             "max_duration": take["max_duration"], "created_at": now + offset * 0.001, "variety": take["variety"],
             "harmony": take["harmony"], "space_id": take["space_id"], "interpretation": name, "feel": take["feel"],
-            "realaudio": realaudio, "identity_id": identity_val, "persona_id": identity_val,
+            "realaudio": realaudio, "normalise": normalise, "identity_id": identity_val, "persona_id": identity_val,
             "voice_lora": voice_lora, "voice_lora_strength": voice_lora_strength,
             "voice_lora_clip": take.get("voice_lora_clip", 0.0),
             "style_lora": take.get("style_lora"),
@@ -1468,11 +1477,11 @@ async def variations(take_id: str, body: VariationsIn) -> dict:
         }
         execute(
             """INSERT INTO takes(id, kind, source_id, title, style, lyrics, abc, mode, seed, checkpoint, max_duration,
-                                 status, created_at, variety, harmony, space_id, interpretation, feel, realaudio,
+                                 status, created_at, variety, harmony, space_id, interpretation, feel, realaudio, normalise,
                                  identity_id, persona_id, voice_lora, voice_lora_strength, voice_lora_clip,
                                  style_lora, style_lora_model, style_lora_clip, sound_seed)
                VALUES(:id, :kind, :source_id, :title, :style, :lyrics, :abc, :mode, :seed, :checkpoint, :max_duration,
-                      'queued', :created_at, :variety, :harmony, :space_id, :interpretation, :feel, :realaudio,
+                      'queued', :created_at, :variety, :harmony, :space_id, :interpretation, :feel, :realaudio, :normalise,
                       :identity_id, :persona_id, :voice_lora, :voice_lora_strength, :voice_lora_clip,
                       :style_lora, :style_lora_model, :style_lora_clip, :sound_seed)""",
             record,
@@ -2032,6 +2041,38 @@ def take_audio(take_id: str) -> FileResponse:
         raise HTTPException(404, "no audio for this take")
     safe = "".join(ch for ch in (take["title"] or "take") if ch.isalnum() or ch in " -_")[:60].strip() or "take"
     return FileResponse(take["audio_path"], media_type="audio/flac", filename=f"{safe}.flac")
+
+
+@app.post("/api/takes/{take_id}/normalise")
+async def normalise_take(take_id: str, undo: bool = False) -> dict:
+    """Bring a quiet take up to the usual loudness, or put back the level it was
+    rendered at.  Only when asked: a take's audio is otherwise left as it came."""
+    take = one("SELECT * FROM takes WHERE id = ?", (take_id,))
+    if not take or not take["audio_path"] or not Path(take["audio_path"]).exists():
+        raise HTTPException(404, "no audio for this take")
+    if take["status"] != "done":
+        raise HTTPException(409, "this take is busy")
+    audio = Path(take["audio_path"])
+    kept = library.original_path(audio)
+    try:
+        if undo:
+            if not kept.exists():
+                raise HTTPException(409, "this take has not been normalised")
+            await asyncio.to_thread(os.replace, kept, audio)
+        else:
+            await asyncio.to_thread(library.normalise, audio)
+        # The kept file carries its old time, and the waveform is redrawn only for a
+        # file newer than it.
+        audio.touch()
+    except (subprocess.SubprocessError, OSError, RuntimeError) as exc:
+        log.warning("Could not normalise take '%s': %s", take["title"] or take_id, exc)
+        raise HTTPException(500, "could not normalise this take") from exc
+    level = await asyncio.to_thread(library.loudness, audio)
+    execute("UPDATE takes SET loudness = ?, normalised = ? WHERE id = ?", (level, 0 if undo else 1, take_id))
+    await asyncio.to_thread(ensure_peaks, audio)
+    log.info("%s take '%s' (now %s dB)", "Restored the rendered level of" if undo else "Normalised",
+             take["title"] or take_id, level)
+    return {"normalised": not undo, "loudness": level}
 
 
 @app.get("/api/takes/{take_id}/peaks")

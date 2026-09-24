@@ -396,6 +396,16 @@ def _sound_seed() -> None:
         execute("ALTER TABLE takes ADD COLUMN sound_seed INTEGER")
 
 
+def _normalised() -> None:
+    """A take can be brought up to the usual loudness.  normalise is asked for when the
+    take is made, from the form; normalised says it was done, since the rendered file
+    is kept beside the louder one."""
+    if "normalise" not in _columns("takes"):
+        execute("ALTER TABLE takes ADD COLUMN normalise INTEGER NOT NULL DEFAULT 0")
+    if "normalised" not in _columns("takes"):
+        execute("ALTER TABLE takes ADD COLUMN normalised INTEGER NOT NULL DEFAULT 0")
+
+
 MIGRATIONS = [
     lambda: (conn().executescript(BASE_SCHEMA), _legacy_takes()),   # -> 1
     _indexes,                                                        # -> 2
@@ -417,6 +427,7 @@ MIGRATIONS = [
     _lyrics_method,                                                  # -> 18
     _loudness,                                                       # -> 19
     _sound_seed,                                                     # -> 20
+    _normalised,                                                     # -> 21
 ]
 
 

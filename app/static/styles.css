@@ -1100,6 +1100,10 @@ button.ghost.danger:hover {
 .sung-field select { font-size: 13px; padding: 6px 10px; }
 .take-status.weak { color: #fbbf24; background: rgba(251, 191, 36, 0.09); border: 1px solid rgba(251, 191, 36, 0.24); border-radius: 8px; padding: 4px 8px; font-size: 12px; }
 button.take-status.sung { cursor: pointer; text-align: left; width: 100%; font: inherit; font-size: 12px; }
+button.take-status.weak { cursor: pointer; text-align: left; font: inherit; font-size: 12px; }
+button.take-status.weak:hover { background: rgba(251, 191, 36, 0.16); }
+.take-status.normalised { color: var(--good); background: rgba(52, 211, 153, 0.07); border: 1px solid rgba(52, 211, 153, 0.24);
+  border-radius: 8px; padding: 4px 8px; font-size: 12px; align-self: flex-start; }
 button.take-status.sung:hover { background: rgba(251, 191, 36, 0.16); }
 
 /* The words heard in a recording: a small job with its own progress, beside the

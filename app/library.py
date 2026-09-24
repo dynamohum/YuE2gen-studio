@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -173,6 +174,54 @@ def fill_loudness() -> int:
             execute("UPDATE takes SET loudness = ? WHERE id = ?", (level, row["id"]))
             done += 1
     return done
+
+
+# What a quiet take is brought up to.  Streaming services play at -14 LUFS, and a
+# render that has not lost its footing lands about there.  The peak ceiling keeps
+# the raised take from clipping.
+NORMAL_LUFS = -14.0
+NORMAL_PEAK = -1.0
+
+
+def original_path(audio: Path) -> Path:
+    """Where a take's audio is kept as it was rendered, once it has been normalised."""
+    return audio.with_name(f"{audio.stem}.original{audio.suffix}")
+
+
+def normalise(audio: Path) -> None:
+    """Bring a take to the usual loudness, in place, keeping the rendered file beside it.
+
+    Two passes: the first measures, the second applies one gain to the whole take, so
+    its quiet and loud parts keep their distance.  Only when that gain would push a
+    peak past the ceiling does ffmpeg fall back to shaping the level as it goes."""
+    target = f"I={NORMAL_LUFS}:TP={NORMAL_PEAK}:LRA=11"
+    # Always from the file as rendered, so doing it twice gives the same result.
+    keep = original_path(audio)
+    if not keep.exists():
+        shutil.copy2(audio, keep)
+    first = subprocess.run(["ffmpeg", "-v", "info", "-nostats", "-i", str(keep), "-af",
+                            f"loudnorm={target}:print_format=json", "-f", "null", "-"],
+                           capture_output=True, text=True, timeout=300).stderr
+    found = re.search(r"\{[^{}]*\"input_i\"[^{}]*\}", first)
+    if not found:
+        raise RuntimeError("ffmpeg could not measure the take's loudness")
+    measured = json.loads(found.group(0))
+    rate = "48000"
+    with audio.open("rb") as fh:
+        head = fh.read(26)
+    if head[:4] == b"fLaC" and len(head) >= 26:
+        rate = str(int.from_bytes(head[18:26], "big") >> 44 or 48000)
+    staged = audio.with_name(f"{audio.stem}.normalising{audio.suffix}")
+    try:
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(keep), "-af",
+                        f"loudnorm={target}:measured_I={measured['input_i']}:measured_TP={measured['input_tp']}"
+                        f":measured_LRA={measured['input_lra']}:measured_thresh={measured['input_thresh']}"
+                        f":offset={measured['target_offset']}:linear=true",
+                        "-ar", rate, "-c:a", "flac", str(staged)],
+                       capture_output=True, text=True, timeout=300, check=True)
+        os.replace(staged, audio)
+    finally:
+        staged.unlink(missing_ok=True)
 
 
 def audio_duration(path: Path) -> float | None:
