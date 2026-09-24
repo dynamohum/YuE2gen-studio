@@ -27,6 +27,14 @@ node tools/selection-harness.mjs
 in about a second. `tools/ui-harness.mjs` drives the real page against a running deployment and
 creates takes, so delete them afterwards.
 
+## Keys never go into git
+
+Run `sh tools/install-hooks.sh` once in each checkout. It installs a pre-commit hook that refuses
+a commit carrying a key: any key stored in this install's settings (even in part, and whatever its
+format), or anything shaped like a Google, OpenAI, Anthropic, GitHub or Hugging Face key or a
+private key. `python3 tools/check_secrets.py --all` checks every file in the whole history. GitHub's
+secret scanning and push protection are on for the public repository as a second line.
+
 ## Commit messages
 
 Say what the change does, in a sentence or two. Describe the code, not the conversation that led to
