@@ -302,8 +302,8 @@ for the collection installed here.
 
 ## Style LoRAs
 
-A LoRA is a small file that leans the model towards a sound. Put one in `models/loras/`, restart the
-engine, and it appears in the **Style LoRA** list.
+A LoRA is a small file that leans the model towards a sound. Put one in `models/loras/` and press
+**Rescan** under the picker, or use **Install**, and it appears in the **Style LoRA** list.
 
 A style LoRA can hold two halves, and the picker shows which ones a file holds:
 
@@ -357,9 +357,10 @@ options are reloaded.
 Choose a LoRA and press **Download** under the picker: you get one zip with the LoRA and its note.
 For a LoRA trained from a corpus, the note carries its learned styles, so the chips come with it.
 
-To add one someone sent you, press **Install a LoRA** and choose their zip, or a bare
-`.safetensors` file. It goes into `models/loras` under the heading **Installed**, with its name,
-trigger word and chips.
+To add one someone sent you, press **Install** and choose their zip, or a bare `.safetensors`
+file. It goes into `models/loras` under the heading **Installed**, with its name, trigger word and
+chips. **Delete** removes the chosen LoRA, its note and its group line; **Rescan** reads the folder
+again after you add a file by hand.
 
 ---
 

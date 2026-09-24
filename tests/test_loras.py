@@ -174,3 +174,40 @@ def test_download_and_install_through_the_app(client, tmp_path, monkeypatch):
     put = client.post("/api/loras/install", files={"file": ("shared_lora.zip", got.content, "application/zip")})
     assert put.status_code == 200 and put.json()["name"] == "shared_lora.safetensors"
     assert loras.note_for(root / "shared_lora.safetensors")["trigger"] == "sharedword"
+
+
+def test_deleting_a_lora_takes_its_note_log_and_group_line_with_it(tmp_path):
+    root = tmp_path / "loras"
+    root.mkdir()
+    fake_lora(root / "macca_test.safetensors")
+    (root / "macca_test.txt").write_text("Paul McCartney\n", encoding="utf-8")
+    (root / "macca_test_log.json").write_text("[]", encoding="utf-8")
+    fake_lora(root / "mltnt_roots.safetensors")
+    (root / "families.txt").write_text("# groups\nmltnt = MLTNT\n\nmacca_test = Installed\n\nother_lora = Your corpora\n",
+                                       encoding="utf-8")
+
+    gone = loras.remove("macca_test.safetensors", root=root)
+
+    assert sorted(p.name for p in root.iterdir()) == ["families.txt", "mltnt_roots.safetensors"]
+    assert "its line in families.txt" in gone
+    families = loras.families(root)
+    assert "macca_test" not in families
+    assert families["mltnt"] == "MLTNT", "a set's prefix line stays: other files share it"
+    assert families["other_lora"] == "Your corpora"
+
+
+def test_the_app_deletes_a_lora_and_forgets_it_on_the_corpus(client, tmp_path, monkeypatch):
+    import time
+    from app.db import execute, one
+    root = tmp_path / "loras"
+    root.mkdir()
+    monkeypatch.setattr(loras, "folder", lambda: root)
+    fake_lora(root / "alicia_lora.safetensors")
+    execute("""INSERT INTO identities(id, name, trigger_word, description, voice, folder, consent, created_at, lora)
+               VALUES('c1', 'Alicia', 'alicia', '', 'female', '/m', 1, ?, 'alicia_lora.safetensors')""", (time.time(),))
+
+    assert client.delete("/api/loras/alicia_lora.safetensors").status_code == 200
+    assert not (root / "alicia_lora.safetensors").exists()
+    assert one("SELECT lora FROM identities WHERE id = 'c1'")["lora"] is None
+    assert client.delete("/api/loras/alicia_lora.safetensors").status_code == 404
+    assert client.delete("/api/loras/..%2Fsecret.safetensors").status_code == 404

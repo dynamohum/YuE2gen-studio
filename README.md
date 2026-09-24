@@ -86,8 +86,8 @@ Writing an instrumental, with the structure built section by section:
 ## Style LoRAs
 
 A LoRA is a small file that leans YuE2 towards a sound: a genre, a tradition, a production style.
-Put one in `models/loras/` and restart the engine, and it appears in the **Style LoRA** list at the
-bottom of the form, in all three modes.
+Put one in `models/loras/` and press **Rescan**, or use **Install**, and it appears in the **Style
+LoRA** list at the bottom of the form, in all three modes. **Download** hands one to someone else.
 
 [![Style LoRA](docs/screenshots/style-lora.png)](https://raw.githubusercontent.com/dynamohum/YuE2gen-studio/master/docs/screenshots/full/style-lora.png)
 

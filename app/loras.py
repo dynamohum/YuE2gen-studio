@@ -155,6 +155,35 @@ def bundle(path: Path, styles: list[dict], dest: Path) -> Path:
     return dest
 
 
+def remove(name: str, root: Path | None = None) -> list[str]:
+    """Delete a LoRA and what belongs to it alone: its note, its training log, and
+    its line in families.txt.  A line naming a whole set by its prefix is left, since
+    other files share it."""
+    root = root or folder()
+    if not root:
+        raise ValueError("the app cannot see the engine's model folder")
+    path = root / name
+    stem = path.stem
+    gone = []
+    for item in (path, root / f"{stem}.txt", root / f"{stem}_log.json"):
+        if item.is_file():
+            item.unlink()
+            gone.append(item.name)
+    listing = root / "families.txt"
+    if listing.is_file():
+        lines = listing.read_text(encoding="utf-8").split("\n")
+        kept = [line for line in lines
+                if line.strip().startswith("#") or line.partition("=")[0].strip().lower() != stem.lower()]
+        if len(kept) != len(lines):
+            text = "\n".join(kept)
+            while "\n\n\n" in text:
+                text = text.replace("\n\n\n", "\n\n")
+            listing.write_text(text, encoding="utf-8")
+            gone.append("its line in families.txt")
+    log.info("removed LoRA %s: %s", name, ", ".join(gone))
+    return gone
+
+
 # The group a LoRA installed from someone else's bundle goes in.
 INSTALLED_FAMILY = "Installed"
 

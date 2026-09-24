@@ -1668,6 +1668,23 @@ async def download_lora(name: str) -> FileResponse:
                         background=BackgroundTask(archive.unlink, missing_ok=True))
 
 
+@app.delete("/api/loras/{name}")
+async def delete_lora(name: str) -> dict:
+    """Remove a LoRA from the engine's folder, with its note and its group line."""
+    path = _lora_file(name)
+    try:
+        gone = await asyncio.to_thread(loras.remove, path.name)
+    except (OSError, ValueError) as exc:
+        raise HTTPException(500, f"could not delete the LoRA: {exc}")
+    # A corpus that made it no longer has a file to point at.
+    execute("UPDATE identities SET lora = NULL WHERE lora = ?", (name,))
+    try:
+        await ENGINE.refresh_options()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("the engine's list was not re-read: %s", exc)
+    return {"deleted": gone}
+
+
 @app.post("/api/loras/install")
 async def install_shared_lora(file: UploadFile = File(...)) -> dict:
     """A LoRA from someone else: the zip Download makes, or a bare .safetensors file."""

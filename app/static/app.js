@@ -410,6 +410,7 @@ function paintStyleLoraNote() {
     download.classList.toggle('hidden', !item);
     download.href = item ? '/api/loras/' + encodeURIComponent(item.name) + '/download' : '#';
   }
+  if ($('lora-delete')) { $('lora-delete').classList.toggle('hidden', !item); }
   var label = document.querySelector('label[for="style-lora"]');
   if (label) {
     label.textContent = loraTrainedHere(item && item.name) ? 'Style LoRA \u2014 custom' : 'Style LoRA';
@@ -469,7 +470,7 @@ function paintStyleLoraNote() {
    added by hand can wait; this is for when it should not. */
 async function reloadLoras() {
   var button = $('lora-reload');
-  if (button) { button.textContent = 'Looking\u2026'; }
+  if (button) { button.textContent = 'Scanning\u2026'; }
   try {
     var found = await api('/api/engine/reload-options', { method: 'POST' });
     await pollState();
@@ -478,7 +479,7 @@ async function reloadLoras() {
   } catch (err) {
     statusLine('Could not read the engine\u2019s list: ' + err.message, 'bad');
   }
-  if (button) { button.textContent = 'Look for new LoRAs'; }
+  if (button) { button.textContent = 'Rescan'; }
 }
 
 /* A strength of zero on a half the file does hold is the same as not choosing the
@@ -3590,6 +3591,27 @@ async function identityClick(event) {
 }
 var personaClick = identityClick;
 
+async function deleteLora() {
+  var item = loraChosen();
+  if (!item) { return; }
+  var label = item.title || loraLabel(item.name);
+  if (!confirm('Delete ' + label + '?\n\n' + item.name + ' and its note are removed from models/loras. ' +
+      'Takes made with it keep their audio but cannot be rendered with it again.')) { return; }
+  var status = $('lora-install-status');
+  try {
+    await api('/api/loras/' + encodeURIComponent(item.name), { method: 'DELETE' });
+    $('style-lora').value = '';
+    $('style-lora').dispatchEvent(new Event('change', { bubbles: true }));
+    await pollState();
+    paintStyleLoras();
+    status.textContent = 'Deleted ' + label + '.';
+    status.className = 'status good';
+  } catch (err) {
+    status.textContent = err.message;
+    status.className = 'status bad';
+  }
+}
+
 async function installSharedLora(event) {
   var picked = event.target.files && event.target.files[0];
   event.target.value = '';
@@ -5698,6 +5720,7 @@ function wire() {
     if (event.target.dataset && event.target.dataset.key && event.target.tagName === 'INPUT') { saveSetting(event.target); }
   }, true);
   $('lora-install').addEventListener('click', function () { $('lora-install-file').click(); });
+  $('lora-delete').addEventListener('click', deleteLora);
   $('lora-install-file').addEventListener('change', installSharedLora);
   var btnTestLLM = $('btn-test-llm');
   if (btnTestLLM) { btnTestLLM.addEventListener('click', testLLMConnection); }
