@@ -1,5 +1,36 @@
 'use strict';
 
+/* A script error or a rejected promise in this page is sent to the server's log, where
+   it can be read later; otherwise it lives only in the browser console. Twenty a page
+   load at most, each different one once. */
+(function () {
+  var sent = 0;
+  var seen = {};
+  function report(payload) {
+    var key = payload.message + '|' + payload.source + '|' + payload.line;
+    if (sent >= 20 || seen[key]) { return; }
+    seen[key] = true;
+    sent += 1;
+    try {
+      fetch('/api/logs/client', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload), keepalive: true }).catch(function () { /* nowhere to report it */ });
+    } catch (err) { /* nowhere to report it */ }
+  }
+  window.addEventListener('error', function (event) {
+    if (!event.message) { return; }
+    report({ message: String(event.message).slice(0, 300), source: String(event.filename || '').split('/').pop().split('?')[0],
+             line: event.lineno || 0, column: event.colno || 0,
+             stack: event.error && event.error.stack ? String(event.error.stack).slice(0, 1000) : '',
+             page: window.location.pathname });
+  });
+  window.addEventListener('unhandledrejection', function (event) {
+    var reason = event.reason;
+    report({ message: 'Unhandled promise: ' + String((reason && reason.message) || reason).slice(0, 300), source: '',
+             line: 0, column: 0, stack: reason && reason.stack ? String(reason.stack).slice(0, 1000) : '',
+             page: window.location.pathname });
+  });
+}());
+
 /* What the left column is about. One object, and only setSelection may write it.
    Four separate fields used to say this (editorTakeId, editorSourceId, leftTakeId,
    planTakeId) and they drifted apart three times: a cover was rendered from another
@@ -5094,7 +5125,12 @@ function openLogsModal() {
   if (consoleEl && !consoleEl.children.length) { consoleEl.innerHTML = '<div class="logs-empty">Loading logs\u2026</div>'; }
   fetchLogs();
   if (LogsState.timer) { clearInterval(LogsState.timer); }
-  LogsState.timer = setInterval(fetchLogs, 1500);
+  // Live off pauses the panel, so the lines stay put while they are read. A filter or a
+  // search still fetches once; ticking Live again catches up at once.
+  LogsState.timer = setInterval(function () {
+    if ($('logs-tail') && !$('logs-tail').checked) { return; }
+    fetchLogs();
+  }, 1500);
 }
 
 function closeLogsModal() {
@@ -5203,6 +5239,9 @@ function wireLogs() {
       fetchLogs();
     });
   });
+  if ($('logs-tail')) {
+    $('logs-tail').addEventListener('change', function () { if ($('logs-tail').checked) { fetchLogs(); } });
+  }
   var searchInput = $('logs-search');
   if (searchInput) {
     var searchTimer = null;

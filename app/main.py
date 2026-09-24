@@ -13,6 +13,7 @@ the engine, separates stems, and serves one page.
 from __future__ import annotations
 
 import asyncio
+import collections
 import hashlib
 import json
 import logging
@@ -31,7 +32,10 @@ from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFi
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from fastapi.exception_handlers import http_exception_handler, request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from starlette.background import BackgroundTask
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import config, identities, instrumental, jobs, llm, logging_setup, loras, lyrics, score, stems
 from .db import DEFAULT_SPACE, execute, get_setting, migrate, one, rows, set_setting
@@ -265,6 +269,24 @@ async def requeue_waiting() -> None:
 
 
 app = FastAPI(title="YuE2 Studio", lifespan=lifespan)
+
+
+# A refusal shows once in the page's status line and was gone after that.  Each one that
+# answers an action is logged, so a report of "it would not render" has a line to read.
+# The page's polls (GET) are left out: a missing waveform while a take renders is normal.
+@app.exception_handler(StarletteHTTPException)
+async def logged_refusal(request: Request, exc: StarletteHTTPException):
+    if request.method != "GET" and 400 <= exc.status_code < 500:
+        log.info("Refused %s %s (%d): %s", request.method, request.url.path, exc.status_code, str(exc.detail)[:300])
+    return await http_exception_handler(request, exc)
+
+
+@app.exception_handler(RequestValidationError)
+async def logged_invalid(request: Request, exc: RequestValidationError):
+    # Where and why, never the values sent: a settings request carries a key.
+    problems = "; ".join(f"{'.'.join(str(p) for p in e.get('loc', ()))}: {e.get('msg')}" for e in exc.errors()[:5])
+    log.warning("Rejected %s %s: %s", request.method, request.url.path, problems[:300])
+    return await request_validation_exception_handler(request, exc)
 
 
 def host_allowed(host_header: str) -> bool:
@@ -567,6 +589,33 @@ def get_logs(
     since_id: int | None = None,
 ) -> dict:
     return logging_setup.get_recent_logs(level=level, search=search, source=source, limit=limit, since_id=since_id)
+
+
+class ClientErrorIn(BaseModel):
+    message: str = Field("", max_length=2000)
+    source: str = Field("", max_length=300)
+    line: int = 0
+    column: int = 0
+    stack: str = Field("", max_length=4000)
+    page: str = Field("", max_length=300)
+
+
+_CLIENT_ERRORS: collections.deque[float] = collections.deque(maxlen=30)
+
+
+@app.post("/api/logs/client")
+def client_error(body: ClientErrorIn) -> dict:
+    """A script error in the browser, which otherwise lives only in its console.  The page
+    sends at most twenty a load; this takes at most thirty a minute from all of them."""
+    now = time.time()
+    if len(_CLIENT_ERRORS) == _CLIENT_ERRORS.maxlen and now - _CLIENT_ERRORS[0] < 60:
+        return {"logged": False}
+    _CLIENT_ERRORS.append(now)
+    where = f" ({body.source}:{body.line}:{body.column})" if body.source else ""
+    first = " | ".join(line.strip() for line in body.stack.splitlines()[1:3] if line.strip())
+    log.warning("Browser error on %s: %s%s%s", body.page or "/", body.message[:300], where,
+                f" | {first[:300]}" if first else "")
+    return {"logged": True}
 
 
 @app.get("/api/logs/download")
@@ -886,8 +935,11 @@ async def transcribe(source_id: str) -> dict:
 
 @app.put("/api/sources/{source_id}/score")
 def save_score(source_id: str, body: ScoreIn) -> dict:
+    before = one("SELECT title, abc FROM sources WHERE id = ?", (source_id,))
     if not execute("UPDATE sources SET abc = ?, abc_updated_at = ? WHERE id = ?", (body.abc, time.time(), source_id)):
         raise HTTPException(404, "no such source")
+    if before and (before["abc"] or "") != (body.abc or ""):
+        log.info("Score of recording '%s' (%s) edited by hand (%d characters)", before["title"], source_id, len(body.abc or ""))
     return {"saved": True, "chars": len(body.abc)}
 
 
@@ -1951,8 +2003,12 @@ async def cancel_take(take_id: str) -> dict:
 
 @app.put("/api/takes/{take_id}/score")
 def save_take_score(take_id: str, body: ScoreIn) -> dict:
+    before = one("SELECT title, abc FROM takes WHERE id = ?", (take_id,))
     if not execute("UPDATE takes SET abc = ? WHERE id = ?", (body.abc, take_id)):
         raise HTTPException(404, "no such take")
+    # The page saves the score before every render; only a real change is worth a line.
+    if before and (before["abc"] or "") != (body.abc or ""):
+        log.info("Score of take '%s' (%s) edited by hand (%d characters)", before["title"], take_id, len(body.abc or ""))
     return {"saved": True, "chars": len(body.abc)}
 
 

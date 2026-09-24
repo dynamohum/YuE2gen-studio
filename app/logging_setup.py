@@ -30,6 +30,39 @@ def clean_ansi(text: str) -> str:
     return ANSI_ESCAPE_RE.sub("", text)
 
 
+# Nothing shaped like a key reaches a log line: not in a URL's query, not as a bearer
+# token, not bare.  Applied to every handler, so it holds whichever logger wrote it.
+_REDACTIONS = [
+    (re.compile(r"([?&](?:key|api_key|apikey|access_token|token|secret)=)[^&\s\"']+", re.I), r"\1***"),
+    (re.compile(r"(Bearer\s+)[A-Za-z0-9._~+/=\-]{8,}", re.I), r"\1***"),
+    (re.compile(r"AIza[0-9A-Za-z_\-]{35}"), "***"),
+    (re.compile(r"AQ\.[0-9A-Za-z_\-]{30,}"), "***"),
+    (re.compile(r"sk-(?:ant-|proj-)?[A-Za-z0-9_\-]{20,}"), "***"),
+    (re.compile(r"gh[pousr]_[A-Za-z0-9]{30,}"), "***"),
+    (re.compile(r"hf_[A-Za-z0-9]{30,}"), "***"),
+]
+
+
+def redact(text: str) -> str:
+    for pattern, replacement in _REDACTIONS:
+        text = pattern.sub(replacement, text)
+    return text
+
+
+class RedactFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        clean = redact(message)
+        if clean != message:
+            record.msg, record.args = clean, None
+        if record.exc_info and not record.exc_text:
+            record.exc_text = redact(logging.Formatter().formatException(record.exc_info))
+        return True
+
+
+_REDACT = RedactFilter()
+
+
 class RingBufferHandler(logging.Handler):
     """Stores structured log events in memory so the web client can query / live-tail."""
 
@@ -98,7 +131,7 @@ def log_engine_entry(
             else:
                 line_level = "INFO"
 
-        msg = re.sub(r"^\[(INFO|WARNING|WARN|ERROR|DEBUG)\]\s*", "", cleaned_line)
+        msg = redact(re.sub(r"^\[(INFO|WARNING|WARN|ERROR|DEBUG)\]\s*", "", cleaned_line))
 
         with _LOCK:
             is_progress = "%|" in msg or "sampling:" in msg.lower() or msg.startswith("100%|")
@@ -144,6 +177,9 @@ def setup_logging(logs_dir: Path | str | None = None) -> Path | None:
         console = logging.StreamHandler(sys.stderr)
         console.setFormatter(formatter)
         root.addHandler(console)
+    for h in root.handlers:
+        if _REDACT not in h.filters:
+            h.addFilter(_REDACT)
 
     # 2. Ring buffer handler (for web UI)
     ring = None
@@ -154,6 +190,7 @@ def setup_logging(logs_dir: Path | str | None = None) -> Path | None:
     if not ring:
         ring = RingBufferHandler()
         ring.setFormatter(formatter)
+        ring.addFilter(_REDACT)
         root.addHandler(ring)
 
     # 3. Rotating file handler (for CLI tailing)
@@ -170,9 +207,18 @@ def setup_logging(logs_dir: Path | str | None = None) -> Path | None:
                     log_file, maxBytes=10 * 1024 * 1024, backupCount=3, encoding="utf-8"
                 )
                 file_handler.setFormatter(formatter)
+                file_handler.addFilter(_REDACT)
                 root.addHandler(file_handler)
         except OSError as exc:
             logging.getLogger("yue2").warning("could not set up log file in %s: %s", path, exc)
+
+    # A crash in a route is logged by uvicorn to "uvicorn.error", whose parent does not
+    # propagate, so its traceback reached the container's output and nothing else.  The
+    # ring buffer and the file get it too; uvicorn keeps its own console line.
+    uvicorn_errors = logging.getLogger("uvicorn.error")
+    for h in root.handlers:
+        if isinstance(h, (RingBufferHandler, RotatingFileHandler)) and h not in uvicorn_errors.handlers:
+            uvicorn_errors.addHandler(h)
 
     # Suppress verbose third-party loggers
     logging.getLogger("httpx").setLevel(logging.WARNING)

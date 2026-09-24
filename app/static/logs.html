@@ -116,7 +116,7 @@
   </div>
   <div class="logs-page-controls">
     <input id="logs-search" type="search" placeholder="Search logs..." autocomplete="off">
-    <label class="logs-tail-label" title="Automatically scroll to newest logs">
+    <label class="logs-tail-label" title="Follow the newest lines. Untick to pause the window while you read">
       <input type="checkbox" id="logs-tail" checked> Live Tail
     </label>
     <a id="logs-download-btn" href="/api/logs/download" class="ghost logs-tool-btn" download="yue2studio.log" title="Download raw log file">Download</a>
@@ -224,7 +224,14 @@ if (clearBtn) {
 }
 
 fetchLogs();
-setInterval(fetchLogs, 1500);
+// Live Tail off pauses the window, so the lines stay put while they are read.
+setInterval(function () {
+  var tail = document.getElementById('logs-tail');
+  if (tail && !tail.checked) { return; }
+  fetchLogs();
+}, 1500);
+var tailBox = document.getElementById('logs-tail');
+if (tailBox) { tailBox.addEventListener('change', function () { if (tailBox.checked) { fetchLogs(); } }); }
 </script>
 </body>
 </html>
