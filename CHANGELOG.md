@@ -23,6 +23,32 @@ Release notes live in two places and neither is a file in this repository: this 
 history, and each GitHub release holds its published notes. `RELEASE-NOTES-*.md` is ignored so it
 cannot creep back in.
 
+## 0.0.28 - 2026-09-24
+
+### Fixed
+
+- **Corpus style tags from a thinking model came back cut off.** With a model that thinks before
+  it answers (such as gemini-3.8-flash), the style request's small reply budget went on the model's
+  thinking, so a song's style could come back as a single word, a fragment or just "." — and that
+  went into its training caption. The budget is now large enough, a reply cut off at its budget is
+  logged, and a reply with no words fails the song's style step so **Analyse style** is offered
+  again. **If you analysed a corpus with a thinking model, re-analyse its styles** (the button on
+  each song), then export and train again.
+- **Live off now pauses the log panel** (and the pop-out window), so the lines stay put while you
+  read. Before, it only stopped the scrolling.
+
+### Logging
+
+- A crash in the app now reaches the Logs panel and the log file, not only the container output.
+- A refused action is logged with its reason; so is a script error in the page (capped), and a
+  score saved with changes by hand.
+- Log lines never show anything shaped like a key, whichever part of the app or engine wrote them.
+
+### For contributors
+
+- `sh tools/install-hooks.sh` turns on the repository's hooks: a pre-commit check that refuses a
+  commit carrying a key, and the same check over the whole history before a push to GitHub.
+
 ## 0.0.27 - 2026-09-24
 
 ### New
