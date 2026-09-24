@@ -23,6 +23,23 @@ Release notes live in two places and neither is a file in this repository: this 
 history, and each GitHub release holds its published notes. `RELEASE-NOTES-*.md` is ignored so it
 cannot creep back in.
 
+## 0.0.34 - 2026-09-24
+
+### Fixed
+
+- **Edited lyrics were lost when the take on show was clicked, or played.** Clicking a take, or
+  its Play, Score or Stems button, loads the take into the form, and that replaced lyrics you had
+  typed over the take already on show. Now your edit stays where it is. Clicking a different take
+  still shows that take's words, and keeps yours with **Restore** in the bar above the form.
+
+  To render edited lyrics, press **Create cover** (or **Create song**) with them in the form. A
+  take keeps the words it was made with, which is what lets **Again** reproduce it.
+
+- **The expanded Lyrics and Score editors closed under the pointer.** Pressing the mouse inside
+  one and letting go just outside it counted as a click on the backdrop, which closed the window.
+  The two editors now close only with **Done** (or Esc). Other windows still close on a click
+  beside them, but only a click that begins there.
+
 ## 0.0.33 - 2026-09-24
 
 ### What's new

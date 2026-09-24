@@ -6145,9 +6145,6 @@ function wire() {
     $('score-big').value = text.split('"' + find + '"').join('"' + replace + '"');
     syncScoreFromBig();
   });
-  $('score-modal').addEventListener('click', function (event) {
-    if (backdropClick(event, $('score-modal'))) { closeScoreEditor(); }
-  });
   $('score-views').addEventListener('click', function (event) {
     var chip = event.target.closest('[data-view]');
     if (chip) { setScoreView(chip.dataset.view); }
@@ -6163,11 +6160,10 @@ function wire() {
   $('score-undo').addEventListener('click', undoScore);
   $('score-redo').addEventListener('click', redoScore);
   paintScoreHistory();
+  // The Lyrics and Score editors are for working in, so a click beside them does not
+  // close them: only Done does (or Esc).
   $('lyrics-close').addEventListener('click', closeLyricsEditor);
   $('lyrics-big').addEventListener('input', syncLyricsFromBig);
-  $('lyrics-modal').addEventListener('click', function (event) {
-    if (backdropClick(event, $('lyrics-modal'))) { closeLyricsEditor(); }
-  });
   document.querySelector('.modal-tools').addEventListener('click', function (event) {
     var button = event.target.closest('[data-tag]');
     if (button) { insertTag(button.dataset.tag); }
