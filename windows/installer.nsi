@@ -9,6 +9,7 @@ Unicode true
 !include "Sections.nsh"
 !include "LogicLib.nsh"
 !include "x64.nsh"
+!include "TextFunc.nsh"
 
 !ifndef VERSION
   !error "VERSION is not defined"
@@ -208,6 +209,18 @@ Function .onInit
   ${AndIf} ${FileExists} "$0\launcher.py"
     StrCpy $Updating 1
     StrCpy $INSTDIR $0
+    ; The version the app's own files carry is the truth; the Apps list entry is
+    ; only what the last installer managed to write there.
+    ClearErrors
+    FileOpen $2 "$INSTDIR\studio\VERSION" r
+    ${IfNot} ${Errors}
+      FileRead $2 $3
+      FileClose $2
+      ${TrimNewLines} "$3" $3
+      ${If} $3 != ""
+        StrCpy $OldVersion $3
+      ${EndIf}
+    ${EndIf}
   ${EndIf}
 
   ${If} $Updating == 1
