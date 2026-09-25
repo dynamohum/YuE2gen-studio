@@ -3670,6 +3670,9 @@ function songDetail(song) {
       '</label><label class="check"><input type="checkbox" data-checked="' + song.id + '"' + (song.lyrics_checked ? ' checked' : '') + '> checked</label></div>' +
       '<textarea data-lyrics="' + song.id + '" spellcheck="false" placeholder="[Verse]&#10;...">' + esc(song.lyrics || '') + '</textarea>' +
       '<div class="row" style="margin-top:6px"><button class="ghost" data-save="' + song.id + '">Save</button>' +
+      (song.lyrics_state === 'done' && IDENTITY.data && IDENTITY.data.external_llm
+        ? '<button class="ghost" data-redraft="' + song.id + '" title="Draft the lyrics again from what was heard: the same words, with the sections marked afresh. Replaces what is in the box">Redraft</button>'
+        : '') +
       '<span class="status" data-saved="' + song.id + '"></span></div>' +
     '</div><div>' + players +
       '<div class="field" style="margin:10px 0 0"><label for="pd-' + song.id + '">This song\u2019s sound</label>' +
@@ -3812,6 +3815,11 @@ async function pollIdentity() {
       }
       var box = document.querySelector('[data-lyrics="' + song.id + '"]');
       if (box && !box.dataset.edited && document.activeElement !== box && box.value !== (song.lyrics || '')) { box.value = song.lyrics || ''; }
+      var drafting = document.querySelector('[data-saved="' + song.id + '"]');
+      if (drafting && song.lyrics_state !== 'running' && drafting.textContent === 'Drafting\u2026') {
+        drafting.textContent = 'Redrafted.';
+        drafting.className = 'status good';
+      }
       var cap = document.querySelector('[data-caption="' + song.id + '"]');
       if (cap) { cap.textContent = song.caption; }
     });
@@ -3902,6 +3910,30 @@ async function identityClick(event) {
       pollIdentity();
       note.className = 'status good';
     } catch (err) { note.textContent = err.message; note.className = 'status bad'; }
+    return;
+  }
+  var redraft = target.closest('[data-redraft]');
+  if (redraft) {
+    var redraftId = redraft.dataset.redraft;
+    var box = document.querySelector('[data-lyrics="' + redraftId + '"]');
+    var said = document.querySelector('[data-saved="' + redraftId + '"]');
+    var was = identitySong(redraftId);
+    if (((was && was.lyrics_checked) || (box && box.dataset.edited)) &&
+        !confirm('Replace the lyrics in the box with a new draft?')) { return; }
+    redraft.disabled = true;
+    try {
+      await api('/api/identities/' + IDENTITY.id + '/songs/' + redraftId + '/lyrics/redraft', { method: 'POST' });
+      // The new draft lands in the box when it is ready, as the first one did.
+      if (box) { delete box.dataset.edited; }
+      var tick = document.querySelector('[data-checked="' + redraftId + '"]');
+      if (tick) { tick.checked = false; }
+      if (said) { said.textContent = 'Drafting\u2026'; said.className = 'status'; }
+      pollIdentity();
+    } catch (err) {
+      if (said) { said.textContent = err.message; said.className = 'status bad'; }
+    } finally {
+      redraft.disabled = false;
+    }
     return;
   }
   var restyle = target.closest('[data-restyle]');

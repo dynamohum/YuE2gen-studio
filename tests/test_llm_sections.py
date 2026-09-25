@@ -94,3 +94,29 @@ def test_a_song_stopped_while_the_llm_works_keeps_nothing_it_returns(tmp_path, m
         return reply_with([{"tag": "Verse", "from": 1, "to": 4}])
     row = draft_with(monkeypatch, chat)
     assert (row["lyrics"], row["lyrics_state"]) == ("", "none")
+
+
+def test_redraft_tags_the_heard_lines_again_and_replaces_checked_words(client, tmp_path, monkeypatch):
+    corpus_song(tmp_path)
+    execute("UPDATE identity_songs SET lyrics = 'my own words', lyrics_checked = 1, lyrics_state = 'done' WHERE id = 's1'")
+    url = "/api/identities/c1/songs/s1/lyrics/redraft"
+    monkeypatch.setattr(llm, "is_external_enabled", lambda: False)
+    assert client.post(url).status_code == 400                      # only with the external LLM
+    assert client.get("/api/identities/c1").json()["external_llm"] is False
+    monkeypatch.setattr(llm, "is_external_enabled", lambda: True)
+
+    async def chat(messages, **kw):
+        return reply_with([{"tag": "Chorus", "from": 1, "to": 2}, {"tag": "Verse", "from": 3, "to": 4}])
+    monkeypatch.setattr(llm, "chat_complete", chat)
+    assert client.post(url).json() == {"lyrics_state": "running"}
+    for _ in range(100):
+        row = one("SELECT lyrics, lyrics_checked, lyrics_state FROM identity_songs WHERE id = 's1'")
+        if row["lyrics_state"] == "done":
+            break
+        import time
+        time.sleep(0.02)
+    assert row["lyrics"].startswith("[Intro]\n\n[Chorus]\nGood day sunshine") and row["lyrics_checked"] == 0
+    execute("UPDATE identity_songs SET lyrics_state = 'running' WHERE id = 's1'")
+    assert client.post(url).status_code == 409                      # already drafting
+    execute("UPDATE identity_songs SET stored_path = NULL, lyrics_state = 'done' WHERE id = 's1'")
+    assert client.post(url).status_code == 400                      # nothing heard yet

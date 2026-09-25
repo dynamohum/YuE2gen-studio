@@ -274,7 +274,8 @@ engine built with `WITH_TRAINER=0`, takes it out.
    marked from the words as heard: choruses by their words coming back, new sections by the
    pauses. Only the lines and their timings are sent, and the words and their order are never
    changed. Without one, or if its answer does not hold every line, the tags come from the music
-   analysis. A line under the buttons says what is running, and
+   analysis. **Redraft**, beside Save in a song's review, marks the sections again the same way
+   without hearing the song again, for a song drafted before, and replaces what is in the box. A line under the buttons says what is running, and
    **Stop** ends it. Finished steps are kept, so **Analyse** carries on from where it stopped.
 4. **Review.** Open a song to check its lyrics and tick **checked**, and to describe its sound
    where it differs from the rest. The style caption shows what the trainer will read.

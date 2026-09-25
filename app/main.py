@@ -1577,6 +1577,8 @@ def _identity_view(identity: dict) -> dict:
     busy = any(s[f] in ("queued", "running") for s in songs for f in IDENTITY_STEPS)
     return {**identity, "songs": songs, "busy": busy,
             "working": jobs.identity_working({s["id"] for s in songs}) if busy else None,
+            # Redraft marks the sections from the words, which needs the external LLM.
+            "external_llm": llm.is_external_enabled(),
             "summary": {"songs": len(songs), "included": len(chosen),
                         "minutes": round(sum(s["duration"] or 0 for s in chosen) / 60, 1),
                         "analysed": sum(1 for s in chosen if all(s[f] == "done" for f in IDENTITY_STEPS)),
@@ -1767,6 +1769,27 @@ async def analyse_identity(identity_id: str) -> dict:
 
 
 analyse_persona = analyse_identity
+
+
+@app.post("/api/identities/{identity_id}/songs/{song_id}/lyrics/redraft")
+async def redraft_identity_lyrics(identity_id: str, song_id: str) -> dict:
+    """Draft a song's lyrics again from the lines already heard, with the sections
+    marked by the external LLM: the same words, without running Whisper again.
+    Replaces what is there, checked or not: it is asked for by hand."""
+    song = one("SELECT * FROM identity_songs WHERE id = ? AND identity_id = ?", (song_id, identity_id))
+    if not song:
+        raise HTTPException(404, "no such song")
+    heard = Path(song["stored_path"]).parent / "whisper.json" if song["stored_path"] else None
+    if not heard or not heard.exists():
+        raise HTTPException(400, "the lyrics have not been heard yet. Press Analyse.")
+    if not llm.is_external_enabled():
+        raise HTTPException(400, "redrafting marks the sections with the external LLM, which is not set in Settings")
+    if song["lyrics_state"] in ("queued", "running"):
+        raise HTTPException(409, "the lyrics are being drafted already")
+    jobs.set_song(song_id, lyrics_checked=0, error=None)
+    jobs.maybe_draft(song_id)
+    log.info("Redrafting the lyrics of corpus song '%s'", song.get("title") or song_id)
+    return {"lyrics_state": one("SELECT lyrics_state FROM identity_songs WHERE id = ?", (song_id,))["lyrics_state"]}
 
 
 @app.post("/api/identities/{identity_id}/stop")

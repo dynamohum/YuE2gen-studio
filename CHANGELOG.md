@@ -42,7 +42,7 @@ cannot creep back in.
 - **Corpus lyrics are tagged by section more accurately.** With an external LLM set, the sections
   are marked from the words as heard, which finds choruses the music analysis runs together.
   Without one, section boundaries now move to the pause before a line, so a first verse line no
-  longer lands in the intro.
+  longer lands in the intro. **Redraft** in a song's review re-tags a song drafted before.
 - **The corpus window says what its analysis is doing**, such as the vocal being separated and
   how far it has got, and **Stop** ends it.
 
