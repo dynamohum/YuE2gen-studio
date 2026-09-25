@@ -51,14 +51,28 @@ VIAddVersionKey "LegalCopyright" "Apache License 2.0"
 !define MUI_UNICON "${STAGE}\yue2studio.ico"
 !define MUI_ABORTWARNING
 
-!define MUI_WELCOMEPAGE_TITLE "Install ${APPNAME}"
-!define MUI_WELCOMEPAGE_TEXT "${APPNAME} writes and covers songs with the YuE2 music model, on this PC.$\r$\n$\r$\nThis installer is small. It checks that this PC can run YuE2 (an NVIDIA RTX 30-series card or newer), then downloads the rest from each part's publisher: about 24 GB, most of it the models. A download that breaks off carries on where it stopped when you run the installer again.$\r$\n$\r$\nA separate window shows the setup's progress; it may open behind this one.$\r$\n$\r$\nYou need about 40 GB of free space."
+;  An install already on this PC is updated in place: the pages say so, the folder
+; page is skipped, and the Gemma choice made last time is kept (see .onInit).
+Var Updating        ; 1 when this installer is updating an install already here
+Var OldVersion
+Var WelcomeTitle
+Var WelcomeText
+Var InstHeader
+Var InstSubtext
+Var FinishText
+
+!define MUI_WELCOMEPAGE_TITLE "$WelcomeTitle"
+!define MUI_WELCOMEPAGE_TEXT "$WelcomeText"
 !insertmacro MUI_PAGE_WELCOME
 !define MUI_LICENSEPAGE_TEXT_TOP "Each part is used under its own terms."
 !insertmacro MUI_PAGE_LICENSE "${STAGE}\terms.txt"
 !insertmacro MUI_PAGE_COMPONENTS
+!define MUI_PAGE_CUSTOMFUNCTION_PRE SkipWhenUpdating
 !insertmacro MUI_PAGE_DIRECTORY
+!define MUI_PAGE_HEADER_TEXT "$InstHeader"
+!define MUI_PAGE_HEADER_SUBTEXT "$InstSubtext"
 !insertmacro MUI_PAGE_INSTFILES
+!define MUI_FINISHPAGE_TEXT "$FinishText"
 !define MUI_FINISHPAGE_RUN
 !define MUI_FINISHPAGE_RUN_TEXT "Start ${APPNAME} now"
 !define MUI_FINISHPAGE_RUN_FUNCTION StartNow
@@ -84,16 +98,19 @@ Var PowerShellLink  ; for shortcuts
   ${EndIf}
 !macroend
 
-Function .onInit
-  !insertmacro FindPowerShell
-FunctionEnd
-
 Function un.onInit
   !insertmacro FindPowerShell
 FunctionEnd
 
 Function StartNow
   ExecShell "" "$SMPROGRAMS\${APPNAME}\${APPNAME}.lnk"
+FunctionEnd
+
+; An update goes where the app already is: a new folder would be a second install.
+Function SkipWhenUpdating
+  ${If} $Updating == 1
+    Abort
+  ${EndIf}
 FunctionEnd
 
 Section "${APPNAME}" SecCore
@@ -140,8 +157,18 @@ Section "-Setup"
   ${Else}
     StrCpy $1 "-NoLyrics"
   ${EndIf}
+  ; Remembered, so an update offers the same choice again.
+  ${If} ${SectionIsSelected} ${SecLyrics}
+    WriteRegDWORD HKCU "Software\${REGNAME}" "Lyrics" 1
+  ${Else}
+    WriteRegDWORD HKCU "Software\${REGNAME}" "Lyrics" 0
+  ${EndIf}
   DetailPrint "Setting up. Its progress is in a separate window, which may be behind this one."
-  DetailPrint "This takes a while: about 24 GB to download."
+  ${If} $Updating == 1
+    DetailPrint "Updating from $OldVersion to ${VERSION}: only what has changed is downloaded."
+  ${Else}
+    DetailPrint "This takes a while: about 24 GB to download."
+  ${EndIf}
   ExecWait '"$PowerShell" -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\setup.ps1" -InstallDir "$INSTDIR" $1 ${SETUP_ARGS}' $0
   ${If} $0 != 0
     MessageBox MB_ICONSTOP "Setup did not finish.$\r$\n$\r$\nThe details are in $INSTDIR\logs\install.log. Run this installer again to carry on from where it stopped." /SD IDOK
@@ -161,6 +188,50 @@ LangString DESC_Lyrics ${LANG_ENGLISH} "Gemma 4, for lyric drafts and song analy
   !insertmacro MUI_DESCRIPTION_TEXT ${SecCore} $(DESC_Core)
   !insertmacro MUI_DESCRIPTION_TEXT ${SecLyrics} $(DESC_Lyrics)
 !insertmacro MUI_FUNCTION_DESCRIPTION_END
+
+; After the sections, so their names can be used here.
+Function .onInit
+  !insertmacro FindPowerShell
+  StrCpy $Updating 0
+  ReadRegStr $OldVersion HKCU "${REGKEY}" "DisplayVersion"
+  ReadRegStr $0 HKCU "Software\${REGNAME}" "InstallDir"
+  ${If} $OldVersion != ""
+  ${AndIf} $0 != ""
+  ${AndIf} ${FileExists} "$0\launcher.py"
+    StrCpy $Updating 1
+    StrCpy $INSTDIR $0
+  ${EndIf}
+
+  ${If} $Updating == 1
+    ${If} $OldVersion == "${VERSION}"
+      StrCpy $WelcomeTitle "Reinstall ${APPNAME} ${VERSION}"
+      StrCpy $WelcomeText "${APPNAME} ${VERSION} is already installed on this PC. This installs it again over itself, which can repair a copy that has stopped working.$\r$\n$\r$\nYour library, settings, LoRAs and models are kept, and anything already in place is not downloaded again.$\r$\n$\r$\nIf ${APPNAME} is running, it is closed first."
+      StrCpy $InstHeader "Reinstalling ${APPNAME}"
+      StrCpy $FinishText "${APPNAME} ${VERSION} has been installed again.$\r$\n$\r$\nYour library and settings are as you left them."
+    ${Else}
+      StrCpy $WelcomeTitle "Update ${APPNAME}"
+      StrCpy $WelcomeText "${APPNAME} $OldVersion is installed on this PC. This updates it to ${VERSION}.$\r$\n$\r$\nYour library, settings, LoRAs and models are kept, and only what has changed is downloaded, so it takes minutes rather than hours.$\r$\n$\r$\nIf ${APPNAME} is running, it is closed first."
+      StrCpy $InstHeader "Updating ${APPNAME}"
+      StrCpy $FinishText "${APPNAME} has been updated from $OldVersion to ${VERSION}.$\r$\n$\r$\nYour library and settings are as you left them."
+    ${EndIf}
+    StrCpy $InstSubtext "Only what has changed is downloaded. The setup window may be behind this one."
+    ; Only the app itself is new: the engine and the models are already here.
+    SectionSetSize ${SecCore} 100000
+    ; Gemma as chosen last time: kept if it is here, left out if it was left out.
+    ReadRegDWORD $1 HKCU "Software\${REGNAME}" "Lyrics"
+    ${If} ${FileExists} "$INSTDIR\engine\ComfyUI\models\text_encoders\gemma4_e4b_it_int8_convrot.safetensors"
+      SectionSetSize ${SecLyrics} 0
+    ${ElseIf} $1 != 1
+      !insertmacro UnselectSection ${SecLyrics}
+    ${EndIf}
+  ${Else}
+    StrCpy $WelcomeTitle "Install ${APPNAME}"
+    StrCpy $WelcomeText "${APPNAME} writes and covers songs with the YuE2 music model, on this PC.$\r$\n$\r$\nThis installer is small. It checks that this PC can run YuE2 (an NVIDIA RTX 30-series card or newer), then downloads the rest from each part's publisher: about 24 GB, most of it the models. A download that breaks off carries on where it stopped when you run the installer again.$\r$\n$\r$\nA separate window shows the setup's progress; it may open behind this one.$\r$\n$\r$\nYou need about 40 GB of free space."
+    StrCpy $InstHeader "Installing ${APPNAME}"
+    StrCpy $InstSubtext "The setup window shows its progress, and may be behind this one."
+    StrCpy $FinishText "${APPNAME} has been installed on this PC."
+  ${EndIf}
+FunctionEnd
 
 Section "Uninstall"
   nsExec::Exec '"$PowerShell" -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $$_.ExecutablePath -like $\'$INSTDIR\*$\' -and $$_.Name -in $\'python.exe$\',$\'pythonw.exe$\',$\'ffmpeg.exe$\',$\'ffprobe.exe$\' } | ForEach-Object { Stop-Process -Id $$_.ProcessId -Force }"'

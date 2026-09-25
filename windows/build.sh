@@ -11,7 +11,8 @@
 set -eu
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-VERSION=$(cat "$ROOT/VERSION")
+# VERSION=x.y.z in the environment builds as another version, to test an update.
+VERSION=${VERSION:-$(cat "$ROOT/VERSION")}
 OUT="$ROOT/windows/dist"
 STAGE="$OUT/stage"
 
