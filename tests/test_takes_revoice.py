@@ -10,7 +10,7 @@ def a_take(**extra):
     row = {"id": "orig1", "kind": "song", "title": "good1 · Tight", "style": "pop", "lyrics": "[verse]\nla",
            "abc": ABC, "mode": "full", "seed": 1747519420, "checkpoint": "x", "status": "done",
            "created_at": time.time(), "max_duration": 120, "interpretation": "tight", "variety": "calm",
-           "style_lora": "paul_mccartney_lora.safetensors", "style_lora_model": 0.7, "style_lora_clip": 0.7,
+           "style_lora": "harbour_lights_lora.safetensors", "style_lora_model": 0.7, "style_lora_clip": 0.7,
            "favourite": 1, "audio_path": "/data/takes/x.flac", "loudness": -15.0}
     row.update(extra)
     cols = list(row)

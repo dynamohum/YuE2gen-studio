@@ -8,10 +8,10 @@ import pytest
 from app import jobs, llm
 from app.db import execute, one
 
-LINES = [{"start": 8.7, "end": 10.6, "text": "Good day sunshine"},
-         {"start": 11.5, "end": 13.4, "text": "Good day sunshine"},
-         {"start": 17.2, "end": 20.0, "text": "I need to laugh"},
-         {"start": 21.0, "end": 24.6, "text": "And when the sun is out"}]
+LINES = [{"start": 8.7, "end": 10.6, "text": "Morning light again"},
+         {"start": 11.5, "end": 13.4, "text": "Morning light again"},
+         {"start": 17.2, "end": 20.0, "text": "We walk the harbour wall"},
+         {"start": 21.0, "end": 24.6, "text": "Counting boats"}]
 
 
 def reply_with(sections):
@@ -21,14 +21,14 @@ def reply_with(sections):
 def test_the_reply_becomes_tagged_lines_as_heard(monkeypatch):
     async def chat(messages, **kw):
         prompt = messages[-1]["content"]
-        assert "3. [17.2s, after a 3.8s pause] I need to laugh" in prompt
-        assert "Good Day Sunshine" not in prompt          # the lines and times only, never the title
+        assert "3. [17.2s, after a 3.8s pause] We walk the harbour wall" in prompt
+        assert "Morning Light" not in prompt          # the lines and times only, never the title
         # No Intro in the reply: singing from 8.7 s has one before it, so it is added.
         return reply_with([{"tag": "Chorus", "from": 1, "to": 2}, {"tag": "Verse 1", "from": 3, "to": 4}])
     monkeypatch.setattr(llm, "chat_complete", chat)
     blocks = asyncio.run(llm.tag_sections(LINES))
-    assert blocks == [("Intro", []), ("Chorus", ["Good day sunshine", "Good day sunshine"]),
-                      ("Verse", ["I need to laugh", "And when the sun is out"])]
+    assert blocks == [("Intro", []), ("Chorus", ["Morning light again", "Morning light again"]),
+                      ("Verse", ["We walk the harbour wall", "Counting boats"])]
 
 
 @pytest.mark.parametrize("sections, why", [
@@ -47,10 +47,10 @@ def corpus_song(tmp_path, lines=LINES):
     folder.mkdir()
     (folder / "original.flac").write_bytes(b"x")
     (folder / "whisper.json").write_text(json.dumps(lines), encoding="utf-8")
-    execute("INSERT INTO identities(id, name, trigger_word, folder, consent, created_at) VALUES('c1', 'Beatles', 'b', '/x', 1, 0)")
+    execute("INSERT INTO identities(id, name, trigger_word, folder, consent, created_at) VALUES('c1', 'Band', 'b', '/x', 1, 0)")
     execute("""INSERT INTO identity_songs(id, identity_id, file, title, sha256, duration, include, vocals_state,
                                           lyrics_state, score_state, stored_path, position)
-               VALUES('s1', 'c1', 'a.flac', 'Good Day Sunshine', 'x', 30, 1, 'done', 'running', 'done', ?, 0)""",
+               VALUES('s1', 'c1', 'a.flac', 'Morning Light', 'x', 30, 1, 'done', 'running', 'done', ?, 0)""",
             (str(folder / "original.flac"),))
 
 
@@ -73,7 +73,7 @@ def test_with_an_external_llm_the_draft_is_marked_from_the_words(tmp_path, monke
         return reply_with([{"tag": "Chorus", "from": 1, "to": 2}, {"tag": "Verse", "from": 3, "to": 4}])
     row = draft_with(monkeypatch, chat)
     assert row["lyrics_state"] == "done"
-    assert row["lyrics"] == "[Intro]\n\n[Chorus]\nGood day sunshine\nGood day sunshine\n\n[Verse]\nI need to laugh\nAnd when the sun is out"
+    assert row["lyrics"] == "[Intro]\n\n[Chorus]\nMorning light again\nMorning light again\n\n[Verse]\nWe walk the harbour wall\nCounting boats"
 
 
 def test_when_the_llm_fails_the_music_analysis_draft_is_kept(tmp_path, monkeypatch):
@@ -83,7 +83,7 @@ def test_when_the_llm_fails_the_music_analysis_draft_is_kept(tmp_path, monkeypat
         raise RuntimeError("the provider is down")
     row = draft_with(monkeypatch, chat)
     assert row["lyrics_state"] == "done"
-    assert row["lyrics"] == "[Verse]\nGood day sunshine\nGood day sunshine\nI need to laugh\nAnd when the sun is out"
+    assert row["lyrics"] == "[Verse]\nMorning light again\nMorning light again\nWe walk the harbour wall\nCounting boats"
 
 
 def test_a_song_stopped_while_the_llm_works_keeps_nothing_it_returns(tmp_path, monkeypatch):
@@ -115,7 +115,7 @@ def test_redraft_tags_the_heard_lines_again_and_replaces_checked_words(client, t
             break
         import time
         time.sleep(0.02)
-    assert row["lyrics"].startswith("[Intro]\n\n[Chorus]\nGood day sunshine") and row["lyrics_checked"] == 0
+    assert row["lyrics"].startswith("[Intro]\n\n[Chorus]\nMorning light again") and row["lyrics_checked"] == 0
     execute("UPDATE identity_songs SET lyrics_state = 'running' WHERE id = 's1'")
     assert client.post(url).status_code == 409                      # already drafting
     execute("UPDATE identity_songs SET stored_path = NULL, lyrics_state = 'done' WHERE id = 's1'")

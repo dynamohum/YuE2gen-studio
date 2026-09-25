@@ -405,8 +405,8 @@ def write_note(path: Path, trigger: str, corpus: str, title: str = "", root: Pat
     note_path = root / f"{stem}.txt"
     note_path.write_text("\n".join(note) + "\n", encoding="utf-8")
 
-    # Grouped by the whole file name, not the word in front of it: that word is a
-    # first name here, and paul_mccartney would take in paul_shields.
+    # Grouped by the whole file name, not the word in front of it: that word is often a
+    # first name, and jane_doe would take in jane_smith.
     if stem.lower() not in families(root):
         path_families = root / "families.txt"
         existing = path_families.read_text(encoding="utf-8") if path_families.exists() else None

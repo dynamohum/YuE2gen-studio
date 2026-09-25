@@ -970,8 +970,8 @@ def _engine_error(job: dict) -> str:
 
 # The transcriber refuses a whole song when a note is still sounding at the very end
 # of the audio: its beat grid stops short of the end, and a note there fits no cell.
-# A Day in the Life failed on its final chord, at 315.51 s of 315.53, and cut at four
-# minutes, at 239.94 s of 240.  So what it is given always ends cleanly -- a short fade
+# A song ending on a long held chord failed at 315.51 s of 315.53, and cut at four
+# minutes, again at 239.94 s of 240.  So what it is given always ends cleanly -- a short fade
 # and a few seconds of silence -- which costs nothing the score needs.  A corpus song
 # that still fails is tried melody-only, then on its first four minutes, as the
 # trainer does.  (A cover gets the clean ending but no shortening: its score is the
@@ -1101,9 +1101,9 @@ async def run_identity_job(kind: str, song_id: str) -> None:
         elif kind in ("identity_style", "persona_style"):
             if llm.is_external_enabled():
                 # The title and the words only.  No artist: the corpus's name is whatever
-                # the user called the folder, and a model reads it as a band -- a corpus
-                # called "pepper" had Sgt. Pepper described as reggae rock, after the band
-                # Pepper.  A file's artist tag can be as wrong, or missing.
+                # the user called the folder, and a model can read it as an unrelated band
+                # and describe the songs in that band's genre.  A file's artist tag can be
+                # as wrong, or missing.
                 title = song.get("title") or song_title
                 lyrics_text = song.get("lyrics") or ""
                 log.info("Starting external LLM style analysis for corpus song '%s' (%s)", title, song_id)

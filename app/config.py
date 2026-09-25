@@ -92,22 +92,18 @@ TRAINING_ENABLED = os.environ.get("TRAINING_ENABLED", "1").strip().lower() in ("
 # Dual-branch training parameters, following the trainer's own guidance and the
 # published LoRAs made with it (blgr, mltnt, cnzn, chnsn, qwwl, drksf).  Those ran
 # 300-500 planner steps over two songs a step, with the score never put in front,
-# and their authors picked a checkpoint by ear.  The first runs here used 600 steps
-# of one song whatever the corpus: 18 passes over each McCartney song and 30 over
-# each Lennon one.  The planner memorised, the decoder -- conditioned on that
-# drifting planner, with one update a step -- got worse throughout, and the LoRA
-# barely showed at low strength and dragged in the records' own sound at high.
+# and their authors picked a checkpoint by ear.  A fixed 600 steps of one song a step,
+# whatever the corpus, means many passes over a small one: the planner memorises, and
+# the decoder -- conditioned on that drifting planner, with one update a step -- gets
+# worse throughout.
 #
 # Planner steps come from the corpus size: TRAIN_PASSES over each song, the rule of
 # thumb in the trainer (steps x batch_songs x artist_fraction / songs), rounded up to
 # a checkpoint, and never fewer than TRAIN_MIN_STEPS.  TRAIN_STEPS, when set,
 # overrides it for every run.
 #
-# The floor is there because the passes alone starve a small corpus.  Across seven
-# LoRAs trained here, the planner loss was still falling steeply at step 150 in every
-# one, and went on falling to 600.  The two stopped at 150 (14 and 16 songs) sang in
-# the base model's generic voice, their checkpoints barely told apart, and even at
-# strength 2.0 they did not turn to mush.  The checkpoints are kept, so a run that goes
+# The floor is there because the passes alone starve a small corpus: its planner is
+# still learning fast when they run out.  The checkpoints are kept, so a run that goes
 # on too long can be heard back to an earlier step with Checkpoints.
 # A take whose average level is below this is flagged as probably spoiled. Across the
 # library the median is about -18 dB; the three renders heard as badly distorted

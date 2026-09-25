@@ -32,14 +32,14 @@ takes less room.
 
 - **Training again keeps the last LoRA, or deletes it, as you choose.** The Train window asks
   when a corpus already has one. Kept, it is renamed with the day it was trained, for example
-  "pepper · 25 Sep (previous)", with its checkpoints, in a **Previous runs** group, so the new
+  "My corpus · 25 Sep (previous)", with its checkpoints, in a **Previous runs** group, so the new
   run's checkpoints are only its own.
 - **The corpus window shows progress for every step:** analysing, exporting and training, each
   with a green line under the buttons. The corpus badge at the top of the page pulses while its
   LoRA trains.
-- **Training runs at least 500 steps.** Ten passes over each song gave a small corpus far too
-  few: a 14-song corpus trained for 150 steps and sang in the base model's generic voice. The
-  checkpoints are kept, so a run that goes too far can be heard back to an earlier step.
+- **Training runs at least 500 steps.** Ten passes over each song gave a small corpus too few
+  steps to learn from. The checkpoints are kept, so a run that goes too far can be heard back to
+  an earlier step.
 - **Environment variables are documented in the README**, the training ones included, with
   `compose.override.yml.example` to copy, and how to set them on the Windows install.
 - **The header is one row:** status, corpus, version and Logs sit level with the name.
@@ -50,12 +50,11 @@ takes less room.
 ### Fixed
 
 - **Some songs could not be transcribed at all:** the transcriber refused a whole song when a
-  note was still sounding as the file ended, such as A Day in the Life's final chord. What it is
-  sent now always ends with a short fade and silence, for covers as well as corpus songs, and a
+  note was still sounding as the file ended, such as a long held final chord. What it is sent
+  now always ends with a short fade and silence, for covers as well as corpus songs, and a
   corpus song that still fails is tried melody-only, then on its first four minutes.
-- **Style analysis took the corpus name for the artist.** A corpus called "pepper" had Sgt.
-  Pepper songs described as reggae rock, after the band Pepper. The LLM is now sent only the
-  song's title and words.
+- **Style analysis took the corpus name for the artist,** so a corpus could have songs described
+  in the wrong genre. The LLM is now sent only the song's title and words.
 - **Engine errors in the corpus window were unreadable,** showing the audio as a stream of
   numbers. They now name the step and what went wrong.
 

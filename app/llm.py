@@ -239,7 +239,7 @@ def clean_style_tags(raw: str, title: str = "") -> str:
         else:
             text = lines[0]
 
-    # Strip song title prefix like "Like a Rolling Stone - " or "Like a Rolling Stone:"
+    # Strip a song title prefix like "Paper Lanterns - " or "Paper Lanterns:"
     if title:
         pattern = re.compile(rf"^(?:song\s*:\s*)?{re.escape(title)}\s*[-:–—]\s*", re.IGNORECASE)
         text = pattern.sub("", text)

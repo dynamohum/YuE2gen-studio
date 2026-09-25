@@ -104,8 +104,8 @@ def test_a_finished_run_is_named_after_the_corpus_and_keeps_its_snapshots(client
 
 def test_steps_follow_the_size_of_the_corpus_above_a_floor(monkeypatch):
     """About ten passes over each song, the trainer's rule of thumb, rounded up to a
-    checkpoint, and never fewer than 500.  Ten passes alone gave a 14-song corpus 150
-    steps, where every LoRA trained here was still learning fast; the checkpoints are
+    checkpoint, and never fewer than 500.  Ten passes alone give a small corpus too few
+    steps to learn from; the checkpoints are
     kept, so a run that goes on too long can be heard back to an earlier step."""
     monkeypatch.setattr(config, "TRAIN_STEPS", None)
     assert config.train_steps(14) == 500
@@ -228,29 +228,28 @@ def test_the_rest_of_the_app_is_untouched(client, monkeypatch):
 
 
 def test_a_learned_style_is_the_caption_the_lora_was_trained_on(client):
-    """A LoRA learns a sound with the words it was captioned with.  A chip that left
-    out the corpus description asked it for something it never saw, and a Lennon
-    LoRA trained on "British accent, raspy baritone" sang like stock YuE2."""
+    """A LoRA learns a sound with the words it was captioned with, so a chip that left
+    out the corpus description would ask it for something it never saw."""
     from app import main
 
     execute("""INSERT INTO identities(id, name, trigger_word, description, voice, folder, consent, created_at, lora)
-               VALUES('c1', 'John Lennon', 'johnlennon', 'British accent, raspy baritone', 'male', '/m', 1, ?,
-                      'john_lennon_lora.safetensors')""", (time.time(),))
-    for position, (title, hint, own) in enumerate((("It's So Hard", "blues rock", ""),
-                                                    ("Imagine", "", ""),
-                                                    ("Oh Yoko!", "folk rock", "bright piano"))):
+               VALUES('c1', 'Marlow Sands', 'marlowsands', 'British accent, raspy baritone', 'male', '/m', 1, ?,
+                      'marlow_sands_lora.safetensors')""", (time.time(),))
+    for position, (title, hint, own) in enumerate((("Tin Roof Rain", "blues rock", ""),
+                                                    ("Small Hours", "", ""),
+                                                    ("Copperline", "folk rock", "bright piano"))):
         execute("""INSERT INTO identity_songs(id, identity_id, file, title, sha256, include, key, tempo, style_hint,
                                               description, position)
                    VALUES(?, 'c1', ?, ?, ?, 1, 'A major', 86, ?, ?, ?)""",
                 (f"s{position}", f"{title}.flac", title, f"sha{position}", hint, own, position))
 
-    chips = main._lora_corpus_styles()["john_lennon_lora.safetensors"]
+    chips = main._lora_corpus_styles()["marlow_sands_lora.safetensors"]
     captions = {song["title"]: song["caption"] for song in main._identity_view(one("SELECT * FROM identities WHERE id = 'c1'"))["songs"]}
 
     assert len(chips) == 3, "a song with no style suggestion still has a caption, so it gets a chip"
     for chip in chips:
         # The page puts the trigger in front and the tempo after, as the caption has them.
-        assert f"johnlennon, {chip['prompt']}, {chip['tempo']} BPM" == captions[chip["title"]]
+        assert f"marlowsands, {chip['prompt']}, {chip['tempo']} BPM" == captions[chip["title"]]
     assert "British accent" in chips[0]["prompt"] and "male vocal" in chips[0]["prompt"]
     assert "bright piano" in chips[2]["prompt"] and "British accent" not in chips[2]["prompt"], \
         "a song's own description replaces the corpus one, as it does in the export"
@@ -318,32 +317,32 @@ def test_a_previous_run_is_kept_under_a_dated_name_or_deleted(tmp_path):
     from app import loras
     root = tmp_path / "loras"
     root.mkdir()
-    for stem in ("pepper_lora", "pepper_lora_step50", "pepper_lora_step600", "other_lora"):
+    for stem in ("mycorpus_lora", "mycorpus_lora_step50", "mycorpus_lora_step600", "other_lora"):
         (root / f"{stem}.safetensors").write_bytes(b"x")
-        loras.write_note(root / f"{stem}.safetensors", "pepper", "pepper", title=stem)
-    (root / "pepper_lora.txt").write_text("pepper\nTrigger: pepper\nStyle: 60s rock\n", encoding="utf-8")
-    (root / "pepper_lora_log.json").write_text("[]", encoding="utf-8")
+        loras.write_note(root / f"{stem}.safetensors", "mycorpus", "mycorpus", title=stem)
+    (root / "mycorpus_lora.txt").write_text("mycorpus\nTrigger: mycorpus\nStyle: 60s rock\n", encoding="utf-8")
+    (root / "mycorpus_lora_log.json").write_text("[]", encoding="utf-8")
     when = 1790337600          # 25 Sep 2026
-    for path in root.glob("pepper_lora*.safetensors"):
+    for path in root.glob("mycorpus_lora*.safetensors"):
         os.utime(path, (when, when))
 
-    found = loras.previous_run("pepper_lora", root)
+    found = loras.previous_run("mycorpus_lora", root)
     assert found["files"] == 3 and found["day"].endswith("Sep")
-    new = loras.set_aside("pepper_lora", root, "pepper")
-    assert new.startswith("pepper_lora_2026")
-    assert sorted(p.name for p in root.glob("pepper_lora*.safetensors")) == [
+    new = loras.set_aside("mycorpus_lora", root, "mycorpus")
+    assert new.startswith("mycorpus_lora_2026")
+    assert sorted(p.name for p in root.glob("mycorpus_lora*.safetensors")) == [
         f"{new}.safetensors", f"{new}_step50.safetensors", f"{new}_step600.safetensors"]
     note = (root / f"{new}.txt").read_text(encoding="utf-8").split("\n")
-    assert note[0].startswith("pepper · ") and note[0].endswith("(previous)") and "Style: 60s rock" in note
-    assert (root / f"{new}_step50.txt").read_text(encoding="utf-8").startswith("pepper · ")
+    assert note[0].startswith("mycorpus · ") and note[0].endswith("(previous)") and "Style: 60s rock" in note
+    assert (root / f"{new}_step50.txt").read_text(encoding="utf-8").startswith("mycorpus · ")
     assert loras.families(root)[new.lower()] == loras.PREVIOUS_FAMILY
-    assert (root / f"{new}_log.json").is_file() and loras.previous_run("pepper_lora", root) is None
+    assert (root / f"{new}_log.json").is_file() and loras.previous_run("mycorpus_lora", root) is None
     assert (root / "other_lora.safetensors").is_file()                         # nothing else touched
 
-    for stem in ("pepper_lora", "pepper_lora_step50"):
+    for stem in ("mycorpus_lora", "mycorpus_lora_step50"):
         (root / f"{stem}.safetensors").write_bytes(b"x")
-    assert loras.delete_run("pepper_lora", root) == 2
-    assert loras.previous_run("pepper_lora", root) is None and (root / f"{new}.safetensors").is_file()
+    assert loras.delete_run("mycorpus_lora", root) == 2
+    assert loras.previous_run("mycorpus_lora", root) is None and (root / f"{new}.safetensors").is_file()
 
 
 def test_training_again_asks_what_to_do_with_the_last_run(client, tmp_path, monkeypatch):

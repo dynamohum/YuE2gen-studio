@@ -22,7 +22,7 @@ def corpus_song(**fields):
     song = {"id": "song-1", "title": "No More Lonely Nights", "style_hint": None, "key": None, "tempo": None,
             "score_state": "none", "style_state": "none"}
     song.update(fields)
-    execute("INSERT INTO identities(id, name, trigger_word, folder, created_at) VALUES('id-1', 'Paul McCartney', 'macca', '/tmp/m', 1.0)")
+    execute("INSERT INTO identities(id, name, trigger_word, folder, created_at) VALUES('id-1', 'Harbour Lights', 'harbourlights', '/tmp/m', 1.0)")
     execute("""INSERT INTO identity_songs(id, identity_id, file, title, sha256, key, tempo, style_hint, score_state, style_state)
                VALUES(:id, 'id-1', 'song.flac', :title, 'x', :key, :tempo, :style_hint, :score_state, :style_state)""", song)
     return song

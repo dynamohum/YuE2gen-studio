@@ -183,10 +183,10 @@ A trimmed example of what `POST /prompt` receives for a plan (the whole body is
 {
   "1":  {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": "yue2_3b_bf16.safetensors"}},
   "21": {"class_type": "LoraLoader", "inputs": {
-          "model": ["1", 0], "clip": ["1", 1], "lora_name": "paul_mccartney_lora.safetensors",
+          "model": ["1", 0], "clip": ["1", 1], "lora_name": "harbour_lights_lora.safetensors",
           "strength_model": 0.0, "strength_clip": 0.7}},
   "2":  {"class_type": "YuE2GenerateABC", "inputs": {
-          "clip": ["21", 1], "style": "paulmccartney, folk, acoustic guitar, …, male vocal",
+          "clip": ["21", 1], "style": "harbourlights, folk, acoustic guitar, …, male vocal",
           "lyrics": "[verse]\n…", "seed": 1747519420, "mode": "full",
           "temperature": 0.5, "repetition_penalty": 1.02, "max_abc_tokens": 8192}},
   "3":  {"class_type": "PreviewAny", "inputs": {"source": ["2", 0]}}
@@ -366,7 +366,7 @@ curl -s -X POST http://localhost:8090/api/songs -H 'Content-Type: application/js
   "title": "Harbour light", "style": "folk, acoustic guitar, male vocal",
   "lyrics": "[verse]\nThe harbour light is burning low\n\n[chorus]\nCarry me home",
   "seed": 42, "max_duration": 120, "variety": "calm", "auto_render": true,
-  "style_lora": "paul_mccartney_lora.safetensors", "style_lora_model": 0.7, "style_lora_clip": 0.7}'
+  "style_lora": "harbour_lights_lora.safetensors", "style_lora_model": 0.7, "style_lora_clip": 0.7}'
 # -> {"id": "8b4a…", "status": "queued", …}
 ```
 
@@ -393,7 +393,7 @@ curl -s -X POST http://localhost:8090/api/takes -H 'Content-Type: application/js
 Share a LoRA, and add one someone sent:
 
 ```bash
-curl -s -o macca.zip http://localhost:8090/api/loras/paul_mccartney_lora.safetensors/download
+curl -s -o harbour-lights.zip http://localhost:8090/api/loras/harbour_lights_lora.safetensors/download
 curl -s -F file=@their_lora.zip http://localhost:8090/api/loras/install
 ```
 

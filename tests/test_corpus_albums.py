@@ -204,18 +204,17 @@ def test_a_track_is_linked_into_its_song_not_copied(tmp_path):
 
 
 def test_style_analysis_sends_the_title_and_words_never_an_artist(tmp_path, monkeypatch):
-    """The corpus name is whatever the folder was called: 'pepper' had Sgt. Pepper
-    described as reggae rock, after the band Pepper.  A file's artist tag is not sent
-    either."""
+    """The corpus name is whatever the folder was called, and a model can read it as
+    an unrelated band.  A file's artist tag is not sent either."""
     import subprocess
     from app import llm
     song = tmp_path / "song.flac"
-    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "sine=duration=2", "-metadata", "artist=Pepper",
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "sine=duration=2", "-metadata", "artist=Some Band",
                     str(song)], check=True)
-    execute("INSERT INTO identities(id, name, trigger_word, folder, consent, created_at) VALUES('c1', 'pepper', 'pepper', '/x', 1, 0)")
+    execute("INSERT INTO identities(id, name, trigger_word, folder, consent, created_at) VALUES('c1', 'mycorpus', 'mycorpus', '/x', 1, 0)")
     execute("""INSERT INTO identity_songs(id, identity_id, file, title, sha256, duration, include, style_state, stored_path,
                                           lyrics, position)
-               VALUES('s1', 'c1', 'a.flac', 'Lovely Rita', 'x', 100, 1, 'queued', ?, 'Lovely Rita, meter maid', 0)""", (str(song),))
+               VALUES('s1', 'c1', 'a.flac', 'First Song', 'x', 100, 1, 'queued', ?, 'Paper boats on the river', 0)""", (str(song),))
     asked = {}
 
     async def describe(**kwargs):
@@ -224,7 +223,7 @@ def test_style_analysis_sends_the_title_and_words_never_an_artist(tmp_path, monk
     monkeypatch.setattr(llm, "is_external_enabled", lambda: True)
     monkeypatch.setattr(llm, "describe_song_style", describe)
     asyncio.run(jobs.run_identity_job("identity_style", "s1"))
-    assert asked == {"title": "Lovely Rita", "lyrics_text": "Lovely Rita, meter maid"}
+    assert asked == {"title": "First Song", "lyrics_text": "Paper boats on the river"}
     assert one("SELECT style_state FROM identity_songs WHERE id = 's1'")["style_state"] == "done"
 
 
@@ -244,7 +243,7 @@ def test_a_corpus_song_is_transcribed_with_a_clean_ending_and_retried(tmp_path, 
     folder = tmp_path / "song"
     original = tone(folder / "original.flac", 250)
     execute("""INSERT INTO identity_songs(id, identity_id, file, title, sha256, duration, include, score_state, stored_path, position)
-               VALUES('s1', 'c1', 'a.flac', 'A Day In The Life', 'x', 250, 1, 'queued', ?, 0)""", (str(original),))
+               VALUES('s1', 'c1', 'a.flac', 'Long Ending', 'x', 250, 1, 'queued', ?, 0)""", (str(original),))
     tried = []
 
     async def upload(path, name):
@@ -307,9 +306,9 @@ def test_a_cover_is_sent_for_transcription_with_a_clean_ending(tmp_path, monkeyp
 def test_an_export_shows_how_far_it_has_got_and_runs_once(client, tmp_path, monkeypatch):
     from app import main
     execute("INSERT INTO identities(id, name, trigger_word, folder, consent, created_at) VALUES('c1', 'Band', 'band', '/x', 1, 0)")
-    main.EXPORTING["c1"] = {"done": 4, "total": 13, "song": "Lovely Rita", "since": 0}
+    main.EXPORTING["c1"] = {"done": 4, "total": 13, "song": "First Song", "since": 0}
     try:
-        assert client.get("/api/identities/c1").json()["exporting"]["song"] == "Lovely Rita"
+        assert client.get("/api/identities/c1").json()["exporting"]["song"] == "First Song"
         assert client.post("/api/identities/c1/export").status_code == 409      # one at a time
     finally:
         main.EXPORTING.pop("c1", None)

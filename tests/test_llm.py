@@ -44,12 +44,12 @@ def test_gemini_url_normalization_and_default_model():
 
 def test_clean_style_tags():
     # 1. Output prefixed with song title
-    raw1 = "Like a Rolling Stone - folk rock, Hammond organ, electric guitar, piano, harmonica, loose driving backbeat, defiant"
-    assert llm.clean_style_tags(raw1, title="Like a Rolling Stone") == "folk rock, hammond organ, electric guitar, piano, harmonica, loose driving backbeat, defiant"
+    raw1 = "Paper Lanterns - folk rock, Hammond organ, electric guitar, piano, harmonica, loose driving backbeat, defiant"
+    assert llm.clean_style_tags(raw1, title="Paper Lanterns") == "folk rock, hammond organ, electric guitar, piano, harmonica, loose driving backbeat, defiant"
 
     # 2. Output with colon after song title
-    raw2 = "Song: Like a Rolling Stone: folk rock, organ, harmonica"
-    assert llm.clean_style_tags(raw2, title="Like a Rolling Stone") == "folk rock, organ, harmonica"
+    raw2 = "Song: Paper Lanterns: folk rock, organ, harmonica"
+    assert llm.clean_style_tags(raw2, title="Paper Lanterns") == "folk rock, organ, harmonica"
 
     # 3. Output as bullet points
     raw3 = "- Folk rock\n- Hammond organ\n- Drums\n- Defiant"
@@ -157,11 +157,11 @@ async def test_generate_lyrics_external_llm():
 @pytest.mark.anyio
 async def test_describe_song_style_external_llm():
     with patch("app.llm.chat_complete", new_callable=AsyncMock) as mock_chat:
-        mock_chat.return_value = "Like a Rolling Stone - folk rock, Hammond organ, electric guitar, loose driving backbeat, defiant"
-        tags = await llm.describe_song_style(title="Like a Rolling Stone", lyrics_text="Once upon a time...")
+        mock_chat.return_value = "Paper Lanterns - folk rock, Hammond organ, electric guitar, loose driving backbeat, defiant"
+        tags = await llm.describe_song_style(title="Paper Lanterns", lyrics_text="Once upon a time...")
         assert tags == "folk rock, hammond organ, electric guitar, loose driving backbeat, defiant"
         prompt = mock_chat.call_args[0][0][-1]["content"]
-        assert "Song: Like a Rolling Stone" in prompt and "Artist" not in prompt     # never an artist
+        assert "Song: Paper Lanterns" in prompt and "Artist" not in prompt     # never an artist
 
 
 @pytest.mark.anyio
@@ -196,9 +196,9 @@ async def test_identity_style_job_with_external_llm():
     set_setting("llm.provider", "external")
 
     # Create dummy identity and song
-    execute("INSERT INTO identities(id, name, trigger_word, folder, created_at) VALUES('id-1', 'Bob Dylan', 'dylan', '/tmp/dylan', 1000.0)")
+    execute("INSERT INTO identities(id, name, trigger_word, folder, created_at) VALUES('id-1', 'June Halloway', 'junehalloway', '/tmp/june', 1000.0)")
     execute(
-        "INSERT INTO identity_songs(id, identity_id, file, title, sha256, style_state) VALUES('song-1', 'id-1', 'like.mp3', 'Like a Rolling Stone', 'sha', 'queued')"
+        "INSERT INTO identity_songs(id, identity_id, file, title, sha256, style_state) VALUES('song-1', 'id-1', 'like.mp3', 'Paper Lanterns', 'sha', 'queued')"
     )
 
     with patch("app.llm.chat_complete", new_callable=AsyncMock) as mock_chat:
@@ -219,9 +219,9 @@ async def test_style_analysis_without_gemma_or_an_llm_says_what_it_needs(monkeyp
     monkeypatch.setattr(ENGINE, "options", {"lyrics": False})
     sent = []
     monkeypatch.setattr("app.jobs._run_graph", lambda *a, **k: sent.append(a))
-    execute("INSERT INTO identities(id, name, trigger_word, folder, created_at) VALUES('id-1', 'Bob Dylan', 'dylan', '/tmp/dylan', 1000.0)")
+    execute("INSERT INTO identities(id, name, trigger_word, folder, created_at) VALUES('id-1', 'June Halloway', 'junehalloway', '/tmp/june', 1000.0)")
     execute("""INSERT INTO identity_songs(id, identity_id, file, title, sha256, style_state, stored_path)
-               VALUES('song-1', 'id-1', 'like.mp3', 'Like a Rolling Stone', 'sha', 'queued', '/tmp/dylan/like.mp3')""")
+               VALUES('song-1', 'id-1', 'like.mp3', 'Paper Lanterns', 'sha', 'queued', '/tmp/june/like.mp3')""")
 
     await run_identity_job("identity_style", "song-1")
 
@@ -242,7 +242,7 @@ def test_lyrics_available_in_state_when_external_llm_enabled(client):
 def test_identity_song_style_endpoints(client, monkeypatch):
     from app import config
     monkeypatch.setattr(config, "TRAINING_ENABLED", True)
-    execute("INSERT INTO identities(id, name, trigger_word, folder, created_at) VALUES('id-test', 'Dylan', 'dylan', '/tmp/dylan', 1000.0)")
+    execute("INSERT INTO identities(id, name, trigger_word, folder, created_at) VALUES('id-test', 'June Halloway', 'junehalloway', '/tmp/june', 1000.0)")
     execute("INSERT INTO identity_songs(id, identity_id, file, title, sha256) VALUES('song-test', 'id-test', 'test.mp3', 'Song Title', 'sha')")
 
     # Test editing style_hint
