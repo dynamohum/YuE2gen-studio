@@ -127,7 +127,7 @@ panel would make once on each of them, with one seed, so you can compare them by
 space, **Training checkpoints** in Settings can delete them when training ends. To share a LoRA, press **Download** under the picker: the zip carries
 its chips, and the other person adds it with **Install**.
 
-Your corpora, one per artist or genre:
+Your corpora, one corpus per artist or genre:
 
 [![Corpora](docs/screenshots/corpora.png)](https://raw.githubusercontent.com/dynamohum/YuE2gen-studio/master/docs/screenshots/full/corpora.png)
 
