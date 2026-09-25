@@ -38,6 +38,10 @@ cannot creep back in.
 
 ### Fixed
 
+- **A job the engine loses mid-run fails at once.** An engine that restarts during a job
+  comes back without it. The app went on waiting until the job's time limit, which for
+  training is hours, so the job looked frozen on "Waiting for the engine". It now notices
+  within seconds and says the engine lost the job.
 - **A corpus can include Opus files** (`.opus`), and AIFF (`.aif`, `.aiff`) and WMA as
   well. They were left out of the folder scan, although every later step reads through
   ffmpeg and the engine is only ever sent a FLAC. The title tag of an Opus or Ogg file is

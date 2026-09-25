@@ -381,25 +381,27 @@ async def _wait_for(kind: str, ref_id: str, prompt_id: str) -> tuple[str, dict |
         now = time.time()
         if now - ENGINE.last_contact > config.ENGINE_LOST_AFTER:
             return "lost", None
-        if deadline is None:
-            if ENGINE.has_started(prompt_id):
-                deadline = now + limit
-            elif now - last_queue_check > 6:
-                last_queue_check = now
-                state = await ENGINE.prompt_state(prompt_id)
-                if state == "running":
-                    deadline = now + limit
-                elif state == "gone":
-                    # Finished between the two calls, or the engine restarted.
-                    try:
-                        job = await ENGINE.history(prompt_id)
-                    except Exception:  # noqa: BLE001
-                        job = None
-                    if job:
-                        continue
-                    return "lost", None
-        elif now > deadline:
+        if deadline is None and ENGINE.has_started(prompt_id):
+            deadline = now + limit
+        if deadline is not None and now > deadline:
             return "timeout", None
+        # The queue is asked even once the job runs: an engine that restarts mid-job
+        # comes back without it, and waiting out the time limit (hours, for training)
+        # would leave the job looking frozen.
+        if now - last_queue_check > 6:
+            last_queue_check = now
+            state = await ENGINE.prompt_state(prompt_id)
+            if state == "running" and deadline is None:
+                deadline = now + limit
+            elif state == "gone":
+                # Finished between the two calls, or the engine restarted.
+                try:
+                    job = await ENGINE.history(prompt_id)
+                except Exception:  # noqa: BLE001
+                    job = None
+                if job:
+                    continue
+                return "lost", None
 
 
 async def run_job(kind: str, ref_id: str) -> None:

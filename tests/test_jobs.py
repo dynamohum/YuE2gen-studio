@@ -101,6 +101,18 @@ def test_an_engine_error_fails_at_once_not_after_the_timeout(monkeypatch):
     assert time.time() - started < 2
 
 
+def test_a_job_the_engine_loses_mid_run_fails_at_once(monkeypatch):
+    """An engine that restarts mid-job comes back without it.  The job had started,
+    so its time limit (hours, for training) must not be what ends the wait."""
+    take = make_take(status="queued")
+    use(monkeypatch, FakeEngine([], started=True, state="gone"))
+    started = time.time()
+    asyncio.run(jobs.run_job("plan", take["id"]))
+    row = one("SELECT * FROM takes WHERE id = ?", (take["id"],))
+    assert row["status"] == "failed" and "lost" in row["error"]
+    assert time.time() - started < 2
+
+
 def test_timeout_cancels_the_prompt_on_the_engine(monkeypatch):
     monkeypatch.setitem(config.TIMEOUTS, "plan", 0.05)
     take = make_take(status="queued")
