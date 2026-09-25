@@ -135,9 +135,12 @@ def train_steps(songs: int) -> int:
 TRAIN_RANK_PLANNER = int(os.environ.get("TRAIN_RANK_PLANNER", "64"))
 TRAIN_RANK_DECODER = int(os.environ.get("TRAIN_RANK_DECODER", "32"))
 TRAIN_RANK = TRAIN_RANK_PLANNER
-# Truncating songs at 3.5 minutes ensures all corpus tracks fit within the 8,192 token
-# planner context and relieves VAE/SheetSage2 staging VRAM pressure.
+# The Planner trains on each song whole, as one sequence: style, lyrics, the song's audio
+# codes and an end token.  A song whose sequence is longer than TRAIN_MAX_TOKENS is left
+# out of Planner training altogether, so songs are cut at TRAIN_MAX_MINUTES to fit.  A
+# larger context lets longer songs in whole, at the cost of memory and time.
 TRAIN_MAX_MINUTES = float(os.environ.get("TRAIN_MAX_MINUTES", "3.5"))
+TRAIN_MAX_TOKENS = int(os.environ.get("TRAIN_MAX_TOKENS", "8192"))
 TRAIN_END_TOKEN_WEIGHT = float(os.environ.get("TRAIN_END_TOKEN_WEIGHT", "1.0"))
 TRAIN_CLIP_SECONDS = float(os.environ.get("TRAIN_CLIP_SECONDS", "30.0"))
 REGULARIZER_PACK = os.environ.get("REGULARIZER_PACK", "minted_regularizer_pack_v2.pt")

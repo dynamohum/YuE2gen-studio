@@ -1213,7 +1213,7 @@ def train_graph(audio_folder: str, dataset_name: str, lora_name: str, steps: int
                 "kl_weight": 0.1,
                 "score_first_fraction": config.TRAIN_SCORE_FIRST,
                 "end_token_weight": config.TRAIN_END_TOKEN_WEIGHT,
-                "max_tokens": 8192,
+                "max_tokens": config.TRAIN_MAX_TOKENS,
                 "window_seconds": 30.0,
                 "ema_decay": 0.99,
                 "eval_every": 25,

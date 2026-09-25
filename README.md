@@ -515,7 +515,8 @@ heard back to an earlier step with **Checkpoints**.
 | `TRAIN_PASSES` | `10` | passes over each song. A corpus big enough for more steps than the floor gets these: 60 songs gives 600 |
 | `TRAIN_STEPS` | unset | a fixed step count for every run, in place of the two above |
 | `TRAIN_CHECKPOINT_EVERY` | `50` | steps between the checkpoints a run saves |
-| `TRAIN_MAX_MINUTES` | `3.5` | how much of each song is trained on, from its start, in minutes. Longer does not fit the model's memory |
+| `TRAIN_MAX_MINUTES` | `3.5` | how much of each song is trained on, from its start, in minutes. Preparing a song for training holds it whole on the GPU, so the longest a card can take depends on its memory: about 6 minutes on 16 GB. Raise `TRAIN_MAX_TOKENS` with it |
+| `TRAIN_MAX_TOKENS` | `8192` | the Planner's context: it learns each song whole, as one sequence, and leaves out any song too long for it. 8192 holds songs to about 5 minutes; for longer, use `12288` (with `TRAIN_MAX_MINUTES` of `5.5`, for example). It costs little in itself: time and memory follow the songs' real length |
 | `TRAIN_RANK_PLANNER` | `64` | how much the Planner half, which shapes the melody and structure, can hold. Higher can capture more, and makes a bigger file that overfits more easily |
 | `TRAIN_RANK_DECODER` | `32` | the same for the Sound half |
 | `TRAIN_DECODER_STEPS` | `1000` | steps for the Sound half, whatever the corpus size |

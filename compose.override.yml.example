@@ -50,8 +50,13 @@ services:
       # Steps between the checkpoints a run saves.
       # TRAIN_CHECKPOINT_EVERY: "50"
 
-      # How much of each song is trained on, from its start, in minutes.
+      # How much of each song is trained on, from its start, in minutes. Preparing a song
+      # holds it whole on the GPU: about 6 minutes is the most a 16 GB card takes.
       # TRAIN_MAX_MINUTES: "3.5"
+
+      # The Planner's context. It learns each song whole and leaves out any song too long
+      # for it: 8192 holds about 5 minutes. With TRAIN_MAX_MINUTES above that, use 12288.
+      # TRAIN_MAX_TOKENS: "8192"
 
       # How much the Planner half (melody and structure) can hold. Higher can capture
       # more, and overfits more easily.

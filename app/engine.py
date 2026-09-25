@@ -8,6 +8,7 @@ import asyncio
 import copy
 import json
 import logging
+import re
 import time
 import uuid
 import collections
@@ -156,6 +157,40 @@ def _progress_for(stages: list[str], done_class: str | None, frac: float) -> flo
             break
         acc += w
     return max(0.0, min(1.0, acc / total))
+
+
+# The trainer's own messages that are worth keeping in the log.  Its per-song
+# "Tokenizing" and "Transcribing score" stages would add two lines a song.
+_QUIET_STAGES = {"Tokenizing", "Transcribing score"}
+TRAIN_LOG_EVERY = 25
+
+
+def _log_training(rec: dict[str, Any], data: dict[str, Any]) -> None:
+    """Write the trainer's progress to the app log: its stages, how many songs reached
+    the Planner, the evaluations, and the loss and KL every TRAIN_LOG_EVERY steps."""
+    stage, detail = data.get("stage"), data.get("detail") or ""
+    if stage and stage not in _QUIET_STAGES and (stage, detail) != rec.get("train_logged"):
+        rec["train_logged"] = (stage, detail)
+        log.info("Training: %s%s", stage, f": {detail}" if detail else "")
+        songs = re.match(r"(\d+) songs", detail)
+        if stage == "Done" and songs:
+            rec["train_songs"] = int(songs.group(1))
+        kept = re.match(r"(\d+) artist /", detail)
+        if kept and rec.get("train_songs") and int(kept.group(1)) < rec["train_songs"]:
+            left = rec["train_songs"] - int(kept.group(1))
+            log.warning("Training: %d of %d songs were too long for the Planner's context and were "
+                        "left out of its training (see TRAIN_MAX_TOKENS and TRAIN_MAX_MINUTES)",
+                        left, rec["train_songs"])
+    step = data.get("step")
+    if step is None:
+        return
+    evals = data.get("evals")
+    if evals:
+        log.info("Training step %s evaluation: %s", step,
+                 ", ".join(f"{name} {value:.3f}" for name, value in evals.items()))
+    elif "loss" in data and step % TRAIN_LOG_EVERY == 0:
+        log.info("Training step %s/%s: loss %.3f, KL %.4f, decoder loss %.3f", step, data.get("total"),
+                 data["loss"], data.get("kl") or 0.0, data.get("decoder_loss") or 0.0)
 
 
 class Engine:
@@ -453,7 +488,8 @@ class Engine:
         rec = self.progress.get(pid or "")
         if rec is None and kind == "fsaudio.train":
             for candidate_rec in self.progress.values():
-                if candidate_rec.get("executing") and candidate_rec.get("stage") == "FSAudioArtistTrainer":
+                if candidate_rec.get("executing") and candidate_rec.get("stage") in ("FSAudioArtistTrainer",
+                                                                                     "FSAudioDatasetBuilder"):
                     rec = candidate_rec
                     break
         if rec is None:
@@ -487,5 +523,6 @@ class Engine:
                 rec["value"] = step
                 rec["max"] = total
                 rec["frac"] = float(step) / float(total)
+            _log_training(rec, data)
         elif kind in ("execution_error", "execution_interrupted"):
             rec["frac"] = 0.0

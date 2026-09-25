@@ -25,6 +25,17 @@ cannot creep back in.
 
 ## Unreleased
 
+### Added
+
+- **`TRAIN_MAX_TOKENS`: the Planner's context for training** (default 8192, as before).
+  The Planner learns each song whole and leaves out any song too long for its context.
+  With a longer `TRAIN_MAX_MINUTES`, a larger context keeps those songs in. It costs little
+  in itself, since time and memory follow the songs' real length. Both are in the README's
+  Environment variables section.
+- **Training progress in the log:** the trainer's stages, how many songs reached the
+  Planner, its evaluations, and the loss and KL every 25 steps. A warning says when songs
+  were too long for the Planner's context and were left out.
+
 ### Fixed
 
 - **A corpus can include Opus files** (`.opus`), and AIFF (`.aif`, `.aiff`) and WMA as
