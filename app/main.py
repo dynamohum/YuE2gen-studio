@@ -105,14 +105,15 @@ SETTINGS_SPEC: list[dict] = [
         "key": "training.checkpoints",
         "label": "Training checkpoints",
         "type": "select",
-        # Each is as big as the LoRA itself, and most people never try one.
-        "default": "delete",
+        # Kept by default: each sounds about as good as the finished LoRA but reads the
+        # style its own way, so they are worth trying by ear.
+        "default": "keep",
         "options": [
-            {"value": "delete", "label": "Delete when training ends"},
             {"value": "keep", "label": "Keep them"},
+            {"value": "delete", "label": "Delete when training ends"},
         ],
-        "help": "A training run saves a checkpoint every 50 steps. Kept, they are listed under "
-                "Training checkpoints, and an earlier one sometimes sounds better than the finished LoRA.",
+        "help": "A training run saves a checkpoint every 50 steps, listed under Training checkpoints. "
+                "Each gives its own take on the style. Each is as big as the LoRA itself.",
     },
     {
         "key": "llm.provider",

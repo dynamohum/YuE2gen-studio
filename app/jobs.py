@@ -1105,8 +1105,8 @@ async def run_lora_train(run_id: str) -> None:
         # Name it, group it, and remember it on the corpus.
         await asyncio.to_thread(loras.write_note, produced, identity["trigger_word"], identity["name"],
                                 title=identity["name"])
-        # Kept only when asked for in Settings: each is as big as the LoRA itself.
-        if get_setting("training.checkpoints", "delete") != "keep":
+        # Kept unless Settings says otherwise: each is as big as the LoRA itself.
+        if get_setting("training.checkpoints", "keep") == "delete":
             for snapshot in snapshots:
                 with contextlib.suppress(OSError, ValueError):
                     loras.remove(snapshot.name, root)

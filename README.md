@@ -120,9 +120,9 @@ Open **Corpora** from the menu. The app prepares a **corpus** — a folder of on
 each vocal separated, its key, tempo and sections found and its lyrics drafted — exports it as a
 training set, and trains a style LoRA from it. Training holds the GPU until it finishes, and the
 LoRA appears in the Style LoRA list, with a style chip for each song it learned from. Training
-also saves a checkpoint every 50 steps. They are deleted when it ends unless **Training
-checkpoints** in Settings says to keep them; kept, they are listed under **Training checkpoints**,
-so you can pick one by ear. To share a LoRA, press **Download** under the picker: the zip carries
+also saves a checkpoint every 50 steps, listed under **Training checkpoints**. Each gives its own
+take on the style, so try them by ear; to save the space, **Training checkpoints** in Settings can
+delete them when training ends. To share a LoRA, press **Download** under the picker: the zip carries
 its chips, and the other person adds it with **Install**.
 
 It does most in a song from a prompt, where the LoRA writes the tune: Planner and Sound up to
@@ -297,7 +297,7 @@ any browser and survive a rebuild.
 | Output audio format | FLAC (the default), WAV, or MP3 at 320 kbps. The format stems and a take's **Save** start with; each can choose another at the time |
 | Stem separation model | Which model a run starts with |
 | Stem save folder | Where stems are written. It must sit inside the data folder |
-| Training checkpoints | Delete them when training ends (the default), or keep them, listed under Training checkpoints |
+| Training checkpoints | Keep them, listed under Training checkpoints (the default), or delete them when training ends |
 
 A settings sheet is generated from a specification on the server, so a new setting is a
 server-side change only.

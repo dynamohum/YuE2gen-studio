@@ -86,7 +86,6 @@ def test_a_finished_run_is_named_after_the_corpus_and_keeps_its_snapshots(client
     monkeypatch.setattr(jobs, "_run_graph", trained)
 
     a_corpus()
-    set_setting("training.checkpoints", "keep")
     execute("""INSERT INTO lora_runs(id, identity_id, lora_name, steps, rank, state)
                VALUES('run1', 'corpus1', 'alicia_lora', 100, 16, 'queued')""")
     asyncio.run(jobs.run_lora_train("run1"))
@@ -279,8 +278,8 @@ def test_a_lora_this_app_cannot_read_fails_the_run_with_the_fix(client, monkeypa
     assert run["state"] == "failed" and "readable by root only" in run["error"] and "chmod" in run["error"]
 
 
-def test_checkpoints_are_deleted_when_training_ends_unless_kept(client, monkeypatch, tmp_path):
-    """Each checkpoint is as big as the LoRA; they are kept only when Settings says so."""
+def test_checkpoints_are_deleted_when_training_ends_if_settings_says_so(client, monkeypatch, tmp_path):
+    """Each checkpoint is as big as the LoRA, so Settings can delete them."""
     import asyncio
     from app import jobs, loras
 
@@ -295,6 +294,7 @@ def test_checkpoints_are_deleted_when_training_ends_unless_kept(client, monkeypa
     monkeypatch.setattr(jobs, "_run_graph", trained)
 
     a_corpus()
+    set_setting("training.checkpoints", "delete")
     execute("""INSERT INTO lora_runs(id, identity_id, lora_name, steps, rank, state)
                VALUES('run1', 'corpus1', 'alicia_lora', 100, 16, 'queued')""")
     asyncio.run(jobs.run_lora_train("run1"))
@@ -303,3 +303,6 @@ def test_checkpoints_are_deleted_when_training_ends_unless_kept(client, monkeypa
     assert "alicia_lora_step50" not in loras.families(root)
     listed = {item["key"]: item for item in client.get("/api/settings").json()["settings"]}
     assert listed["training.checkpoints"]["value"] == "delete"
+    client.put("/api/settings", json={"key": "training.checkpoints", "value": "keep"})
+    listed = {item["key"]: item for item in client.get("/api/settings").json()["settings"]}
+    assert listed["training.checkpoints"]["value"] == "keep"
