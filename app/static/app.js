@@ -3313,7 +3313,7 @@ function loraSteps(name) {
 }
 
 function stepLabel(step) {
-  return step.step === null ? 'finished' : 'step ' + step.step;
+  return step.step === null ? 'full' : 'step ' + step.step;
 }
 
 var STEP_MODES = {
@@ -3342,7 +3342,7 @@ function openLoraSteps() {
   $('steps-cap').value = parseFloat($('max-duration').value) || 360;
   $('steps-list').innerHTML = steps.map(function (s) {
     return '<label><input type="checkbox" value="' + esc(s.name) + '" data-label="' + stepLabel(s) + '" checked><strong>' +
-      (s.step === null ? 'Finished' : 'Step ' + s.step) + '</strong><span class="muted">' +
+      (s.step === null ? 'Full' : 'Step ' + s.step) + '</strong><span class="muted">' +
       (s.step === null ? 'The LoRA the training run kept' : '') + '</span></label>';
   }).join('');
   $('steps-status').textContent = '';
