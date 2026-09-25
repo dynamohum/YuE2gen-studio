@@ -251,3 +251,28 @@ def test_a_learned_style_is_the_caption_the_lora_was_trained_on(client):
     assert "British accent" in chips[0]["prompt"] and "male vocal" in chips[0]["prompt"]
     assert "bright piano" in chips[2]["prompt"] and "British accent" not in chips[2]["prompt"], \
         "a song's own description replaces the corpus one, as it does in the export"
+
+
+def test_a_lora_this_app_cannot_read_fails_the_run_with_the_fix(client, monkeypatch, tmp_path):
+    """An engine image older than the trainer patch leaves its files readable by root
+    only.  The run says so and how to fix it, rather than leaving a LoRA half finished."""
+    import asyncio
+    from app import jobs, loras
+
+    root = tmp_path / "loras"
+    root.mkdir()
+    monkeypatch.setattr(config, "ENGINE_INPUT_DIR", tmp_path / "engine-input")
+    monkeypatch.setattr(loras, "folder", lambda: root)
+
+    async def trained(kind, run_id, graph):
+        (root / "alicia_lora_best.safetensors").write_bytes(b"x")
+    monkeypatch.setattr(jobs, "_run_graph", trained)
+    real_access = jobs.os.access
+    monkeypatch.setattr(jobs.os, "access", lambda path, mode: False if str(path).endswith("_best.safetensors") else real_access(path, mode))
+
+    a_corpus()
+    execute("""INSERT INTO lora_runs(id, identity_id, lora_name, steps, rank, state)
+               VALUES('run1', 'corpus1', 'alicia_lora', 100, 16, 'queued')""")
+    asyncio.run(jobs.run_lora_train("run1"))
+    run = one("SELECT state, error FROM lora_runs WHERE id = 'run1'")
+    assert run["state"] == "failed" and "readable by root only" in run["error"] and "chmod" in run["error"]

@@ -1058,6 +1058,13 @@ async def run_lora_train(run_id: str) -> None:
                     break
         if not produced or not produced.exists():
             raise RuntimeError("the engine finished but wrote no LoRA file")
+        # The engine writes as root.  Its trainer is patched to leave the files readable;
+        # an engine image built before that patch leaves them to root alone, and nothing
+        # after this point can work.  Say so rather than finish half the job.
+        if not os.access(produced, os.R_OK):
+            raise RuntimeError(f"the engine wrote {produced.name} but this app cannot read it (it is readable "
+                               "by root only). Rebuild the engine image (docker compose build engine), and make "
+                               "the files readable: docker compose exec engine chmod 644 /app/models/loras/*.safetensors")
 
         # Ensure all produced checkpoints and logs are readable by non-root processes
         for p in root.glob(f"{run['lora_name']}*"):
