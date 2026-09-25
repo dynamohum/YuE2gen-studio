@@ -880,9 +880,9 @@ def maybe_draft(song_id: str) -> None:
         return
     lines = json.loads((folder / "whisper.json").read_text(encoding="utf-8"))
     abc = (folder / "score.abc").read_text(encoding="utf-8") if (folder / "score.abc").exists() else ""
-    draft = identities.tag_lyrics(lines, identities.score_sections(abc), song["duration"] or 0)
+    sections = identities.score_sections(abc)
+    draft = identities.tag_lyrics(lines, sections, song["duration"] or 0)
     if not draft.strip():
-        sections = identities.score_sections(abc)
         if sections:
             draft = "\n\n".join(f"[{identities.SECTION_TAGS[name]}]" for name, _ in sections)
         else:
@@ -890,7 +890,43 @@ def maybe_draft(song_id: str) -> None:
     # Words the user has already checked are theirs: a new draft never replaces them.
     if song["lyrics_checked"]:
         set_song(song_id, lyrics_state="done")
-    else:
+        return
+    # With an external LLM, the sections are marked from the words as well (see
+    # llm.tag_sections), off the lane that got here, since it waits on the network.
+    if lines and llm.is_external_enabled():
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if loop:
+            set_song(song_id, lyrics_state="running")
+            task = loop.create_task(_llm_sections(song_id, lines, draft))
+            _DRAFTING.add(task)
+            task.add_done_callback(_DRAFTING.discard)
+            return
+    set_song(song_id, lyrics=draft, lyrics_state="done")
+
+
+_DRAFTING: set = set()     # held, so a running task is not collected
+
+
+async def _llm_sections(song_id: str, lines: list[dict], fallback: str) -> None:
+    """The draft with its sections marked by the external LLM; the music analysis's
+    draft when the model cannot, or its reply does not hold every line in order."""
+    song = identity_song(song_id) or {}
+    title = song.get("title") or song.get("file") or ""
+    model = llm.get_config().get("model") or "the external LLM"
+    draft = fallback
+    try:
+        blocks = await llm.tag_sections(lines)
+        draft = identities.lyrics_text(blocks)
+        log.info("Lyrics for '%s': sections marked by %s", title, model)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Lyrics for '%s': %s could not mark the sections, keeping the music analysis's: %s",
+                    title, model, str(exc)[:200])
+    # Only if nothing changed meanwhile: stopped, re-analysed, or checked by hand.
+    now = identity_song(song_id)
+    if now and now["lyrics_state"] == "running" and not now["lyrics_checked"]:
         set_song(song_id, lyrics=draft, lyrics_state="done")
 
 

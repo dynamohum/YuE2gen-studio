@@ -398,15 +398,12 @@ def _snap(boundary: float, lines: list[dict], low: float, high: float) -> float:
     return min(max(boundary, max(best[0], lo)), min(best[1], hi))
 
 
-def tag_lyrics(lines: list[dict], sections: list[tuple[str, float]], duration: float) -> str:
-    """Each sung line under the section playing when it starts.  The sections are
-    laid over the song in proportion to their length, so a tempo SheetSage got
-    wrong by a factor does not matter, then each boundary moves to the pause in
-    the singing nearest it.  Without sections, the lines go under one verse."""
-    if not lines:
-        return ""
+def section_spans(lines: list[dict], sections: list[tuple[str, float]], duration: float) -> list[tuple[str, float, float]]:
+    """SheetSage's sections as (tag, start, end) in seconds: laid over the song in
+    proportion to their length, so a tempo it got wrong by a factor does not matter,
+    then each boundary moved to the pause in the singing nearest it."""
     if not sections or not duration:
-        return "[Verse]\n" + "\n".join(l["text"] for l in lines)
+        return []
     total = sum(length for _, length in sections)
     edges, at = [0.0], 0.0
     for _, length in sections:
@@ -414,7 +411,21 @@ def tag_lyrics(lines: list[dict], sections: list[tuple[str, float]], duration: f
         edges.append(at)
     for i in range(1, len(edges) - 1):
         edges[i] = _snap(edges[i], lines, edges[i - 1], edges[i + 1])
-    bounds = [(SECTION_TAGS[name], edges[i], edges[i + 1]) for i, (name, _) in enumerate(sections)]
+    return [(SECTION_TAGS[name], edges[i], edges[i + 1]) for i, (name, _) in enumerate(sections)]
+
+
+def lyrics_text(blocks: list[tuple[str, list[str]]]) -> str:
+    return "\n\n".join(f"[{tag}]" + ("\n" + "\n".join(sung) if sung else "") for tag, sung in blocks)
+
+
+def tag_lyrics(lines: list[dict], sections: list[tuple[str, float]], duration: float) -> str:
+    """Each sung line under the section playing when it starts, by SheetSage's
+    sections (see section_spans).  Without sections, the lines go under one verse."""
+    if not lines:
+        return ""
+    if not sections or not duration:
+        return "[Verse]\n" + "\n".join(l["text"] for l in lines)
+    bounds = section_spans(lines, sections, duration)
     blocks: list[tuple[str, list[str]]] = []
     for tag, start, end in bounds:
         sung = [l["text"] for l in lines if start <= (l["start"] + l["end"]) / 2 < end]
@@ -425,7 +436,7 @@ def tag_lyrics(lines: list[dict], sections: list[tuple[str, float]], duration: f
     # Lines past the last boundary (a rounding matter) join the last section.
     tail = [l["text"] for l in lines if (l["start"] + l["end"]) / 2 >= bounds[-1][2]]
     blocks[-1][1].extend(tail)
-    return "\n\n".join(f"[{tag}]" + ("\n" + "\n".join(sung) if sung else "") for tag, sung in blocks)
+    return lyrics_text(blocks)
 
 
 DESCRIBE = ("Describe this music for a music generator as one line of comma-separated tags: "

@@ -270,7 +270,11 @@ engine built with `WITH_TRAINER=0`, takes it out.
    **Split into tracks** cuts it into its songs, which take its place in the corpus. The tracks go
    in the app's own folder; yours is not changed.
 3. **Analyse.** Each song's vocal is separated, its key, tempo and sections are found, and its
-   lyrics are drafted, tagged by section. A line under the buttons says what is running, and
+   lyrics are drafted, tagged by section. With an external LLM set in Settings, the sections are
+   marked from the words as heard: choruses by their words coming back, new sections by the
+   pauses. Only the lines and their timings are sent, and the words and their order are never
+   changed. Without one, or if its answer does not hold every line, the tags come from the music
+   analysis. A line under the buttons says what is running, and
    **Stop** ends it. Finished steps are kept, so **Analyse** carries on from where it stopped.
 4. **Review.** Open a song to check its lyrics and tick **checked**, and to describe its sound
    where it differs from the rest. The style caption shows what the trainer will read.

@@ -13,6 +13,7 @@ are logged to the centralized logging system.
 """
 from __future__ import annotations
 
+import json
 import logging
 import re
 import time
@@ -289,6 +290,89 @@ async def describe_song_style(title: str, artist: str = "", lyrics_text: str = "
         raise RuntimeError(f"the model returned no usable tags ({reply.strip()[:40]!r})")
     log.info("Finished external LLM style description for '%s': %s", title, tags)
     return tags
+
+
+# The tags a corpus draft may use: YuE2's own section names.
+SECTION_NAMES = {"intro": "Intro", "verse": "Verse", "pre-chorus": "Pre-Chorus", "prechorus": "Pre-Chorus",
+                 "chorus": "Chorus", "bridge": "Bridge", "outro": "Outro"}
+# A section with no lines is an instrumental one, which only these can be.
+INSTRUMENTAL_SECTIONS = {"Intro", "Bridge", "Outro"}
+
+
+def _section_reply(reply: str, count: int) -> list[tuple[str, int | None, int | None]]:
+    """The model's sections as (tag, first, last) line numbers, checked: every line
+    once, in order, under a known tag.  Raises ValueError otherwise."""
+    found = re.search(r"\[.*\]", reply or "", re.S)
+    if not found:
+        raise ValueError("no list of sections in the reply")
+    items = json.loads(found.group(0))
+    out, expect = [], 1
+    for item in items:
+        name = re.sub(r"[^a-z-]", "", str(item.get("tag", "")).lower().replace(" ", "-")).strip("-")
+        name = re.sub(r"-?\d+$", "", name)
+        tag = SECTION_NAMES.get(name)
+        if not tag:
+            raise ValueError(f"an unknown section {item.get('tag')!r}")
+        first, last = item.get("from"), item.get("to")
+        if first is None and last is None:
+            if tag not in INSTRUMENTAL_SECTIONS:
+                raise ValueError(f"a {tag} with no lines")
+            out.append((tag, None, None))
+            continue
+        if not isinstance(first, int) or not isinstance(last, int) or first != expect or last < first:
+            raise ValueError(f"lines out of order at {tag} {first}-{last}")
+        out.append((tag, first, last))
+        expect = last + 1
+    if expect != count + 1:
+        raise ValueError(f"it covered {expect - 1} of {count} lines")
+    return out
+
+
+# Singing that starts this late has an instrumental intro before it.
+INTRO_SECONDS = 5.0
+
+
+async def tag_sections(lines: list[dict]) -> list[tuple[str, list[str]]]:
+    """Mark where each section of a corpus song begins, from the words as sung.
+
+    The lines stay exactly as heard, in the order heard: the model only says which
+    lines each section holds.  A chorus is found by its words coming back, which the
+    music analysis cannot hear, and a section starts after a longer pause.  Only the
+    lines and their times are sent, never the song's title or artist: it works the
+    same on a recording nobody has heard.  SheetSage's sections are not sent: given
+    them as a guide, the model copied them, a 16-line "verse" included, where from
+    the words alone it found the verses and choruses inside it."""
+    numbered = []
+    before = 0.0
+    for index, line in enumerate(lines, 1):
+        pause = max(0.0, line["start"] - before)
+        numbered.append(f"{index}. [{line['start']:.1f}s, after a {pause:.1f}s pause] {line['text']}")
+        before = max(before, line["end"])
+    prompt = (
+        "These are the sung lines of a song recording, numbered, in the order they are sung, "
+        "with the time each starts and the pause before it.\n\n" + "\n".join(numbered) + "\n\n"
+        "Say which lines each section of the song holds, in order, as a songbook would mark them. "
+        "Use only these tags: Intro, Verse, Pre-Chorus, Chorus, Bridge, Outro. Lines whose words come back "
+        "later are usually the chorus; a new section usually starts after a longer pause. "
+        "Every line must be in exactly one section, in order: never "
+        "change, add, drop or reorder lines. A section with no singing, such as an instrumental intro, "
+        "may be given with no lines.\n\n"
+        'Reply with JSON only: a list like [{"tag": "Intro"}, {"tag": "Verse", "from": 1, "to": 4}, '
+        '{"tag": "Chorus", "from": 5, "to": 8}], where from and to are line numbers.'
+    )
+    messages = [
+        {"role": "system", "content": "You mark the sections of song lyrics. Output only the requested JSON."},
+        {"role": "user", "content": prompt},
+    ]
+    # Room for a thinking model's thought as well as the answer (see chat_complete).
+    # A thinking model can spend 4096 tokens on a long song before it answers.
+    reply = await chat_complete(messages, temperature=0.2, max_tokens=8192)
+    sections = _section_reply(reply, len(lines))
+    texts = [line["text"] for line in lines]
+    blocks = [(tag, [] if first is None else texts[first - 1:last]) for tag, first, last in sections]
+    if lines[0]["start"] >= INTRO_SECONDS and blocks[0][0] != "Intro":
+        blocks.insert(0, ("Intro", []))
+    return blocks
 
 
 def _models_url(base_url: str) -> str:

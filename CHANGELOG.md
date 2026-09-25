@@ -39,6 +39,10 @@ cannot creep back in.
 - **Up next shows five rows** and scrolls for the rest.
 - **An album in one file can be split into its tracks** by the `.cue` sheet beside it, from the
   corpus window. A recording longer than 10 minutes is no longer analysed as one song.
+- **Corpus lyrics are tagged by section more accurately.** With an external LLM set, the sections
+  are marked from the words as heard, which finds choruses the music analysis runs together.
+  Without one, section boundaries now move to the pause before a line, so a first verse line no
+  longer lands in the intro.
 - **The corpus window says what its analysis is doing**, such as the vocal being separated and
   how far it has got, and **Stop** ends it.
 
