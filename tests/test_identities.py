@@ -101,6 +101,19 @@ def test_lines_are_tagged_by_the_section_playing():
     assert identities.tag_lyrics([], sections, 60) == ""
 
 
+def test_a_boundary_moves_to_the_pause_before_a_line_sung_on_a_pickup():
+    """The estimate lands a second or three late: the first verse line starts before
+    the intro is over, and belongs to the verse, after the pause before it."""
+    lines = [{"start": 9.2, "end": 11.8, "text": "the verse begins"}, {"start": 12.1, "end": 15.0, "text": "and goes on"},
+             {"start": 16.0, "end": 19.0, "text": "to its end"}, {"start": 28.0, "end": 31.0, "text": "a chorus line"}]
+    sections = [("intro", 12.6), ("verse", 14.4), ("chorus", 33.0)]     # intro 0-12.6, verse 12.6-27, chorus 27-60
+    assert identities.tag_lyrics(lines, sections, 60) == (
+        "[Intro]\n\n[Verse]\nthe verse begins\nand goes on\nto its end\n\n[Chorus]\na chorus line")
+    # Too far away to reach: a pause more than four seconds early is not taken.
+    far = [{"start": 3.0, "end": 12.0, "text": "a long held line"}, {"start": 12.2, "end": 20.0, "text": "then this"}]
+    assert identities._snap(18.0, far, 0.0, 60.0) == 18.0
+
+
 def test_api_needs_consent_scans_and_queues(client, tmp_path, monkeypatch):
     async def hold(song_id):   # the worker is running: keep it from separating test tones
         return None

@@ -363,19 +363,58 @@ def score_sections(abc: str) -> list[tuple[str, float]]:
     return [(name, length) for name, length in sections if length > 0]
 
 
+# How far a section boundary may move to reach a pause in the singing.  More room
+# before than after: singers start a line on a pickup, ahead of the bar the section
+# begins on, so the estimate is usually late, not early.
+SNAP_BEFORE = 4.0
+SNAP_AFTER = 2.0
+
+
+def _snap(boundary: float, lines: list[dict], low: float, high: float) -> float:
+    """Move a section boundary to the longest pause between sung lines near it.  A
+    section almost always begins after a pause, and the proportional estimate lands
+    a second or three late: on 104 corpus songs, half put the first line of the first
+    verse under [Intro].  Stays where it is when it already sits in the longest pause."""
+    lo, hi = max(low, boundary - SNAP_BEFORE), min(high, boundary + SNAP_AFTER)
+    if lo >= hi:
+        return boundary
+    gaps, sung_until = [], 0.0
+    for line in sorted(lines, key=lambda l: l["start"]):
+        if line["start"] > sung_until:
+            gaps.append((sung_until, line["start"]))
+        sung_until = max(sung_until, line["end"])
+    gaps.append((sung_until, float("inf")))
+    best, here = None, None
+    for start, end in gaps:
+        if end <= lo or start >= hi:
+            continue
+        if start <= boundary <= end:
+            here = (start, end)
+        if best is None or end - start > best[1] - best[0]:
+            best = (start, end)
+    if best is None or (here and here[1] - here[0] >= 0.8 * (best[1] - best[0])):
+        return boundary
+    # The point of that pause nearest the estimate, inside the window.
+    return min(max(boundary, max(best[0], lo)), min(best[1], hi))
+
+
 def tag_lyrics(lines: list[dict], sections: list[tuple[str, float]], duration: float) -> str:
     """Each sung line under the section playing when it starts.  The sections are
     laid over the song in proportion to their length, so a tempo SheetSage got
-    wrong by a factor does not matter.  Without sections, the lines go under one verse."""
+    wrong by a factor does not matter, then each boundary moves to the pause in
+    the singing nearest it.  Without sections, the lines go under one verse."""
     if not lines:
         return ""
     if not sections or not duration:
         return "[Verse]\n" + "\n".join(l["text"] for l in lines)
     total = sum(length for _, length in sections)
-    bounds, at = [], 0.0
-    for name, length in sections:
-        bounds.append((SECTION_TAGS[name], at, at + duration * length / total))
+    edges, at = [0.0], 0.0
+    for _, length in sections:
         at += duration * length / total
+        edges.append(at)
+    for i in range(1, len(edges) - 1):
+        edges[i] = _snap(edges[i], lines, edges[i - 1], edges[i + 1])
+    bounds = [(SECTION_TAGS[name], edges[i], edges[i + 1]) for i, (name, _) in enumerate(sections)]
     blocks: list[tuple[str, list[str]]] = []
     for tag, start, end in bounds:
         sung = [l["text"] for l in lines if start <= (l["start"] + l["end"]) / 2 < end]
