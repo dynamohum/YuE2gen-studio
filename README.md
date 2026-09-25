@@ -175,11 +175,16 @@ The installer checks all of this before it downloads anything.
 5. **Start YuE2 Studio** from the Start menu or the desktop. A small window starts the engine and
    the app, then opens http://localhost:8090 in your browser. Closing that window stops them.
 
-**Updating:** run a newer installer over the top. It keeps the models and your library, and
-fetches only what has changed.
+**Updating:** run a newer installer over the top. It says it is an update, keeps the models and
+your library, and fetches only what has changed.
 
-**Uninstalling:** use *Settings → Apps*. It asks whether to keep your library and the models, so
-a reinstall does not download them again.
+**Uninstalling:** use *Settings → Apps*. It asks two things:
+- **Keep your library?** Your songs, takes, corpora and LoRAs. Yes unless you say otherwise.
+- **Also keep the downloaded models?** It shows their size. No unless you say otherwise, so the
+  space is freed.
+
+Anything kept stays in the install folder, and installing again finds it there, so kept models
+are not downloaded again. Deleting that folder removes it.
 
 **If something goes wrong:**
 - **Logs:** the `logs` folder inside the install folder holds `install.log`, `engine.log` and

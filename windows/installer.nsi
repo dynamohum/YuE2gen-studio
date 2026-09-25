@@ -10,6 +10,7 @@ Unicode true
 !include "LogicLib.nsh"
 !include "x64.nsh"
 !include "TextFunc.nsh"
+!include "FileFunc.nsh"
 
 !ifndef VERSION
   !error "VERSION is not defined"
@@ -255,12 +256,20 @@ Function .onInit
   ${Else}
     StrCpy $WelcomeTitle "Install ${APPNAME}"
     StrCpy $LyricsText "$(DESC_Lyrics)"
-    StrCpy $WelcomeText "${APPNAME} writes and covers songs with the YuE2 music model, on this PC.$\r$\n$\r$\nThis installer is small. It checks that this PC can run YuE2 (an NVIDIA RTX 30-series card or newer), then downloads the rest from each part's publisher: about 24 GB, most of it the models. A download that breaks off carries on where it stopped when you run the installer again.$\r$\n$\r$\nA separate window shows the setup's progress; it may open behind this one.$\r$\n$\r$\nYou need about 40 GB of free space."
+    ${If} ${FileExists} "$INSTDIR\models-kept\*.*"
+    ${OrIf} ${FileExists} "$INSTDIR\data\*.*"
+      StrCpy $WelcomeText "${APPNAME} writes and covers songs with the YuE2 music model, on this PC.$\r$\n$\r$\nWhat you kept when ${APPNAME} was uninstalled is in $INSTDIR, and this install picks it up: your library, and any models you kept are not downloaded again.$\r$\n$\r$\nIt checks that this PC can run YuE2, then downloads the rest from each part's publisher. A separate window shows the setup's progress; it may open behind this one."
+    ${Else}
+      StrCpy $WelcomeText "${APPNAME} writes and covers songs with the YuE2 music model, on this PC.$\r$\n$\r$\nThis installer is small. It checks that this PC can run YuE2 (an NVIDIA RTX 30-series card or newer), then downloads the rest from each part's publisher: about 24 GB, most of it the models. A download that breaks off carries on where it stopped when you run the installer again.$\r$\n$\r$\nA separate window shows the setup's progress; it may open behind this one.$\r$\n$\r$\nYou need about 40 GB of free space."
+    ${EndIf}
     StrCpy $InstHeader "Installing ${APPNAME}"
     StrCpy $InstSubtext "The setup window shows its progress, and may be behind this one."
     StrCpy $FinishText "${APPNAME} has been installed on this PC."
   ${EndIf}
 FunctionEnd
+
+Var KeepLibrary
+Var KeepModels
 
 Section "Uninstall"
   nsExec::Exec '"$PowerShell" -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $$_.ExecutablePath -like $\'$INSTDIR\*$\' -and $$_.Name -in $\'python.exe$\',$\'pythonw.exe$\',$\'ffmpeg.exe$\',$\'ffprobe.exe$\' } | ForEach-Object { Stop-Process -Id $$_.ProcessId -Force }"'
@@ -268,14 +277,39 @@ Section "Uninstall"
   Delete "$DESKTOP\${APPNAME}.lnk"
   RMDir /r "$SMPROGRAMS\${APPNAME}"
   DeleteRegKey HKCU "${REGKEY}"
-  DeleteRegKey HKCU "Software\${REGNAME}"
 
-  MessageBox MB_YESNO|MB_ICONQUESTION "Keep your library (songs, takes and corpora) and the downloaded models (about 18 GB), so installing again does not download them again?" /SD IDYES IDYES keep
+  ; Two questions, because they are not alike: the library is the user's own work and
+  ; small, so it is kept unless they say otherwise; the models are many GB that can be
+  ; downloaded again, so they go unless they say otherwise.  Nothing is left behind
+  ; by pressing Enter through this.
+  StrCpy $KeepLibrary 0
+  StrCpy $KeepModels 0
+  MessageBox MB_YESNO|MB_ICONQUESTION "Keep your library?$\r$\n$\r$\nYour songs, takes, spaces and corpora, and the LoRAs you trained or installed. Kept, they stay in $INSTDIR, and installing ${APPNAME} again picks them up." /SD IDYES IDNO +2
+    StrCpy $KeepLibrary 1
+  ${GetSize} "$INSTDIR\engine\ComfyUI\models" "/S=0M" $0 $1 $2
+  IntOp $0 $0 / 1000
+  ${If} $0 > 0
+    MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 "Also keep the downloaded models, about $0 GB?$\r$\n$\r$\nKept, installing ${APPNAME} again does not download them. Not kept, the space is freed now." /SD IDNO IDNO +2
+      StrCpy $KeepModels 1
+  ${EndIf}
+
+  ${If} $KeepLibrary == 0
+  ${AndIf} $KeepModels == 0
     RMDir /r "$INSTDIR"
-    Goto done
-  keep:
-    ; The models go where setup.ps1 looks for them on a reinstall.
-    Rename "$INSTDIR\engine\ComfyUI\models" "$INSTDIR\models-kept"
+    DeleteRegKey HKCU "Software\${REGNAME}"
+  ${Else}
+    ; What is kept goes where setup.ps1 looks for it on a reinstall.
+    ${If} $KeepModels == 1
+      Rename "$INSTDIR\engine\ComfyUI\models" "$INSTDIR\models-kept"
+    ${Else}
+      CreateDirectory "$INSTDIR\models-kept"
+      Rename "$INSTDIR\engine\ComfyUI\models\loras" "$INSTDIR\models-kept\loras"
+    ${EndIf}
+    ${If} $KeepLibrary == 0
+      RMDir /r "$INSTDIR\data"
+      RMDir /r "$INSTDIR\models-kept\loras"
+      Delete "$INSTDIR\settings.ini"
+    ${EndIf}
     RMDir /r "$INSTDIR\engine"
     RMDir /r "$INSTDIR\venv"
     RMDir /r "$INSTDIR\python"
@@ -283,13 +317,24 @@ Section "Uninstall"
     RMDir /r "$INSTDIR\downloads"
     RMDir /r "$INSTDIR\studio"
     RMDir /r "$INSTDIR\state"
+    RMDir /r "$INSTDIR\logs"
     Delete "$INSTDIR\setup.ps1"
     Delete "$INSTDIR\launcher.py"
     Delete "$INSTDIR\terms.txt"
     Delete "$INSTDIR\LICENSE"
     Delete "$INSTDIR\THIRD_PARTY_NOTICES.md"
     Delete "$INSTDIR\yue2studio.ico"
-    RMDir /r "$INSTDIR\logs"
     Delete "$INSTDIR\Uninstall.exe"
-  done:
+    ; The folder stays remembered, so installing again goes back to it.
+    ${GetSize} "$INSTDIR" "/S=0M" $0 $1 $2
+    ${If} $0 >= 1000
+      IntOp $0 $0 / 1000
+      StrCpy $0 "about $0 GB"
+    ${ElseIf} $0 < 1
+      StrCpy $0 "under 1 MB"
+    ${Else}
+      StrCpy $0 "$0 MB"
+    ${EndIf}
+    MessageBox MB_OK|MB_ICONINFORMATION "What you kept is in $INSTDIR ($0).$\r$\n$\r$\nInstalling ${APPNAME} again picks it up. To remove it instead, delete that folder." /SD IDOK
+  ${EndIf}
 SectionEnd
