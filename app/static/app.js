@@ -3711,9 +3711,10 @@ function renderIdentityActions(data) {
   var analyseTitle = isAnalysed ? 'All ' + included + ' songs analysed (click to re-analyse)' : 'Analyse vocals, chords, key, tempo and lyrics';
 
   // 2. Export button
-  var exportLabel = isExported ? 'Exported \u2713' : 'Export training set';
+  var isExporting = Boolean(data.exporting);
+  var exportLabel = isExporting ? 'Exporting\u2026' : (isExported ? 'Exported \u2713' : 'Export training set');
   var exportClass = 'ghost' + (isExported ? ' done' : (nextStep === 2 ? ' next-step' : ''));
-  var exportDisabled = (!isAnalysed && !isExported) ? ' disabled' : '';
+  var exportDisabled = ((!isAnalysed && !isExported) || isExporting) ? ' disabled' : '';
   var exportTitle = isExported ? 'Training set exported (click to export again)' : (isAnalysed ? 'Export audio and captions for training' : 'Analyse songs first');
 
   // 3. Train button (if training available)
@@ -3721,7 +3722,7 @@ function renderIdentityActions(data) {
   if (trainingAvailable()) {
     var trainLabel = isTraining ? 'Training\u2026' : (isTrained ? 'Trained \u2713' : 'Train a LoRA');
     var trainClass = 'ghost' + (isTrained ? ' done' : (nextStep === 3 ? ' next-step' : ''));
-    var trainDisabled = (!isExported || isTraining) ? ' disabled' : '';
+    var trainDisabled = (!isExported || isTraining || isExporting) ? ' disabled' : '';
     var trainTitle = isTrained ? 'LoRA trained (' + esc(data.lora) + '). Click to re-train.' : (isExported ? 'Train a dual-branch LoRA from this corpus' : 'Export the training set first');
     trainHtml = '<span class="pipeline-sep">\u203a</span><button id="identity-train" class="' + trainClass + '"' + trainDisabled + ' title="' + trainTitle + '">' + trainLabel + '</button>';
   }
@@ -3742,7 +3743,14 @@ function renderIdentityActions(data) {
     '<input id="identity-lora-file" type="file" accept=".safetensors" class="hidden">' +
     '<span id="identity-status" class="status"></span>' +
     (isAnalysing ? '<div class="identity-working">' + identityWorking(data) + '</div>' : '') +
+    (isExporting ? '<div class="identity-working">' + identityExporting(data.exporting) + '</div>' : '') +
   '</div>';
+}
+
+/* How far writing the training set has got. */
+function identityExporting(e) {
+  var since = e.since ? ' \u00b7 ' + clock(Math.max(0, Date.now() / 1000 - e.since)) : '';
+  return 'Exporting the training set: \u201c' + esc(e.song || '') + '\u201d, ' + Math.min(e.done + 1, e.total) + ' of ' + e.total + since;
 }
 
 /* What the analysis is doing right now, so a long step does not look stuck. */
@@ -3825,7 +3833,7 @@ async function pollIdentity() {
       if (cap) { cap.textContent = song.caption; }
     });
   }
-  IDENTITY.timer = setTimeout(pollIdentity, data && data.busy ? 3000 : 8000);
+  IDENTITY.timer = setTimeout(pollIdentity, data && (data.busy || data.exporting) ? 2000 : 8000);
 }
 var pollPersona = pollIdentity;
 
@@ -4006,12 +4014,15 @@ async function identityClick(event) {
     return;
   }
   if (target.closest('#identity-export') || target.closest('#persona-export')) {
-    if (status) {
-      status.textContent = 'Writing the training set…';
-      status.className = 'status';
-    }
+    // Shown at once; the window's refresh then keeps the progress line current.
+    IDENTITY.data.exporting = { done: 0, total: (IDENTITY.data.songs || []).filter(function (s) { return s.include; }).length,
+                                song: '', since: Date.now() / 1000 };
+    var rowEl = document.querySelector('.identity-actions');
+    if (rowEl) { rowEl.outerHTML = renderIdentityActions(IDENTITY.data); }
+    pollIdentity();
     try {
       var out = await api('/api/identities/' + IDENTITY.id + '/export', { method: 'POST' });
+      IDENTITY.data.exporting = null;
       if (status) { status.textContent = ''; }
       // The action row was drawn before this export existed, so Train a LoRA was
       // disabled — and a disabled button says nothing when it is pressed.  It is
@@ -4025,10 +4036,18 @@ async function identityClick(event) {
       if (expRes) {
         expRes.innerHTML = 'Wrote ' + out.written.length + ' song' + (out.written.length === 1 ? '' : 's') +
           ' to <code>' + esc(out.folder) + '</code>.' +
-          (out.unchecked.length ? '<br><span class="status bad">Lyrics not checked yet: ' + esc(out.unchecked.join(', ')) + '</span>' : '') +
+          // Drafts are a fair choice, not a fault: said, not flagged.
+          (out.unchecked.length ? '<br><span class="muted">' + out.unchecked.length + ' song' + (out.unchecked.length === 1 ? ' uses its' : 's use their') +
+            ' lyric draft as drafted.</span>' : '') +
           (out.skipped.length ? '<br><span class="muted">Skipped, not analysed or no lyrics: ' + esc(out.skipped.join(', ')) + '</span>' : '');
       }
-    } catch (err) { if (status) { status.textContent = err.message; status.className = 'status bad'; } }
+    } catch (err) {
+      IDENTITY.data.exporting = null;
+      var row = document.querySelector('.identity-actions');
+      if (row) { row.outerHTML = renderIdentityActions(IDENTITY.data); }
+      var failed = $('identity-status');
+      if (failed) { failed.textContent = err.message; failed.className = 'status bad'; }
+    }
     return;
   }
   if (target.closest('#identity-train') || target.closest('#persona-train')) {

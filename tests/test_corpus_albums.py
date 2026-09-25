@@ -302,3 +302,16 @@ def test_a_cover_is_sent_for_transcription_with_a_clean_ending(tmp_path, monkeyp
     assert round(identities.probe(tmp_path / "sent.flac")["duration"]) == 17        # twelve seconds and five of silence
     assert original.read_bytes() == before                                          # only the copy is changed
     assert not list(config.WORK_DIR.glob("transcribe-*"))                          # and it is cleaned up
+
+
+def test_an_export_shows_how_far_it_has_got_and_runs_once(client, tmp_path, monkeypatch):
+    from app import main
+    execute("INSERT INTO identities(id, name, trigger_word, folder, consent, created_at) VALUES('c1', 'Band', 'band', '/x', 1, 0)")
+    main.EXPORTING["c1"] = {"done": 4, "total": 13, "song": "Lovely Rita", "since": 0}
+    try:
+        assert client.get("/api/identities/c1").json()["exporting"]["song"] == "Lovely Rita"
+        assert client.post("/api/identities/c1/export").status_code == 409      # one at a time
+    finally:
+        main.EXPORTING.pop("c1", None)
+    assert client.post("/api/identities/c1/export").status_code == 200
+    assert client.get("/api/identities/c1").json()["exporting"] is None       # and gone when it is done

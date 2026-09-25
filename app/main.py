@@ -1577,6 +1577,7 @@ def _identity_view(identity: dict) -> dict:
     busy = any(s[f] in ("queued", "running") for s in songs for f in IDENTITY_STEPS)
     return {**identity, "songs": songs, "busy": busy,
             "working": jobs.identity_working({s["id"] for s in songs}) if busy else None,
+            "exporting": EXPORTING.get(identity["id"]),
             # Redraft marks the sections from the words, which needs the external LLM.
             "external_llm": llm.is_external_enabled(),
             "summary": {"songs": len(songs), "included": len(chosen),
@@ -2087,14 +2088,32 @@ async def cancel_lora_run(run_id: str) -> dict:
 @app.post("/api/personas/{identity_id}/export", include_in_schema=False)
 async def export_identity(identity_id: str) -> dict:
     """Write the training set: per included song, the audio as FLAC, its lyrics and
-    its style caption.  Songs without a copy yet are skipped and listed."""
+    its style caption.  Songs without a copy yet are skipped and listed.  How far it
+    has got shows in the corpus window while it runs."""
     identity = _identity(identity_id)
+    if identity_id in EXPORTING:
+        raise HTTPException(409, "the training set is being written already")
     view = _identity_view(identity)
+    chosen = [s for s in view["songs"] if s["include"]]
+    EXPORTING[identity_id] = {"done": 0, "total": len(chosen), "song": None, "since": time.time()}
+    try:
+        return await _export(identity, view, chosen)
+    finally:
+        EXPORTING.pop(identity_id, None)
+
+
+# The corpora whose training set is being written, and how far each has got.
+EXPORTING: dict[str, dict] = {}
+
+
+async def _export(identity: dict, view: dict, chosen: list[dict]) -> dict:
+    identity_id = identity["id"]
     dest = config.DATA_DIR / "identities" / identity_id / "dataset"
     await asyncio.to_thread(remove_tree, dest)
     dest.mkdir(parents=True, exist_ok=True)
     written, skipped, unchecked = [], [], []
-    for song in [s for s in view["songs"] if s["include"]]:
+    for number, song in enumerate(chosen):
+        EXPORTING[identity_id].update(done=number, song=song["title"])
         if not song["stored_path"] or not Path(song["stored_path"]).is_file():
             skipped.append(song["title"])
             continue
