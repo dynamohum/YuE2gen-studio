@@ -51,7 +51,7 @@ def test_the_reply_loses_labels_fences_and_markup():
 
 @pytest.fixture
 def whisper(monkeypatch):
-    monkeypatch.setattr(identities, "transcribe", lambda vocal, on_progress=None, duration=0.0: list(WHISPER))
+    monkeypatch.setattr(identities, "transcribe", lambda vocal, on_progress=None, duration=0.0, should_stop=None: list(WHISPER))
 
 
 def hear():

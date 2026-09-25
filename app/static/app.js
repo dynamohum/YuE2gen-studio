@@ -3644,9 +3644,14 @@ function songRow(song) {
   var detail = IDENTITY.open[song.id]
     ? '<tr class="identity-detail persona-detail" data-detail="' + song.id + '"><td colspan="5">' + songDetail(song) + '</td></tr>' : '';
   return '<tr data-song="' + song.id + '"' + (song.include ? '' : ' class="off"') + '>' +
-    '<td><input type="checkbox" data-include="' + song.id + '"' + (song.include ? ' checked' : '') + ' title="Include in the training set"></td>' +
-    '<td>' + esc(song.title) + '<span class="file">' + esc(song.file) + '</span>' +
-      (song.flag ? '<span class="flag">' + esc(song.flag) + '</span>' : '') + '</td>' +
+    '<td><input type="checkbox" data-include="' + song.id + '"' + (song.include ? ' checked' : '') +
+      (song.too_long ? ' disabled title="Too long to analyse: split it into tracks first"' : ' title="Include in the training set"') + '></td>' +
+    // A track cut from an album is stored by its full path; its name is enough here.
+    '<td>' + esc(song.title) + '<span class="file">' + esc(String(song.file).split('/').pop()) + '</span>' +
+      (song.flag ? '<span class="flag">' + esc(song.flag) + '</span>' : '') +
+      (song.cue ? ' <button class="link" data-split="' + song.id + '" title="' + esc(song.cue.file) +
+        ' says where each track starts. Each becomes a song in this corpus; the folder is not changed">Split into ' +
+        song.cue.tracks + ' tracks</button>' : '') + '</td>' +
     '<td>' + secs(song.duration) + '</td>' +
     '<td data-steps="' + song.id + '">' + stepChips(song) + '<div class="muted" data-keytempo="' + song.id + '">' +
       esc([song.key, song.tempo ? song.tempo + ' BPM' : ''].filter(Boolean).join(', ')) + '</div></td>' +
@@ -3720,6 +3725,7 @@ function renderIdentityActions(data) {
   return '<div class="identity-actions persona-actions">' +
     '<div class="identity-pipeline">' +
       '<button id="identity-analyse" class="' + analyseClass + '"' + (isAnalysing ? ' disabled' : '') + ' title="' + analyseTitle + '">' + analyseLabel + '</button>' +
+      (isAnalysing ? '<button id="identity-stop" class="ghost small" title="Stop the analysis. Finished steps are kept, and Analyse carries on from here">Stop</button>' : '') +
       '<span class="pipeline-sep">\u203a</span>' +
       '<button id="identity-export" class="' + exportClass + '"' + exportDisabled + ' title="' + exportTitle + '">' + exportLabel + '</button>' +
       trainHtml +
@@ -3731,7 +3737,17 @@ function renderIdentityActions(data) {
     '</div>' +
     '<input id="identity-lora-file" type="file" accept=".safetensors" class="hidden">' +
     '<span id="identity-status" class="status"></span>' +
+    (isAnalysing ? '<div class="identity-working">' + identityWorking(data) + '</div>' : '') +
   '</div>';
+}
+
+/* What the analysis is doing right now, so a long step does not look stuck. */
+function identityWorking(data) {
+  var w = data.working;
+  if (!w) { return 'Waiting for its turn behind other jobs\u2026'; }
+  var pct = typeof w.progress === 'number' ? ', ' + Math.round(w.progress * 100) + '%' : '';
+  var since = w.since ? ' \u00b7 ' + clock(Math.max(0, Date.now() / 1000 - w.since)) : '';
+  return esc(w.stage || 'Working') + ': \u201c' + esc(w.song || '') + '\u201d' + pct + since;
 }
 
 async function showIdentity(id, preloaded) {
@@ -3914,6 +3930,36 @@ async function identityClick(event) {
   }
   if (target.closest('#pe-save')) { saveIdentityEdit(); return; }
   var status = $('identity-status') || $('persona-status');
+  if (target.closest('#identity-stop')) {
+    try {
+      await api('/api/identities/' + IDENTITY.id + '/stop', { method: 'POST' });
+      if (status) { status.textContent = 'Stopped. Finished steps are kept; Analyse carries on from here.'; status.className = 'status good'; }
+    } catch (err) { if (status) { status.textContent = err.message; status.className = 'status bad'; } }
+    pollIdentity();
+    return;
+  }
+  var split = target.closest('[data-split]');
+  if (split) {
+    var album = identitySong(split.dataset.split);
+    var before = (IDENTITY.data && IDENTITY.data.songs.length) || 1;
+    split.disabled = true;
+    split.textContent = 'Splitting\u2026';
+    try {
+      var after = await api('/api/identities/' + IDENTITY.id + '/songs/' + split.dataset.split + '/split', { method: 'POST' });
+      showIdentity(IDENTITY.id, after);
+      var note = $('identity-status');
+      if (note) {
+        var made = after.songs.length - before + 1;
+        note.textContent = (album ? album.title : 'The album') + ' is now ' + made + ' songs in this corpus. Press Analyse when ready.';
+        note.className = 'status good';
+      }
+    } catch (err) {
+      split.disabled = false;
+      split.textContent = 'Split into tracks';
+      if (status) { status.textContent = err.message; status.className = 'status bad'; }
+    }
+    return;
+  }
   if (target.closest('#identity-analyse') || target.closest('#persona-analyse')) {
     try {
       var queued = await api('/api/identities/' + IDENTITY.id + '/analyse', { method: 'POST' });

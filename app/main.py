@@ -1567,9 +1567,16 @@ def _identity_view(identity: dict) -> dict:
         song["caption"] = identities.caption(identity["trigger_word"], song["description"] or identity["description"],
                                              identity["voice"], song["key"], song["tempo"],
                                              style_hint=song.get("style_hint") or "")
+        # Too long to analyse: most likely a whole album, which a cue sheet can split.
+        song["too_long"] = identities.too_long(song["duration"])
+        if song["too_long"]:
+            song["flag"] = song["flag"] or identities.TOO_LONG
+            found = identities.cue_for(_song_source(identity, song))
+            song["cue"] = {"file": found["cue"], "tracks": len(found["tracks"])} if found else None
     chosen = [s for s in songs if s["include"]]
     busy = any(s[f] in ("queued", "running") for s in songs for f in IDENTITY_STEPS)
     return {**identity, "songs": songs, "busy": busy,
+            "working": jobs.identity_working({s["id"] for s in songs}) if busy else None,
             "summary": {"songs": len(songs), "included": len(chosen),
                         "minutes": round(sum(s["duration"] or 0 for s in chosen) / 60, 1),
                         "analysed": sum(1 for s in chosen if all(s[f] == "done" for f in IDENTITY_STEPS)),
@@ -1577,6 +1584,12 @@ def _identity_view(identity: dict) -> dict:
 
 
 _persona_view = _identity_view
+
+
+def _song_source(identity: dict, song: dict) -> Path:
+    """Where a corpus song is read from: its folder, or the corpus's own tracks folder
+    for a track cut from an album (stored by its full path)."""
+    return Path(identity["folder"]) / song["file"]
 
 
 def _clean_trigger(word: str) -> str:
@@ -1678,6 +1691,7 @@ edit_persona = edit_identity
 async def delete_identity(identity_id: str) -> dict:
     """Removes the identity and its copies in the library.  The original folder is untouched."""
     _identity(identity_id)
+    await jobs.stop_identity_analysis(identity_id)
     execute("DELETE FROM identity_songs WHERE identity_id = ?", (identity_id,))
     execute("DELETE FROM identities WHERE id = ?", (identity_id,))
     await asyncio.to_thread(remove_tree, config.DATA_DIR / "identities" / identity_id)
@@ -1694,6 +1708,8 @@ def edit_identity_song(identity_id: str, song_id: str, body: IdentitySongEdit) -
     if not song:
         raise HTTPException(404, "no such song")
     changes = {}
+    if body.include and identities.too_long(song["duration"]):
+        raise HTTPException(400, f"this recording is {identities.TOO_LONG}: split it into tracks first")
     if body.include is not None:
         changes["include"] = 1 if body.include else 0
     if body.lyrics is not None:
@@ -1733,6 +1749,8 @@ async def analyse_identity(identity_id: str) -> dict:
     identity = _identity(identity_id)
     queued = 0
     for song in rows("SELECT * FROM identity_songs WHERE identity_id = ? AND include = 1 ORDER BY position", (identity_id,)):
+        if identities.too_long(song["duration"]):
+            continue
         cpu = {f: "queued" for f in ("vocals_state", "lyrics_state") if song[f] in ("none", "failed")}
         if cpu:
             jobs.set_song(song["id"], **cpu, error=None)
@@ -1749,6 +1767,69 @@ async def analyse_identity(identity_id: str) -> dict:
 
 
 analyse_persona = analyse_identity
+
+
+@app.post("/api/identities/{identity_id}/stop")
+async def stop_identity(identity_id: str) -> dict:
+    """Stop the corpus's analysis, waiting and running, on both lanes.  Finished
+    steps are kept, so Analyse carries on from where it stopped."""
+    identity = _identity(identity_id)
+    stopped = await jobs.stop_identity_analysis(identity_id)
+    log.info("Stopped the analysis of corpus '%s' (%d songs)", identity.get("name") or identity_id, stopped)
+    return {"stopped": stopped}
+
+
+@app.post("/api/identities/{identity_id}/songs/{song_id}/split")
+async def split_identity_song(identity_id: str, song_id: str) -> dict:
+    """Cut an album in one file into its tracks, by the cue sheet beside it, and put
+    the tracks in the corpus in its place.  The corpus folder is only read: the tracks
+    go in the corpus's own folder, and the album's copy in the library is removed."""
+    identity = _identity(identity_id)
+    song = one("SELECT * FROM identity_songs WHERE id = ? AND identity_id = ?", (song_id, identity_id))
+    if not song:
+        raise HTTPException(404, "no such song")
+    source = _song_source(identity, song)
+    if not identities.allowed(source) or not source.is_file():
+        raise HTTPException(400, "the recording is no longer in its folder")
+    found = identities.cue_for(source)
+    if not found:
+        raise HTTPException(400, "there is no cue sheet beside this recording that lists its tracks")
+    await jobs.stop_song_analysis(song_id)
+    dest = identities.tracks_dir(identity_id) / f"{slugify(song['title'])}-{song_id}"
+    log.info("Splitting '%s' into %d tracks by %s", song["file"], len(found["tracks"]), found["cue"])
+    try:
+        tracks = await asyncio.to_thread(identities.split_album, source, found["tracks"], dest)
+        described = await asyncio.to_thread(lambda: [
+            {**t, **identities.probe(t["path"]), "sha256": identities.sha256(t["path"])} for t in tracks])
+    except (subprocess.SubprocessError, OSError) as exc:
+        await asyncio.to_thread(remove_tree, dest)
+        raise HTTPException(500, f"could not split the recording: {exc}") from exc
+    new_rows = []
+    for track in described:
+        flag = None
+        if identities.OTHER_SINGER.search(track["title"]):
+            flag = "the title names another singer"
+        elif track["duration"] and track["duration"] < identities.MIN_SECONDS:
+            flag = f"shorter than {identities.MIN_SECONDS} seconds"
+        elif identities.too_long(track["duration"]):
+            flag = identities.TOO_LONG
+        new_rows.append({"id": uuid.uuid4().hex[:12], "file": str(track["path"]), "title": track["title"],
+                         "sha256": track["sha256"], "duration": round(track["duration"], 1),
+                         "bit_rate": track["bit_rate"], "include": 0 if flag else 1, "flag": flag})
+    # The tracks take the album's place in the list.
+    order = []
+    for other in rows("SELECT id FROM identity_songs WHERE identity_id = ? ORDER BY position", (identity_id,)):
+        order.extend([r["id"] for r in new_rows] if other["id"] == song_id else [other["id"]])
+    for row in new_rows:
+        execute("""INSERT INTO identity_songs(id, identity_id, file, title, sha256, duration, bit_rate, include, flag, position)
+                   VALUES(:id, :identity_id, :file, :title, :sha256, :duration, :bit_rate, :include, :flag, 0)""",
+                {**row, "identity_id": identity_id})
+    execute("DELETE FROM identity_songs WHERE id = ?", (song_id,))
+    for position, sid in enumerate(order):
+        execute("UPDATE identity_songs SET position = ? WHERE id = ?", (position, sid))
+    await asyncio.to_thread(remove_tree, identities.song_dir(identity_id, song))
+    log.info("Split '%s' into %d tracks for corpus '%s'", song["file"], len(new_rows), identity.get("name") or identity_id)
+    return _identity_view(_identity(identity_id))
 
 
 @app.get("/api/identities/{identity_id}/songs/{song_id}/audio")

@@ -265,9 +265,13 @@ engine built with `WITH_TRAINER=0`, takes it out.
 1. **New corpus.** Give it a name and a **trigger word**, say whether the voice is male or female,
    describe the sound shared by every song, and open the folder that holds the songs. Confirm you
    have the right to train on them, then press **Scan the folder**. The folder is only read.
-2. **Choose the songs.** Untick any you want left out.
+2. **Choose the songs.** Untick any you want left out. A recording longer than 10 minutes is
+   left out, since it is most likely a whole album in one file. If a `.cue` sheet sits beside it,
+   **Split into tracks** cuts it into its songs, which take its place in the corpus. The tracks go
+   in the app's own folder; yours is not changed.
 3. **Analyse.** Each song's vocal is separated, its key, tempo and sections are found, and its
-   lyrics are drafted, tagged by section.
+   lyrics are drafted, tagged by section. A line under the buttons says what is running, and
+   **Stop** ends it. Finished steps are kept, so **Analyse** carries on from where it stopped.
 4. **Review.** Open a song to check its lyrics and tick **checked**, and to describe its sound
    where it differs from the rest. The style caption shows what the trainer will read.
 5. **Export training set.** Writes the audio, lyrics and caption for each song.

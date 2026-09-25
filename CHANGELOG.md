@@ -37,6 +37,10 @@ cannot creep back in.
   **Output audio format**. FLAC is the default for stems and takes.
 - **Variations has its own length cap**, for the new takes only.
 - **Up next shows five rows** and scrolls for the rest.
+- **An album in one file can be split into its tracks** by the `.cue` sheet beside it, from the
+  corpus window. A recording longer than 10 minutes is no longer analysed as one song.
+- **The corpus window says what its analysis is doing**, such as the vocal being separated and
+  how far it has got, and **Stop** ends it.
 
 ### Fixed
 
@@ -44,6 +48,9 @@ cannot creep back in.
   never reached you. Settings now keeps only what you change.
 - **A trained LoRA the app cannot read** stops the run with the fix, rather than finishing half
   of it.
+- **Cancelling a corpus song's analysis on the main page stopped only its GPU step.** The vocal
+  separation and lyrics carried on unseen, and the corpus said **Analysing…** with no way to stop
+  it. Cancelling now stops every step of that song.
 
 ## 0.0.34 - 2026-09-24
 

@@ -26,6 +26,9 @@ log = logging.getLogger("yue2.identities")
 
 AUDIO_TYPES = {".mp3", ".wav", ".flac", ".m4a", ".ogg", ".aac"}
 MIN_SECONDS = 90
+# Longer than any song: most likely a whole album or a side in one file.  Analysing one
+# takes a very long time and a great deal of memory, and it would train as one song.
+MAX_SECONDS = 600
 # A filename that credits someone else ("Ft. Alan Williams on vocals") is not one voice.
 OTHER_SINGER = re.compile(r"\b(ft\.?|feat\.?|featuring|duet|with .+ on vocals)\b", re.I)
 CHUNK_RATE = 16000          # what Gemma's audio encoder takes
@@ -99,6 +102,13 @@ def _same_song(title: str) -> str:
     return re.sub(r"[^a-z0-9]", "", text)
 
 
+TOO_LONG = f"longer than {MAX_SECONDS // 60} minutes"
+
+
+def too_long(seconds: float | None) -> bool:
+    return bool(seconds) and seconds > MAX_SECONDS
+
+
 def scan(folder: Path) -> list[dict]:
     """Every audio file in the folder, with a suggestion to include it or not and why.
     Exact copies are left out, a second version of a song is offered but not ticked,
@@ -120,6 +130,8 @@ def scan(folder: Path) -> list[dict]:
             song.update(include=False, flag="the filename names another singer")
         elif info["duration"] and info["duration"] < MIN_SECONDS:
             song.update(include=False, flag=f"shorter than {MIN_SECONDS} seconds")
+        elif too_long(info["duration"]):
+            song.update(include=False, flag=TOO_LONG)
         else:
             key = _same_song(title)
             if key in by_title:
@@ -202,7 +214,11 @@ STOCK_PHRASES = re.compile(
     re.IGNORECASE)
 
 
-def transcribe(vocals: Path, on_progress=None, duration: float = 0.0) -> list[dict]:
+class Stopped(Exception):
+    """The analysis was stopped while Whisper was listening."""
+
+
+def transcribe(vocals: Path, on_progress=None, duration: float = 0.0, should_stop=None) -> list[dict]:
     """The sung lines of a separated vocal, with their times, from Whisper on the CPU.
 
     Whisper hears the whole vocal.  Its voice detector is off: built for speech, it
@@ -233,6 +249,9 @@ def transcribe(vocals: Path, on_progress=None, duration: float = 0.0) -> list[di
                                       hallucination_silence_threshold=2.0)
     lines = []
     for seg in segments:
+        # Checked between lines: a thread cannot be cancelled, so Stop asks it to end.
+        if should_stop and should_stop():
+            raise Stopped()
         # Segments arrive as they are decoded, and each carries its time, so the
         # caller can be told how far through the song this is.
         if on_progress and duration > 0:
@@ -397,6 +416,118 @@ def caption(trigger: str, description: str, voice: str, key: str | None, tempo: 
 
 def song_dir(identity_id: str, song: dict) -> Path:
     return config.DATA_DIR / "identities" / identity_id / "songs" / f"{slugify(song['title'])}-{song['id']}"
+
+
+# ------------------------------------------------------------------ cue sheets
+# An album ripped to one file often comes with a .cue sheet that says where each
+# track starts.  The tracks are cut into the app's own folder, never beside the album:
+# the corpus folder is only ever read.
+CUE_TIME = re.compile(r"^(\d+):(\d{1,2}):(\d{1,2})$")
+
+
+def tracks_dir(identity_id: str) -> Path:
+    return config.DATA_DIR / "identities" / identity_id / "tracks"
+
+
+def is_track(path: Path) -> bool:
+    """A track cut from an album by the app, in some corpus's own folder."""
+    try:
+        rel = path.resolve().relative_to((config.DATA_DIR / "identities").resolve())
+    except ValueError:
+        return False
+    return len(rel.parts) >= 3 and rel.parts[1] == "tracks"
+
+
+def _cue_text(path: Path) -> str:
+    raw = path.read_bytes()
+    for encoding in ("utf-8-sig", "cp1252"):
+        try:
+            return raw.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return raw.decode("latin-1")
+
+
+def _unquote(value: str) -> str:
+    value = value.strip()
+    return value[1:-1] if len(value) >= 2 and value[0] == value[-1] == '"' else value
+
+
+def parse_cue(text: str) -> list[dict]:
+    """The files a cue sheet names, each with its tracks: number, title, performer
+    and start in seconds (INDEX 01; a cue frame is 1/75 s)."""
+    files, album_performer, current, track = [], "", None, None
+    for raw in text.splitlines():
+        line = raw.strip()
+        word, _, rest = line.partition(" ")
+        word = word.upper()
+        if word == "FILE":
+            name = rest.rsplit(" ", 1)[0] if rest.rstrip().endswith(('WAVE', 'MP3', 'AIFF', 'BINARY', 'MOTOROLA')) else rest
+            current = {"file": _unquote(name), "tracks": []}
+            files.append(current)
+            track = None
+        elif word == "TRACK" and current is not None:
+            number = rest.split()[0] if rest.split() else "0"
+            track = {"number": int(number) if number.isdigit() else len(current["tracks"]) + 1,
+                     "title": "", "performer": album_performer, "start": None}
+            current["tracks"].append(track)
+        elif word == "TITLE" and track is not None:
+            track["title"] = _unquote(rest)
+        elif word == "PERFORMER":
+            if track is not None:
+                track["performer"] = _unquote(rest)
+            else:
+                album_performer = _unquote(rest)
+        elif word == "INDEX" and track is not None:
+            parts = rest.split()
+            found = CUE_TIME.match(parts[1]) if len(parts) == 2 else None
+            if found and parts[0] == "01":
+                minutes, seconds, frames = (int(g) for g in found.groups())
+                track["start"] = minutes * 60 + seconds + frames / 75
+    for entry in files:
+        entry["tracks"] = [t for t in entry["tracks"] if t["start"] is not None]
+    return [entry for entry in files if entry["tracks"]]
+
+
+def cue_for(audio: Path) -> dict | None:
+    """The cue sheet beside an album file that splits it into tracks, if there is one.
+    A sheet often names the file it was made for with another extension (a .wav
+    later converted to .flac), so the name is matched without it."""
+    try:
+        sheets = sorted(p for p in audio.parent.iterdir() if p.is_file() and p.suffix.lower() == ".cue")
+    except OSError:
+        return None
+    for sheet in sheets:
+        try:
+            entries = parse_cue(_cue_text(sheet))
+        except (OSError, ValueError):
+            continue
+        for entry in entries:
+            named = Path(entry["file"].replace("\\", "/")).name
+            if named.lower() == audio.name.lower() or Path(named).stem.lower() == audio.stem.lower():
+                if len(entry["tracks"]) >= 2:
+                    return {"cue": sheet.name, "tracks": entry["tracks"]}
+    return None
+
+
+def split_album(audio: Path, tracks: list[dict], dest: Path) -> list[dict]:
+    """Cut each track out of the album into dest as FLAC, named and tagged with its
+    title.  Returns each track with its file."""
+    dest.mkdir(parents=True, exist_ok=True)
+    made = []
+    for index, track in enumerate(tracks):
+        end = tracks[index + 1]["start"] if index + 1 < len(tracks) else None
+        title = track["title"] or f"Track {track['number']:02d}"
+        name = f"{track['number']:02d} {re.sub(r'[^A-Za-z0-9 ._()-]+', '', title).strip()[:80] or 'Track'}.flac"
+        out = dest / name
+        cmd = ["ffmpeg", "-v", "error", "-y", "-ss", f"{track['start']:.3f}", "-i", str(audio)]
+        if end is not None:
+            cmd += ["-t", f"{end - track['start']:.3f}"]
+        cmd += ["-map", "0:a:0", "-map_metadata", "-1", "-metadata", f"title={title}",
+                "-c:a", "flac", str(out)]
+        subprocess.run(cmd, capture_output=True, check=True, timeout=900)
+        made.append({**track, "title": title, "path": out})
+    return made
 
 
 persona_dir = song_dir

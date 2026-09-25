@@ -11,6 +11,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -35,6 +36,8 @@ CURRENT_STEMS: dict = {}
 CANCELLED: set[str] = set()
 # Identity songs being copied in and having their vocal separated, on the CPU.
 IDENTITY_QUEUE: "asyncio.Queue[dict]" = asyncio.Queue()
+# Corpus songs whose running GPU step was stopped: it goes back to not started, not failed.
+STOPPED_SONGS: set[str] = set()
 CURRENT_IDENTITY: dict = {}
 # GPU steps for an identity song.  Copying in, the vocal and the lyrics run on the CPU.
 IDENTITY_FIELDS = {
@@ -670,6 +673,10 @@ async def cancel_current() -> dict | None:
     CANCELLED.add(CURRENT["id"])
     if CURRENT.get("prompt_id"):
         await ENGINE.cancel(CURRENT["prompt_id"])
+    # A corpus song's analysis is one thing to the user: stopping its GPU step stops
+    # its vocal separation and lyrics too, instead of leaving them running unseen.
+    if CURRENT.get("kind") in IDENTITY_FIELDS:
+        await stop_song_analysis(CURRENT["id"])
     return {"kind": CURRENT["kind"], "id": CURRENT["id"]}
 
 
@@ -695,17 +702,88 @@ async def identity_worker() -> None:
     while True:
         job = await IDENTITY_QUEUE.get()
         CURRENT_IDENTITY.clear()
-        CURRENT_IDENTITY.update({"id": job["id"], "started": time.time()})
+        # The task, so Stop can cancel it (which kills demucs), and a flag Whisper
+        # checks between lines, since a thread cannot be cancelled.
+        stop = threading.Event()
+        task = asyncio.create_task(prepare_song(job["id"]))
+        CURRENT_IDENTITY.update({"id": job["id"], "started": time.time(), "task": task, "stop": stop,
+                                 "stage": None, "progress": None})
         try:
-            await prepare_song(job["id"])
+            await asyncio.wait({task})
+            if task.cancelled():
+                _stopped(job["id"])
+            elif task.exception():
+                exc = task.exception()
+                log.error("identity song %s failed", job["id"], exc_info=exc)
+                set_song(job["id"], vocals_state="failed", error=f"could not prepare the song: {exc}"[:400])
         except asyncio.CancelledError:
+            task.cancel()
             raise
-        except Exception as exc:  # noqa: BLE001
-            log.exception("identity song %s failed", job["id"])
-            set_song(job["id"], vocals_state="failed", error=f"could not prepare the song: {exc}"[:400])
         finally:
             CURRENT_IDENTITY.clear()
             IDENTITY_QUEUE.task_done()
+
+
+def _stopped(song_id: str) -> None:
+    """Whatever the CPU lane had not finished goes back to not started."""
+    song = identity_song(song_id)
+    if not song:
+        return
+    reset = {f: "none" for f in ("vocals_state", "lyrics_state") if song[f] in ("queued", "running")}
+    set_song(song_id, **reset, error="stopped")
+
+
+async def stop_song_analysis(song_id: str) -> bool:
+    """Stop every step of one song's analysis, waiting or running, on both lanes."""
+    song = identity_song(song_id)
+    if not song:
+        return False
+    stopped = False
+    if CURRENT_IDENTITY.get("id") == song_id and CURRENT_IDENTITY.get("task"):
+        CURRENT_IDENTITY["stop"].set()
+        CURRENT_IDENTITY["task"].cancel()
+        stopped = True
+    # Waiting on the CPU lane: the worker skips a song whose steps are no longer queued.
+    waiting = {f: "none" for f in ("vocals_state", "lyrics_state") if song[f] == "queued"}
+    # A lyrics step marked running while nothing works on it is only waiting.
+    if song["lyrics_state"] == "running" and CURRENT_IDENTITY.get("id") != song_id:
+        waiting["lyrics_state"] = "none"
+    if waiting:
+        set_song(song_id, **waiting, error="stopped")
+        stopped = True
+    for kind, field in IDENTITY_FIELDS.items():
+        if not kind.startswith("identity_"):
+            continue
+        if song[field] == "queued":
+            stopped = await cancel_waiting(kind, song_id, whole_song=False) or stopped
+        elif song[field] == "running" and CURRENT.get("id") == song_id and CURRENT.get("kind") in (kind, kind.replace("identity", "persona")):
+            STOPPED_SONGS.add(song_id)
+            CANCELLED.add(song_id)
+            if CURRENT.get("prompt_id"):
+                await ENGINE.cancel(CURRENT["prompt_id"])
+            stopped = True
+    if stopped:
+        log.info("Stopped the analysis of corpus song '%s'", song.get("title") or song_id)
+    return stopped
+
+
+async def stop_identity_analysis(identity_id: str) -> int:
+    songs = rows("SELECT id FROM identity_songs WHERE identity_id = ?", (identity_id,))
+    return sum([await stop_song_analysis(song["id"]) for song in songs])
+
+
+def identity_working(song_ids: set[str]) -> dict | None:
+    """What the analysis of these songs is doing right now, for the corpus window."""
+    if CURRENT_IDENTITY.get("id") in song_ids:
+        song = identity_song(CURRENT_IDENTITY["id"]) or {}
+        return {"song": song.get("title") or song.get("file"), "stage": CURRENT_IDENTITY.get("stage"),
+                "progress": CURRENT_IDENTITY.get("progress"), "since": CURRENT_IDENTITY.get("started")}
+    if CURRENT.get("kind") in IDENTITY_FIELDS and CURRENT.get("id") in song_ids:
+        song = identity_song(CURRENT["id"]) or {}
+        stage = "Finding key and tempo" if CURRENT["kind"].endswith("_score") else "Describing its style"
+        return {"song": song.get("title") or song.get("file"), "stage": stage + " on the GPU",
+                "progress": CURRENT.get("progress"), "since": CURRENT.get("started")}
+    return None
 
 
 persona_worker = identity_worker
@@ -721,10 +799,15 @@ async def prepare_song(song_id: str) -> None:
         # Unticked while it waited: leave it for later rather than spend the time.
         set_song(song_id, **{f: "none" for f in ("vocals_state", "lyrics_state") if song[f] == "queued"})
         return
+    if identities.too_long(song["duration"]):
+        set_song(song_id, **{f: "none" for f in ("vocals_state", "lyrics_state") if song[f] == "queued"},
+                 error=f"{identities.TOO_LONG}: split it into tracks first")
+        return
     id_val = song.get("identity_id") or song.get("persona_id")
     identity = one("SELECT * FROM identities WHERE id = ?", (id_val,))
+    # A track cut from an album is stored by its full path, in the corpus's own folder.
     source = Path(identity["folder"]) / song["file"]
-    if not identities.allowed(source) or not source.is_file():
+    if not (identities.allowed(source) or identities.is_track(source)) or not source.is_file():
         raise RuntimeError("the song is no longer in its folder")
     set_song(song_id, vocals_state="running", error=None)
     folder = identities.song_dir(identity["id"], song)
@@ -739,16 +822,26 @@ async def prepare_song(song_id: str) -> None:
     if song["score_state"] in ("none", "failed"):
         set_song(song_id, score_state="queued")
         await QUEUE.put({"kind": "identity_score", "id": song_id})
+    def stage(name: str, progress: float | None = None) -> None:
+        if CURRENT_IDENTITY.get("id") == song_id:
+            CURRENT_IDENTITY.update(stage=name, progress=progress)
+
     if not (folder / "vocals.wav").exists():
-        await stems.separate(stored, folder, "htdemucs", ["vocals"], "wav", work_root=config.WORK_DIR)
+        stage("Separating the vocal (demucs)", 0.0)
+        await stems.separate(stored, folder, "htdemucs", ["vocals"], "wav", work_root=config.WORK_DIR,
+                             on_progress=lambda frac, _: stage("Separating the vocal (demucs)", frac))
     set_song(song_id, vocals_state="done")
     if identity_song(song_id)["style_state"] in ("none", "failed"):
         set_song(song_id, style_state="queued")
         await QUEUE.put({"kind": "identity_style", "id": song_id})
     if not (folder / "whisper.json").exists():
         set_song(song_id, lyrics_state="running")
+        stage("Hearing the lyrics (Whisper)", 0.0)
+        stop = CURRENT_IDENTITY.get("stop")
         try:
-            lines, method = await hear(folder / "vocals.wav", title=song_title)
+            lines, method = await hear(folder / "vocals.wav", seconds=song["duration"] or 0.0, title=song_title,
+                                       on_progress=lambda frac: stage("Hearing the lyrics (Whisper)", frac),
+                                       should_stop=stop.is_set if stop else None)
             log.info("Corpus song '%s': lyrics heard by %s", song_title, method)
         except Exception as exc:  # noqa: BLE001
             set_song(song_id, lyrics_state="failed", error=f"lyrics: {exc}"[:400])
@@ -765,8 +858,12 @@ def maybe_draft(song_id: str) -> None:
     if not song or not song["stored_path"]:
         return
     folder = Path(song["stored_path"]).parent
-    if not (folder / "whisper.json").exists() or song["score_state"] not in ("done", "failed"):
-        set_song(song_id, lyrics_state="running")
+    # Whisper not finished: the CPU lane owns the lyrics step until it is, and a
+    # stopped song must not be left looking busy.
+    if not (folder / "whisper.json").exists():
+        return
+    if song["score_state"] not in ("done", "failed"):
+        set_song(song_id, lyrics_state="running")   # heard; waiting for the sections
         return
     lines = json.loads((folder / "whisper.json").read_text(encoding="utf-8"))
     abc = (folder / "score.abc").read_text(encoding="utf-8") if (folder / "score.abc").exists() else ""
@@ -902,6 +999,11 @@ async def run_identity_job(kind: str, song_id: str) -> None:
                 set_song(song_id, style_hint=hint, style_state="done")
                 log.info("Finished style analysis for corpus song '%s': %s", song_title, hint[:60] + "..." if len(hint) > 60 else hint)
     except Exception as exc:  # noqa: BLE001
+        if song_id in STOPPED_SONGS:
+            STOPPED_SONGS.discard(song_id)
+            log.info("%s for '%s' (%s) stopped", kind, song_title, song_id)
+            set_song(song_id, **{field: "none"}, error="stopped")
+            return
         log.warning("%s for '%s' (%s) failed: %s", kind, song_title, song_id, exc)
         set_song(song_id, **{field: "failed"}, error=f"{kind.split('_')[1]}: {exc}"[:400])
         if kind in ("identity_score", "persona_score"):
@@ -1153,7 +1255,7 @@ async def cancel_lyrics(record: dict) -> None:
             await ENGINE.cancel(CURRENT["prompt_id"])
 
 
-async def cancel_waiting(kind: str, ref_id: str) -> bool:
+async def cancel_waiting(kind: str, ref_id: str, whole_song: bool = True) -> bool:
     """Take back a job still waiting for the GPU.  The worker skips anything no longer
     'queued', so this only changes the state.  An analysis or a transcription goes back
     to what it was before, so cancelling a re-run keeps the earlier result; a take is
@@ -1166,6 +1268,8 @@ async def cancel_waiting(kind: str, ref_id: str) -> bool:
         had = (song.get("key") or song.get("tempo")) if field == "score_state" else song.get("style_hint")
         set_song(ref_id, **{field: "done" if had else "none"})
         log.info("Cancelled waiting %s for corpus song '%s'", kind, song.get("title") or ref_id)
+        if whole_song:
+            await stop_song_analysis(ref_id)
         return True
     if kind == "lyrics":
         record = LYRICS.get(ref_id)
@@ -1354,7 +1458,7 @@ COMPLETE_SHARE = 0.6
 
 
 async def hear(vocal: Path, seconds: float = 0.0, on_progress=None, on_stage=None,
-               title: str = "") -> tuple[list[dict], str]:
+               title: str = "", should_stop=None) -> tuple[list[dict], str]:
     """The sung lines of a separated vocal, with times, and which method heard them.
 
     Whisper always runs: it is the default method, and in the other it keeps the
@@ -1380,7 +1484,7 @@ async def hear(vocal: Path, seconds: float = 0.0, on_progress=None, on_stage=Non
     else:
         log.info("Lyrics for '%s': Whisper, as set in Settings", name)
 
-    lines = await asyncio.to_thread(identities.transcribe, vocal, on_progress, seconds)
+    lines = await asyncio.to_thread(identities.transcribe, vocal, on_progress, seconds, should_stop)
     if not (wanted and external):
         return lines, "Whisper"
     if on_stage:
