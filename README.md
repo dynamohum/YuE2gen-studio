@@ -365,7 +365,9 @@ server-side change only.
 
 ```
 compose.yml            engine + app, the one machine setup
-compose.override.yml.example   your own settings and music mounts: copy it to compose.override.yml
+compose.override.yml.example
+                       your own settings and music mounts: copy it to
+                       compose.override.yml, which is git-ignored
 engine/Dockerfile      ComfyUI pinned to the commit this was built against, and the
                        WITH_TRAINER build arg, on, that builds the trainer in
 engine/custom_nodes/   yue2_harmony, the node behind the Harmony slider
