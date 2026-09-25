@@ -157,7 +157,8 @@ The score fixes the notes. The **interpretation** sets how they are performed.
 The sparkle button on a card renders **the same score and the same seed** in the other
 interpretations. Because only the interpretation changes, what you hear between them is the
 interpretation — not a different roll of the dice. Each lands as its own take, titled
-*Night drive · Loose*.
+*Night drive · Loose*. The window has its own length cap, which starts at the panel's and applies
+only to these takes.
 
 ### Seed, and reproducing a take
 
@@ -355,6 +356,27 @@ folder gives the groups their headings, one `prefix = label` per line.
 A LoRA trained from one of your corpora is an ordinary style LoRA: it appears in this list with the
 rest, its trigger word beside it, and the same two strengths apply.
 
+### Trying the checkpoints
+
+A training run saves a checkpoint every 50 steps, and keeps them under **Training checkpoints** in
+the picker (Settings can delete them instead, to save the space). Each is the LoRA as it stood at
+that point in training. They sound about as good as each other, but each has its own weighting of
+what it learned, so each has its own taste while keeping the style and signature sound the LoRA
+was trained on.
+
+To hear them side by side, choose the LoRA, set up the panel as you would for one take, and press
+**Checkpoints** beside **Delete LoRA**. It is greyed out for a LoRA without checkpoints. Tick the
+steps you want, set a length cap for these takes if you like, and press **Render**. The panel's
+own action runs once on each checkpoint, all with one seed, and each take is named after its step:
+*Night drive · step 250*, *Night drive · full*. A song or an instrumental writes its plan and goes
+straight on to render.
+
+In a song or an instrumental the LoRA writes the tune as well as shaping the sound, so the same
+seed does not give the same song: each checkpoint writes its own melody and structure. The seed
+picks from what the model thinks likely, and each checkpoint thinks slightly differently from the
+first note, so the plans part ways within a few bars. What stays is the sound. To compare only the
+sound, load one plan with **Score** and press **Render this score** with each checkpoint in turn.
+
 New files appear once the engine has looked at `models/loras/` again, which it does when the
 options are reloaded.
 
@@ -413,6 +435,9 @@ The folder button on a card moves that take to another space.
 Each card names the settings that shaped it — Harmony, Interpretation, Plan variety, the LoRA and
 its strengths, the seed and its age — so a card reads as the recipe that made it.
 
+**Save** asks which format to download the take in, FLAC, WAV or MP3, starting with the output
+audio format set in Settings.
+
 **Starred** shows only starred takes. **Compact** switches between three narrow cards across and
 wider ones with the full title and style.
 
@@ -434,8 +459,9 @@ work too.
 ## Settings
 
 Press **YuE2 Studio** in the top left. Settings live on the server, so they follow you to any
-browser and survive a rebuild: the stem format, the separation model, where stems are written, and
-how instrumentals are checked for singing.
+browser and survive a rebuild: the output audio format for stems and a take's Save, the
+separation model, where stems are written, whether training checkpoints are kept, and how
+instrumentals are checked for singing.
 
 ---
 

@@ -23,6 +23,28 @@ Release notes live in two places and neither is a file in this repository: this 
 history, and each GitHub release holds its published notes. `RELEASE-NOTES-*.md` is ignored so it
 cannot creep back in.
 
+## Unreleased
+
+### What's new
+
+- **Checkpoints: hear each training step of a LoRA side by side.** Beside **Delete LoRA**, it
+  renders what the panel would make once on each checkpoint a training run kept, all with one
+  seed, each take named after its step. Each weighting has its own taste while keeping the style
+  the LoRA was trained on. Greyed out for a LoRA without checkpoints.
+- **Training checkpoints are kept**, listed under **Training checkpoints** in the picker. Settings
+  can delete them when training ends instead.
+- **Save asks which format:** FLAC, WAV or MP3, starting with the one set in Settings, now called
+  **Output audio format**. FLAC is the default for stems and takes.
+- **Variations has its own length cap**, for the new takes only.
+- **Up next shows five rows** and scrolls for the rest.
+
+### Fixed
+
+- **A format chosen by default was stored as if you had chosen it**, so a later change of default
+  never reached you. Settings now keeps only what you change.
+- **A trained LoRA the app cannot read** stops the run with the fix, rather than finishing half
+  of it.
+
 ## 0.0.34 - 2026-09-24
 
 ### Fixed
