@@ -1,4 +1,4 @@
-# YuE2 Studio
+# <img src="app/static/icon.svg" alt="" width="40" align="top"> YuE2 Studio
 
 A web interface for [YuE2](https://github.com/multimodal-art-projection/YuE), the open music
 model. Write a song from a prompt, or cover your own recording. Edit the score either way,

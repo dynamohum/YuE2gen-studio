@@ -49,6 +49,9 @@ VIAddVersionKey "LegalCopyright" "Apache License 2.0"
 
 !define MUI_ICON "${STAGE}\yue2studio.ico"
 !define MUI_UNICON "${STAGE}\yue2studio.ico"
+; The logo on the Welcome and Finish pages, in place of NSIS's own picture (164 x 314).
+!define MUI_WELCOMEFINISHPAGE_BITMAP "${STAGE}\installer-panel.bmp"
+!define MUI_UNWELCOMEFINISHPAGE_BITMAP "${STAGE}\installer-panel.bmp"
 !define MUI_ABORTWARNING
 
 ;  An install already on this PC is updated in place: the pages say so, the folder

@@ -22,7 +22,7 @@ mkdir -p "$STAGE/studio/engine-nodes"
 tar -C "$ROOT" --exclude='__pycache__' --exclude='static/__*' -cf - app | tar -C "$STAGE/studio" -xf -
 cp "$ROOT/VERSION" "$ROOT/requirements.txt" "$STAGE/studio/"
 tar -C "$ROOT/engine/custom_nodes" --exclude='__pycache__' -cf - yue2_harmony | tar -C "$STAGE/studio/engine-nodes" -xf -
-cp "$ROOT/windows/setup.ps1" "$ROOT/windows/launcher.py" "$ROOT/windows/yue2studio.ico" \
+cp "$ROOT/windows/setup.ps1" "$ROOT/windows/launcher.py" "$ROOT/windows/yue2studio.ico" "$ROOT/windows/installer-panel.bmp" \
    "$ROOT/windows/terms.txt" "$ROOT/LICENSE" "$ROOT/THIRD_PARTY_NOTICES.md" "$STAGE/"
 
 EXE="YuE2Studio-Setup-$VERSION${TEST_BUILD:+-test}.exe"

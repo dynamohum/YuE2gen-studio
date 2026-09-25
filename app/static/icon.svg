@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- YuE2 Studio's icon: one line forking in two, as YuE2 writes a plan and then sings it. -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7b5cff"/>
+      <stop offset="1" stop-color="#ff4d94"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="15" fill="url(#tile)"/>
+  <path d="M32 54 V36 M32 36 C32 26 20 23 15 12 M32 36 C32 26 44 23 49 12"
+        fill="none" stroke="#fff" stroke-width="7.5" stroke-linecap="round"/>
+  <circle cx="49" cy="12" r="4.6" fill="#a3e635"/>
+</svg>
