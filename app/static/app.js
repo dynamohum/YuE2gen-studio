@@ -1266,7 +1266,7 @@ function lockGpuControls() {
   });
   Array.prototype.forEach.call(document.querySelectorAll('.takes [data-act]'), function (button) {
     var act = button.dataset.act || '';
-    if (['render', 'again', 'variations', 'revoice', 'replan', 'reroll'].indexOf(act) >= 0) {
+    if (['render', 'again', 'variations', 'lora-steps', 'revoice', 'replan', 'reroll'].indexOf(act) >= 0) {
       button.disabled = training;
     }
   });
@@ -3204,17 +3204,56 @@ function wireStructure() {
 }
 
 /* ---------------------------------------------------------------- variations
-   The same score and seed, rendered in other interpretations, each as a new take. */
-var VARIATIONS = { take: null };
+   The same score and seed, rendered in other interpretations, or on the other
+   checkpoints of its style LoRA, each as a new take. */
+var VARIATIONS = { take: null, by: 'interpretation' };
 
 function openVariations(take) {
   VARIATIONS.take = take;
+  VARIATIONS.by = 'interpretation';
   $('variations-heading').textContent = 'Variations of \u201c' + take.title + '\u201d';
+  $('variations-hint').textContent = 'The same score and seed, rendered in other interpretations. Each lands as its own take beside this one, named after its interpretation.';
   var own = INTERPRETATIONS[take.interpretation] ? take.interpretation : 'standard';
   $('variations-list').innerHTML = Object.keys(INTERPRETATIONS).filter(function (key) { return key !== own; })
     .map(function (key) {
       return '<label><input type="checkbox" value="' + key + '" checked><strong>' + INTERPRETATIONS[key].name +
         '</strong><span class="muted">' + esc(INTERPRETATIONS[key].hint) + '</span></label>';
+    }).join('');
+  $('variations-status').textContent = '';
+  paintVariationsEstimate();
+  $('variations-modal').classList.remove('hidden');
+}
+
+/* The finished LoRA and the checkpoints its training run kept (name_stepN), in
+   step order, the finished one last.  Empty unless the take used one of them and
+   there is at least one checkpoint to compare. */
+function loraSteps(take) {
+  var own = take.style_lora || '';
+  var base = own.replace(/\.safetensors$/i, '').replace(/_step\d+$/i, '');
+  if (!base) { return []; }
+  var pattern = new RegExp('^' + base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(_step(\\d+))?\\.safetensors$', 'i');
+  var steps = [];
+  (State.options.loras || []).forEach(function (item) {
+    var found = item && pattern.exec(item.name);
+    if (found) { steps.push({ name: item.name, step: found[2] ? parseInt(found[2], 10) : null }); }
+  });
+  if (!steps.some(function (s) { return s.step !== null; })) { return []; }
+  steps.sort(function (a, b) {
+    return (a.step === null ? Infinity : a.step) - (b.step === null ? Infinity : b.step);
+  });
+  return steps;
+}
+
+function openLoraSteps(take) {
+  VARIATIONS.take = take;
+  VARIATIONS.by = 'lora';
+  $('variations-heading').textContent = 'Checkpoints for \u201c' + take.title + '\u201d';
+  $('variations-hint').textContent = 'The same score and seed, rendered on other checkpoints of its style LoRA. Each lands as its own take beside this one, named after its step.';
+  $('variations-list').innerHTML = loraSteps(take).filter(function (s) { return s.name !== take.style_lora; })
+    .map(function (s) {
+      return '<label><input type="checkbox" value="' + esc(s.name) + '" checked><strong>' +
+        (s.step === null ? 'Finished' : 'Step ' + s.step) + '</strong><span class="muted">' +
+        (s.step === null ? 'The LoRA the training run kept' : '') + '</span></label>';
     }).join('');
   $('variations-status').textContent = '';
   paintVariationsEstimate();
@@ -3245,7 +3284,7 @@ async function doVariations() {
   try {
     var reply = await api('/api/takes/' + take.id + '/variations', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ interpretations: chosen })
+      body: JSON.stringify(VARIATIONS.by === 'lora' ? { style_loras: chosen } : { interpretations: chosen })
     });
     closeVariations();
     statusLine('Queued ' + reply.created.length + ' variation' + (reply.created.length === 1 ? '' : 's') + ' of ' + take.title +
@@ -3967,6 +4006,7 @@ var ICONS = {
   voice: '<path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M19 11a7 7 0 0 1-14 0"/><path d="M12 18v3"/>',
   variations: '<path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9L12 17.5l-1.9-5.1L5 10.5l5.1-1.9z"/><path d="M18.5 15.2l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/>',
   stop: '<rect x="6.5" y="6.5" width="11" height="11" rx="1.6"/>',
+  steps: '<path d="M3.5 19.5h4.3v-4.3h4.3v-4.3h4.3V6.6h4.1"/>',
   level: '<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/>'
 };
 
@@ -4438,7 +4478,11 @@ function paintTakes() {
             ? '<button class="take-move" data-act="revoice"' + id + ' title="Sing again: the same score with a new seed. The backing and phrasing come out new; with a style LoRA the voice usually stays close"' +
               ' aria-label="Sing again">' + icon('voice') + '</button>' +
               '<button class="take-move" data-act="variations"' + id + ' title="Variations: render this score in other interpretations"' +
-              ' aria-label="Variations">' + icon('variations') + '</button>'
+              ' aria-label="Variations">' + icon('variations') + '</button>' +
+              (loraSteps(take).length
+                ? '<button class="take-move" data-act="lora-steps"' + id + ' title="Checkpoints: render this score on other training steps of its style LoRA"' +
+                  ' aria-label="Checkpoints">' + icon('steps') + '</button>'
+                : '')
             : '') +
           // Once normalised it has nothing left to offer, so it goes.
           (status === 'done' && take.has_audio && !take.normalised && !State.normalising[take.id]
@@ -5947,6 +5991,10 @@ function wire() {
     if (act === 'variations') {
       var source = takeById(id);
       if (source) { openVariations(source); }
+    }
+    if (act === 'lora-steps') {
+      var stepped = takeById(id);
+      if (stepped) { openLoraSteps(stepped); }
     }
     if (act === 'move') {
       var moving = takeById(id);
