@@ -110,7 +110,7 @@ SOURCE = dict(id="demo-source", title="Paper Boats · rough mix",
               filename="paper-boats-rough-mix.flac")
 
 IDENTITY = dict(
-    id="demovoice0001", name="Demo Voice", trigger_word="demovoice",
+    id="demovoice0001", name="Marlow Sands", trigger_word="marlowsands",
     description="warm indie pop, close lead vocal", voice="male",
     folder="/music/demo-voice", consent=1,
 )
@@ -121,6 +121,31 @@ IDENTITY_SONGS = [
     ("Demo song 07", 219.5, "Eb major", 79), ("Demo song 08", 135.7, "Bb major", 140),
     ("Demo song 09", 169.3, "A major", 69), ("Demo song 10", 209.1, "F major", 62),
 ]
+
+# More corpora, for the Corpora screenshots.  Invented artists and songs, newest
+# first; the first is the one shown opened, analysed, exported and trained.
+KEYS = ["C major", "E minor", "D major", "A major", "Bb major", "G major", "F major", "Eb major", "B minor"]
+CORPORA = [
+    dict(id="glassorchard", name="Glass Orchard", trigger="glassorchard", voice="female",
+         description="dream pop, chiming guitars, airy vocal", exported=True,
+         lora="glass_orchard_lora.safetensors", age=2,
+         songs=[("Lanternfish", 263.4), ("Salt Road", 221.0), ("The Long Quiet", 298.7),
+                ("Paper Moons", 204.2), ("Weathervane", 246.9), ("Low Orbit", 311.5),
+                ("Cinder Garden", 233.8), ("Harbour at Dusk", 279.1)]),
+    dict(id="harbourlight", name="Harbour Lights", trigger="harbourlights", voice="male",
+         description="folk rock, harmonica, acoustic guitar", exported=True, age=5, count=12),
+    dict(id="junehalloway", name="June Halloway", trigger="junehalloway", voice="female",
+         description="torch songs, piano, brushed drums", exported=True, age=9, count=16, left_out=2),
+    dict(id="papercartogr", name="The Paper Cartographers", trigger="papercartographers", voice="male",
+         description="power pop, crunchy guitars, harmonies", exported=True, age=14, count=10),
+    dict(id="otisvane0001", name="Otis Vane", trigger="otisvane", voice="male",
+         description="blues, slide guitar, gravel vocal", exported=True, age=20, count=9),
+    dict(id="kestrelrow01", name="Kestrel Row", trigger="kestrelrow", voice="female",
+         description="electronic, downtempo, breathy vocal", exported=False, age=26, count=17),
+]
+INVENTED = ["Northbound", "Tin Roof Rain", "Small Hours", "Copperline", "Dry Stone", "Blue Lantern",
+            "Paper Wings", "Old Pier", "Second Light", "Wire and Wood", "Slow River", "Chalk Hill",
+            "Nightjar", "Low Tide", "Ferris Wheel", "The Last Tram", "Stillwater"]
 
 
 def link(src: Path, dst: Path) -> None:
@@ -138,6 +163,24 @@ def one_audio(folder: Path) -> Path:
     for f in sorted(folder.glob("*.flac")):
         return f
     raise SystemExit(f"no audio in {folder}")
+
+
+def stand_ins(src: Path, wanted: list[str]) -> dict[str, Path]:
+    """The take folder each demo take borrows from: its own when it is still in the
+    library, otherwise another rendered take that has a score.  Only the sound is
+    borrowed, for a real waveform and length; the names are the demo's."""
+    spare = [d for d in sorted((src / "takes").iterdir())
+             if (d / "take.json").exists() and any(d.glob("*.flac")) and d.name not in wanted
+             and json.loads((d / "take.json").read_text()).get("score")]
+    out = {}
+    for name in wanted:
+        if (src / "takes" / name).is_dir():
+            out[name] = src / "takes" / name
+        elif spare:
+            out[name] = spare.pop(0)
+        else:
+            raise SystemExit(f"no rendered take to stand in for {name}")
+    return out
 
 
 def main() -> int:
@@ -175,10 +218,11 @@ def main() -> int:
 
     # The recording a cover is made from, with a score and lyrics already found,
     # so the form shows the state a cover actually starts from.
+    lent = stand_ins(src, [spec["lend"] for spec in TAKES])
     borrowed = src / "sources" / SOURCE["lend"]
     stored = dst / "sources" / f"{SOURCE['id'][:16]}-{slug(Path(SOURCE['filename']).stem)}.flac"
     link(borrowed, stored)
-    lend_abc = json.loads((src / "takes" / TAKES[5]["lend"] / "take.json").read_text())
+    lend_abc = json.loads((lent[TAKES[5]["lend"]] / "take.json").read_text())
     con.execute(
         "INSERT INTO sources (id, title, filename, stored_path, sha256, created_at, abc,"
         " abc_updated_at, transcribe_state, lyrics, lyrics_state, duration)"
@@ -188,7 +232,7 @@ def main() -> int:
          LYRICS, 208.8))
 
     for spec in TAKES:
-        folder = src / "takes" / spec["lend"]
+        folder = lent[spec["lend"]]
         audio = one_audio(folder)
         note = json.loads((folder / "take.json").read_text())
         take_id = spec["key"].replace("-", "")[:12].ljust(12, "0")
@@ -238,6 +282,28 @@ def main() -> int:
              f"{i:064d}", length, 320000,
              f"{IDENTITY['folder']}/{slug(title)}.flac", key, tempo,
              LYRICS, "indie pop, close vocal, acoustic guitar", i))
+
+    for c in CORPORA:
+        created = NOW - c["age"] * 24 * HOUR
+        con.execute(
+            "INSERT INTO identities (id, name, trigger_word, description, voice, folder,"
+            " consent, created_at, exported_at, export_dir, lora) VALUES (?,?,?,?,?,?,1,?,?,?,?)",
+            (c["id"], c["name"], c["trigger"], c["description"], c["voice"], f"/music/{c['name']}",
+             created, created + 6 * HOUR if c["exported"] else None,
+             f"/data/identities/{c['id']}/dataset" if c["exported"] else None, c.get("lora")))
+        songs = c.get("songs") or [(INVENTED[i % len(INVENTED)], 190 + (i * 37) % 140) for i in range(c["count"])]
+        for i, (title, length) in enumerate(songs):
+            out = i >= len(songs) - c.get("left_out", 0)
+            name = f"1-{i + 1:02d} {title}.flac"
+            con.execute(
+                "INSERT INTO identity_songs (id, identity_id, file, title, sha256, duration, bit_rate,"
+                " include, flag, stored_path, vocals_state, score_state, lyrics_state, style_state,"
+                " key, tempo, lyrics, style_hint, position)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,'done','done','done','done',?,?,?,?,?)",
+                (f"{c['id'][:8]}{i:04d}", c["id"], name, title, f"{c['id']}{i:04d}".ljust(64, "0"),
+                 71.0 if out else length, 900000, 0 if out else 1, "shorter than 90 seconds" if out else None,
+                 f"/music/{c['name']}/{name}", KEYS[(i * 5) % len(KEYS)], 68 + (i * 29) % 90,
+                 LYRICS, c["description"], i))
 
     con.commit()
     con.close()

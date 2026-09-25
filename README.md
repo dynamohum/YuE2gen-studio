@@ -126,6 +126,14 @@ panel would make once on each of them, with one seed, so you can compare them by
 space, **Training checkpoints** in Settings can delete them when training ends. To share a LoRA, press **Download** under the picker: the zip carries
 its chips, and the other person adds it with **Install**.
 
+Your corpora, one per artist:
+
+[![Corpora](docs/screenshots/corpora.png)](https://raw.githubusercontent.com/dynamohum/YuE2gen-studio/master/docs/screenshots/full/corpora.png)
+
+One corpus, analysed, exported and trained, with each song's key and tempo:
+
+[![A corpus](docs/screenshots/corpus.png)](https://raw.githubusercontent.com/dynamohum/YuE2gen-studio/master/docs/screenshots/full/corpus.png)
+
 It does most in a song from a prompt, where the LoRA writes the tune: Planner and Sound up to
 about 0.70, with Plan variety Calm or Normal. In a cover your recording sets the melody, so keep
 Sound near 0.50. The [user guide](app/static/guide.md#corpora-and-training-a-lora) walks
