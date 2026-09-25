@@ -183,6 +183,22 @@ The installer checks all of this before it downloads anything.
 5. **Start YuE2 Studio** from the Start menu or the desktop. A small window starts the engine and
    the app, then opens http://localhost:8090 in your browser. Closing that window stops them.
 
+**Ports and folders:** a `settings.ini` in the install folder changes them. Create it with a
+`[yue2]` section and only the lines you need, then start YuE2 Studio again:
+
+```ini
+[yue2]
+app_port = 8090
+engine_port = 8188
+data_dir = D:\YuE2 library
+import_roots = D:\Music
+open_browser = yes
+```
+
+`data_dir` is where the library lives (by default, `data` in the install folder). `import_roots`
+is the folders a corpus may be built from, separated by commas (by default, your user folder).
+Other settings are environment variables: see [Environment variables](#environment-variables).
+
 **Updating:** run a newer installer over the top. It says it is an update, keeps the models and
 your library, and fetches only what has changed.
 
@@ -444,8 +460,21 @@ services:
       TRAIN_MIN_STEPS: "600"
 ```
 
-On the Windows install, set them as Windows environment variables for your account, then start
-YuE2 Studio again. Values are read once, at start.
+Values are read once, at start.
+
+**On Windows, without Docker,** they are ordinary Windows environment variables:
+
+1. Close YuE2 Studio's window, which stops it.
+2. Open Start, type *environment*, and choose **Edit environment variables for your account**.
+3. Under *User variables*, press **New**. Enter the name, say `TRAIN_MIN_STEPS`, and the
+   value, say `600`, then **OK** twice.
+4. Start YuE2 Studio again from the Start menu or the desktop.
+
+Or in PowerShell, `setx TRAIN_MIN_STEPS 600`, then start YuE2 Studio. To go back to the default,
+delete the variable. The Windows install sets the library folder, the folders a corpus may be
+built from, and the ports itself: change those in its `settings.ini` instead (see
+[On Windows, without Docker](#on-windows-without-docker)). `ENGINE_URL`, `ENGINE_OUTPUT_DIR` and
+`TRAINING_ENABLED` are fixed there.
 
 ### The app
 
