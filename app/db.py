@@ -473,6 +473,11 @@ def get_setting(key: str, default: str | None = None) -> str | None:
     return default if value is None else value
 
 
+def delete_setting(key: str) -> None:
+    execute("DELETE FROM settings WHERE key = ?", (key,))
+    _settings_cache[key] = None
+
+
 def set_setting(key: str, value: str) -> None:
     execute(
         "INSERT INTO settings(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",

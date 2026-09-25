@@ -39,7 +39,7 @@ from starlette.background import BackgroundTask
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import config, identities, instrumental, jobs, library, llm, logging_setup, loras, lyrics, score, stems
-from .db import DEFAULT_SPACE, execute, get_setting, migrate, one, rows, set_setting
+from .db import DEFAULT_SPACE, delete_setting, execute, get_setting, migrate, one, rows, set_setting
 
 personas = identities
 from .engine import stage_label
@@ -62,7 +62,7 @@ MAX_SEED = 2**64 - 1
 SETTINGS_SPEC: list[dict] = [
     {
         "key": "stems.format",
-        "label": "Stem audio format",
+        "label": "Output audio format",
         "type": "select",
         # FLAC by default: lossless like WAV at about half the size, and what takes are
         # saved as.  WAV stays for software that cannot open FLAC.
@@ -72,7 +72,7 @@ SETTINGS_SPEC: list[dict] = [
             {"value": "wav", "label": "WAV, uncompressed"},
             {"value": "mp3", "label": "MP3, 320 kbps"},
         ],
-        "help": "The format for new stems.",
+        "help": "The format for saving stems or takes.",
     },
     {
         "key": "stems.model",
@@ -169,9 +169,7 @@ SETTINGS_BY_KEY = {item["key"]: item for item in SETTINGS_SPEC}
 def setting_value(key: str) -> str:
     # The stems folder follows the data folder, read now rather than when this module
     # was first imported.
-    if key == "stems.folder":
-        return get_setting(key, None) or str(config.STEMS_DIR)
-    return get_setting(key, None) or SETTINGS_BY_KEY[key]["default"]
+    return get_setting(key, None) or setting_default(key)
 
 
 def settings_payload() -> list[dict]:
@@ -201,9 +199,37 @@ def save_setting(key: str, value: str) -> None:
             raise HTTPException(400, "the stem folder cannot be empty")
         if not inside(Path(value), config.DATA_DIR):
             raise HTTPException(400, f"the stem folder must be inside {config.DATA_DIR}")
-    set_setting(key, value)
+    # The panel saves every field, not only the one changed.  A value that is just the
+    # default is not stored, so a better default reaches everyone who never chose.
+    secret = spec["type"] == "password"
+    if not secret and value == setting_default(key):
+        delete_setting(key)
+    else:
+        set_setting(key, value)
     masked = "***" if any(w in key.lower() for w in ("key", "secret", "password", "token")) else value
     log.info("Setting updated: %s = %s", key, masked)
+
+
+def setting_default(key: str) -> str:
+    return str(config.STEMS_DIR) if key == "stems.folder" else SETTINGS_BY_KEY[key]["default"]
+
+
+def forget_frozen_defaults() -> int:
+    """Settings saved before only real choices were stored hold every default as it was
+    then.  Those go, so today's defaults apply.  A WAV stem format is one: WAV was the
+    default until FLAC, and a saved WAV cannot be told from one saved by accident."""
+    gone = 0
+    for spec in SETTINGS_SPEC:
+        key = spec["key"]
+        if spec["type"] == "password":
+            continue
+        stored = get_setting(key, None)
+        if stored is not None and (stored == setting_default(key) or (key == "stems.format" and stored == "wav")):
+            delete_setting(key)
+            gone += 1
+    if gone:
+        log.info("Forgot %d saved settings that only repeated a default", gone)
+    return gone
 
 
 def guess_title(lyrics: str) -> str:
@@ -243,6 +269,7 @@ async def lifespan(app: FastAPI):
     # Before relayout, which names each take's file, and before the levels are read.
     await asyncio.to_thread(library.convert_old_normalised)
     await asyncio.to_thread(relayout)
+    forget_frozen_defaults()
     await asyncio.to_thread(fill_source_durations)
     if config.ENGINE_OUTPUT_DIR:
         # Renders are saved here.  Created by the app, so the app may delete the
@@ -2057,13 +2084,36 @@ def save_take_score(take_id: str, body: ScoreIn) -> dict:
     return {"saved": True, "chars": len(body.abc)}
 
 
+# What Save hands over, in the output format chosen in Settings.  Takes are kept as FLAC.
+SAVE_FORMATS = {
+    "flac": ("audio/flac", None),
+    "wav": ("audio/wav", ["-c:a", "pcm_s16le"]),
+    "mp3": ("audio/mpeg", ["-c:a", "libmp3lame", "-b:a", "320k"]),
+}
+
+
 @app.get("/api/takes/{take_id}/audio")
-def take_audio(take_id: str) -> FileResponse:
+def take_audio(take_id: str, download: bool = False) -> FileResponse:
     take = one("SELECT audio_path, title FROM takes WHERE id = ?", (take_id,))
     if not take or not take["audio_path"] or not Path(take["audio_path"]).exists():
         raise HTTPException(404, "no audio for this take")
     safe = "".join(ch for ch in (take["title"] or "take") if ch.isalnum() or ch in " -_")[:60].strip() or "take"
-    return FileResponse(take["audio_path"], media_type="audio/flac", filename=f"{safe}.flac")
+    fmt = setting_value("stems.format") if download else "flac"
+    media, codec = SAVE_FORMATS.get(fmt, SAVE_FORMATS["flac"])
+    if not codec:
+        return FileResponse(take["audio_path"], media_type=media, filename=f"{safe}.flac")
+    # Converted for this download only, and removed once it has been sent.
+    config.WORK_DIR.mkdir(parents=True, exist_ok=True)
+    out = config.WORK_DIR / f"save-{take_id}-{uuid.uuid4().hex[:8]}.{fmt}"
+    try:
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", take["audio_path"], *codec, str(out)],
+                       capture_output=True, timeout=300, check=True)
+    except (subprocess.SubprocessError, OSError) as exc:
+        out.unlink(missing_ok=True)
+        log.warning("Could not convert take '%s' to %s: %s", take["title"] or take_id, fmt, exc)
+        raise HTTPException(500, f"could not convert this take to {fmt.upper()}") from exc
+    return FileResponse(out, media_type=media, filename=f"{safe}.{fmt}",
+                        background=BackgroundTask(out.unlink, missing_ok=True))
 
 
 @app.post("/api/takes/{take_id}/normalise")

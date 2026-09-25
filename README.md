@@ -294,7 +294,7 @@ any browser and survive a rebuild.
 
 | Setting | What it does |
 |---|---|
-| Stem audio format | FLAC (the default), WAV, or MP3 at 320 kbps. The default for a new run; the sheet can still choose another |
+| Output audio format | FLAC (the default), WAV, or MP3 at 320 kbps, for stems and for a take's **Save**. Stems can still choose another when you make them |
 | Stem separation model | Which model a run starts with |
 | Stem save folder | Where stems are written. It must sit inside the data folder |
 | Training checkpoints | Delete them when training ends (the default), or keep them, listed under Training checkpoints |

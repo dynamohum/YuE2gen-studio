@@ -3944,8 +3944,9 @@ function tile(kind, iconName, label, attrs, title) {
 }
 
 function downloadTile(take) {
-  return '<a class="act save" href="/api/takes/' + take.id + '/audio" download' +
-    ' title="Download the audio file" aria-label="Download the audio file">' +
+  // In the output format chosen in Settings; the server converts as it hands it over.
+  return '<a class="act save" href="/api/takes/' + take.id + '/audio?download=1" download' +
+    ' title="Download the audio, in the output format set in Settings" aria-label="Download the audio file">' +
     icon('save') + '<span>Save</span></a>';
 }
 
