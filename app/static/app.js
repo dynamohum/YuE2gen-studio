@@ -552,6 +552,15 @@ function paintStyleLoraNote() {
     download.href = item ? '/api/loras/' + encodeURIComponent(item.name) + '/download' : '#';
   }
   if ($('lora-delete')) { $('lora-delete').classList.toggle('hidden', !item); }
+  var steps = $('lora-steps');
+  if (steps) {
+    var hasSteps = Boolean(item) && loraSteps(item.name).length > 0;
+    steps.classList.toggle('hidden', !item);
+    steps.disabled = !hasSteps;
+    steps.title = hasSteps
+      ? 'Render what this panel makes once on each training checkpoint of this LoRA, to compare them by ear'
+      : 'This LoRA has no training checkpoints';
+  }
   if ($('lora-strengths')) { $('lora-strengths').classList.toggle('hidden', !item); }
   var label = document.querySelector('label[for="style-lora"]');
   if (label) {
@@ -1260,13 +1269,13 @@ var JOB_KINDS = { render: 'Render', plan: 'Score plan', transcribe: 'Transcripti
    refuses them too; this is so nobody has to find out that way. */
 function lockGpuControls() {
   var training = Boolean(State.training);
-  ['create-song', 'create-cover', 'render-take'].forEach(function (id) {
+  ['create-song', 'create-cover', 'render-take', 'steps-go'].forEach(function (id) {
     var button = $(id);
     if (button) { button.disabled = training; }
   });
   Array.prototype.forEach.call(document.querySelectorAll('.takes [data-act]'), function (button) {
     var act = button.dataset.act || '';
-    if (['render', 'again', 'variations', 'lora-steps', 'revoice', 'replan', 'reroll'].indexOf(act) >= 0) {
+    if (['render', 'again', 'variations', 'revoice', 'replan', 'reroll'].indexOf(act) >= 0) {
       button.disabled = training;
     }
   });
@@ -2679,33 +2688,45 @@ async function watchPlan() {
   }
 }
 
-async function doPlan() {
-  if (!$('lyrics').value.trim()) {
-    statusLine('Write some lyrics first. The planner needs words to shape the melody.', 'bad');
-    return;
-  }
+/* The seed field's value when it is fixed, else a new one, shown in the field. */
+function pickSeed() {
   var seed = parseInt($('seed').value, 10);
   if (!($('seed-fixed').checked) || isNaN(seed)) {
     seed = Math.floor(Math.random() * 4294967295);
     $('seed').value = seed;
   }
+  return seed;
+}
+
+function songProblem() {
+  return $('lyrics').value.trim() ? '' : 'Write some lyrics first. The planner needs words to shape the melody.';
+}
+
+function songBody(seed) {
+  return withStyleLora({
+    title: $('title').value.trim() || guessTitle($('lyrics').value),
+    style: $('style').value,
+    lyrics: $('lyrics').value,
+    seed: seed,
+    interpretation: $('interpretation').value,
+    max_duration: parseFloat($('max-duration').value) || 360,
+    auto_render: $('auto-render').checked,
+    variety: $('variety').value,
+    harmony: harmonyStep(),
+    space_id: State.spaceId,
+    realaudio: $('realaudio').checked, normalise: normaliseWanted()
+  });
+}
+
+async function doPlan() {
+  var problem = songProblem();
+  if (problem) { statusLine(problem, 'bad'); return; }
+  var seed = pickSeed();
   statusLine('Queued…');
   try {
     var take = await api('/api/songs', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(withStyleLora({
-        title: $('title').value.trim() || guessTitle($('lyrics').value),
-        style: $('style').value,
-        lyrics: $('lyrics').value,
-        seed: seed,
-        interpretation: $('interpretation').value,
-        max_duration: parseFloat($('max-duration').value) || 360,
-        auto_render: $('auto-render').checked,
-        variety: $('variety').value,
-        harmony: harmonyStep(),
-        space_id: State.spaceId,
-        realaudio: $('realaudio').checked, normalise: normaliseWanted()
-      }))
+      body: JSON.stringify(songBody(seed))
     });
     setSelection({ formTakeId: take.id, boxKind: 'none', boxId: null, awaiting: take.id });
     statusLine('Writing the score plan…');
@@ -3093,34 +3114,36 @@ function loadStructure(text) {
   paintStructure();
 }
 
+function instProblem() {
+  return STRUCTURE.kind !== 'free' && !STRUCTURE.sections.length ? 'Add at least one section, or choose Let YuE2 decide.' : '';
+}
+
+function instBody(seed) {
+  return withStyleLora({
+    title: $('title').value.trim(),
+    style: $('style').value,
+    structure: structureText(),
+    seed: seed,
+    interpretation: $('interpretation').value,
+    feel: FEEL.value,
+    max_duration: parseFloat($('max-duration').value) || 360,
+    auto_render: $('auto-render').checked,
+    variety: $('variety').value,
+    harmony: harmonyStep(),
+    space_id: State.spaceId,
+    realaudio: $('realaudio').checked, normalise: normaliseWanted()
+  });
+}
+
 async function doInstrumental() {
-  if (STRUCTURE.kind !== 'free' && !STRUCTURE.sections.length) {
-    statusLine('Add at least one section, or choose Let YuE2 decide.', 'bad');
-    return;
-  }
-  var seed = parseInt($('seed').value, 10);
-  if (!($('seed-fixed').checked) || isNaN(seed)) {
-    seed = Math.floor(Math.random() * 4294967295);
-    $('seed').value = seed;
-  }
+  var problem = instProblem();
+  if (problem) { statusLine(problem, 'bad'); return; }
+  var seed = pickSeed();
   statusLine('Queued\u2026');
   try {
     var take = await api('/api/instrumentals', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(withStyleLora({
-        title: $('title').value.trim(),
-        style: $('style').value,
-        structure: structureText(),
-        seed: seed,
-        interpretation: $('interpretation').value,
-        feel: FEEL.value,
-        max_duration: parseFloat($('max-duration').value) || 360,
-        auto_render: $('auto-render').checked,
-        variety: $('variety').value,
-        harmony: harmonyStep(),
-        space_id: State.spaceId,
-        realaudio: $('realaudio').checked, normalise: normaliseWanted()
-      }))
+      body: JSON.stringify(instBody(seed))
     });
     setSelection({ formTakeId: take.id, boxKind: 'none', boxId: null, awaiting: take.id });
     statusLine('Writing the score plan\u2026');
@@ -3204,58 +3227,17 @@ function wireStructure() {
 }
 
 /* ---------------------------------------------------------------- variations
-   The same score and seed, rendered in other interpretations, or on the other
-   checkpoints of its style LoRA, each as a new take. */
-var VARIATIONS = { take: null, by: 'interpretation' };
+   The same score and seed, rendered in other interpretations, each as a new take. */
+var VARIATIONS = { take: null };
 
 function openVariations(take) {
   VARIATIONS.take = take;
-  VARIATIONS.by = 'interpretation';
   $('variations-heading').textContent = 'Variations of \u201c' + take.title + '\u201d';
-  $('variations-hint').textContent = 'The same score and seed, rendered in other interpretations. Each lands as its own take beside this one, named after its interpretation.';
   var own = INTERPRETATIONS[take.interpretation] ? take.interpretation : 'standard';
   $('variations-list').innerHTML = Object.keys(INTERPRETATIONS).filter(function (key) { return key !== own; })
     .map(function (key) {
       return '<label><input type="checkbox" value="' + key + '" checked><strong>' + INTERPRETATIONS[key].name +
         '</strong><span class="muted">' + esc(INTERPRETATIONS[key].hint) + '</span></label>';
-    }).join('');
-  $('variations-status').textContent = '';
-  // Starts from the left panel's cap; a change here is for these takes only.
-  $('variations-cap').value = parseFloat($('max-duration').value) || 360;
-  paintVariationsEstimate();
-  $('variations-modal').classList.remove('hidden');
-}
-
-/* The finished LoRA and the checkpoints its training run kept (name_stepN), in
-   step order, the finished one last.  Empty unless the take used one of them and
-   there is at least one checkpoint to compare. */
-function loraSteps(take) {
-  var own = take.style_lora || '';
-  var base = own.replace(/\.safetensors$/i, '').replace(/_step\d+$/i, '');
-  if (!base) { return []; }
-  var pattern = new RegExp('^' + base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(_step(\\d+))?\\.safetensors$', 'i');
-  var steps = [];
-  (State.options.loras || []).forEach(function (item) {
-    var found = item && pattern.exec(item.name);
-    if (found) { steps.push({ name: item.name, step: found[2] ? parseInt(found[2], 10) : null }); }
-  });
-  if (!steps.some(function (s) { return s.step !== null; })) { return []; }
-  steps.sort(function (a, b) {
-    return (a.step === null ? Infinity : a.step) - (b.step === null ? Infinity : b.step);
-  });
-  return steps;
-}
-
-function openLoraSteps(take) {
-  VARIATIONS.take = take;
-  VARIATIONS.by = 'lora';
-  $('variations-heading').textContent = 'Checkpoints for \u201c' + take.title + '\u201d';
-  $('variations-hint').textContent = 'The same score and seed, rendered on other checkpoints of its style LoRA. Each lands as its own take beside this one, named after its step.';
-  $('variations-list').innerHTML = loraSteps(take).filter(function (s) { return s.name !== take.style_lora; })
-    .map(function (s) {
-      return '<label><input type="checkbox" value="' + esc(s.name) + '" checked><strong>' +
-        (s.step === null ? 'Finished' : 'Step ' + s.step) + '</strong><span class="muted">' +
-        (s.step === null ? 'The LoRA the training run kept' : '') + '</span></label>';
     }).join('');
   $('variations-status').textContent = '';
   // Starts from the left panel's cap; a change here is for these takes only.
@@ -3291,8 +3273,7 @@ async function doVariations() {
     $('variations-status').className = 'status bad';
     return;
   }
-  var body = VARIATIONS.by === 'lora' ? { style_loras: chosen } : { interpretations: chosen };
-  body.max_duration = cap;
+  var body = { interpretations: chosen, max_duration: cap };
   try {
     var reply = await api('/api/takes/' + take.id + '/variations', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -3305,6 +3286,121 @@ async function doVariations() {
   } catch (err) {
     $('variations-status').textContent = 'Could not queue: ' + err.message;
     $('variations-status').className = 'status bad';
+  }
+}
+
+/* ------------------------------------------------------------- checkpoints
+   What this panel would make, once on each checkpoint a training run kept for the
+   chosen LoRA, all with one seed, so the LoRA is what differs between them. */
+var STEPS = { mode: null };
+
+/* The finished LoRA and its run's checkpoints (name_stepN), in step order, the
+   finished one last.  Empty when there are no checkpoints to compare. */
+function loraSteps(name) {
+  var base = (name || '').replace(/\.safetensors$/i, '').replace(/_step\d+$/i, '');
+  if (!base) { return []; }
+  var pattern = new RegExp('^' + base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(_step(\\d+))?\\.safetensors$', 'i');
+  var steps = [];
+  (State.options.loras || []).forEach(function (item) {
+    var found = item && pattern.exec(item.name);
+    if (found) { steps.push({ name: item.name, step: found[2] ? parseInt(found[2], 10) : null }); }
+  });
+  if (!steps.some(function (s) { return s.step !== null; })) { return []; }
+  steps.sort(function (a, b) {
+    return (a.step === null ? Infinity : a.step) - (b.step === null ? Infinity : b.step);
+  });
+  return steps;
+}
+
+function stepLabel(step) {
+  return step.step === null ? 'finished' : 'step ' + step.step;
+}
+
+var STEP_MODES = {
+  cover: { problem: coverProblem, body: coverBody, url: '/api/takes',
+           hint: 'Covers this recording once on each checkpoint, with one seed.' },
+  song: { problem: songProblem, body: songBody, url: '/api/songs',
+          hint: 'Writes and renders a plan on each checkpoint, with one seed. The LoRA shapes the plan too, so each has its own tune.' },
+  inst: { problem: instProblem, body: instBody, url: '/api/instrumentals',
+          hint: 'Writes and renders a plan on each checkpoint, with one seed. The LoRA shapes the plan too, so each has its own tune.' }
+};
+
+function openLoraSteps() {
+  var item = loraChosen();
+  var steps = item ? loraSteps(item.name) : [];
+  var mode = STEP_MODES[State.mode] ? State.mode : 'song';
+  if (!steps.length) { return; }
+  var problem = STEP_MODES[mode].problem();
+  if (problem) { statusLine(problem, 'bad'); return; }
+  STEPS.mode = mode;
+  // Named after the finished LoRA, whichever step is chosen.
+  var finished = steps.filter(function (s) { return s.step === null; })[0];
+  var named = finished && loraCatalogue().filter(function (e) { return e.name === finished.name; })[0];
+  $('steps-heading').textContent = 'Checkpoints of ' +
+    ((named && named.title) || item.name.replace(/\.safetensors$/i, '').replace(/_step\d+$/i, ''));
+  $('steps-hint').textContent = STEP_MODES[mode].hint + ' Each lands as its own take, named after its step.';
+  $('steps-cap').value = parseFloat($('max-duration').value) || 360;
+  $('steps-list').innerHTML = steps.map(function (s) {
+    return '<label><input type="checkbox" value="' + esc(s.name) + '" data-label="' + stepLabel(s) + '" checked><strong>' +
+      (s.step === null ? 'Finished' : 'Step ' + s.step) + '</strong><span class="muted">' +
+      (s.step === null ? 'The LoRA the training run kept' : '') + '</span></label>';
+  }).join('');
+  $('steps-status').textContent = '';
+  paintStepsEstimate();
+  $('steps-modal').classList.remove('hidden');
+}
+
+function closeLoraSteps() {
+  STEPS.mode = null;
+  $('steps-modal').classList.add('hidden');
+}
+
+function chosenSteps() {
+  return Array.prototype.slice.call(document.querySelectorAll('#steps-list input:checked'));
+}
+
+function paintStepsEstimate() {
+  var count = chosenSteps().length;
+  var average = (State.options.avg_render_seconds || 0) + (STEPS.mode === 'cover' ? 0 : State.options.avg_plan_seconds || 0);
+  $('steps-go').disabled = !count;
+  $('steps-go').textContent = count === 1 ? 'Render 1 take' : 'Render ' + count + ' takes';
+  $('steps-estimate').textContent = count && average ? 'about ' + Math.max(1, Math.round(count * average / 60)) + ' min of rendering' : '';
+}
+
+async function runLoraSteps() {
+  var mode = STEP_MODES[STEPS.mode];
+  var chosen = chosenSteps();
+  if (!mode || !chosen.length) { return; }
+  var cap = parseFloat($('steps-cap').value);
+  if (!(cap >= 10 && cap <= 900)) {
+    $('steps-status').textContent = 'The length cap must be between 10 and 900 seconds.';
+    $('steps-status').className = 'status bad';
+    return;
+  }
+  var problem = mode.problem();
+  if (problem) { $('steps-status').textContent = problem; $('steps-status').className = 'status bad'; return; }
+  var seed = pickSeed();
+  $('steps-go').disabled = true;
+  var queued = 0;
+  try {
+    for (var i = 0; i < chosen.length; i++) {
+      var body = mode.body(seed);
+      body.style_lora = chosen[i].value;
+      body.title = (body.title || (STEPS.mode === 'inst' ? 'Untitled instrumental' : 'Untitled')) + ' \u00b7 ' + chosen[i].dataset.label;
+      body.max_duration = cap;
+      // To be heard, so a plan goes straight on to its render.
+      if (STEPS.mode !== 'cover') { body.auto_render = true; }
+      await api(mode.url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      queued += 1;
+    }
+    closeLoraSteps();
+    statusLine('Queued ' + queued + ' take' + (queued === 1 ? '' : 's') + ', one on each checkpoint, with seed ' + seed + '.', 'good');
+  } catch (err) {
+    $('steps-status').textContent = (queued ? 'Queued ' + queued + ', then could not queue the rest: ' : 'Could not queue: ') + err.message;
+    $('steps-status').className = 'status bad';
+  } finally {
+    $('steps-go').disabled = false;
+    loadTakes();
   }
 }
 
@@ -4018,7 +4114,6 @@ var ICONS = {
   voice: '<path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M19 11a7 7 0 0 1-14 0"/><path d="M12 18v3"/>',
   variations: '<path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9L12 17.5l-1.9-5.1L5 10.5l5.1-1.9z"/><path d="M18.5 15.2l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/>',
   stop: '<rect x="6.5" y="6.5" width="11" height="11" rx="1.6"/>',
-  steps: '<path d="M3.5 19.5h4.3v-4.3h4.3v-4.3h4.3V6.6h4.1"/>',
   level: '<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/>'
 };
 
@@ -4490,11 +4585,7 @@ function paintTakes() {
             ? '<button class="take-move" data-act="revoice"' + id + ' title="Sing again: the same score with a new seed. The backing and phrasing come out new; with a style LoRA the voice usually stays close"' +
               ' aria-label="Sing again">' + icon('voice') + '</button>' +
               '<button class="take-move" data-act="variations"' + id + ' title="Variations: render this score in other interpretations"' +
-              ' aria-label="Variations">' + icon('variations') + '</button>' +
-              (loraSteps(take).length
-                ? '<button class="take-move" data-act="lora-steps"' + id + ' title="Checkpoints: render this score on other training steps of its style LoRA"' +
-                  ' aria-label="Checkpoints">' + icon('steps') + '</button>'
-                : '')
+              ' aria-label="Variations">' + icon('variations') + '</button>'
             : '') +
           // Once normalised it has nothing left to offer, so it goes.
           (status === 'done' && take.has_audio && !take.normalised && !State.normalising[take.id]
@@ -5090,26 +5181,23 @@ async function doTranscribe() {
   }
 }
 
-async function doRender() {
+function coverProblem() {
   var source = currentSource();
-  var status = $('render-status');
-  if (!source) { status.textContent = 'Choose a recording first.'; status.className = 'status bad'; return; }
+  if (!source) { return 'Choose a recording first.'; }
   // A cover follows the recording's own melody, so it needs a score: the one
   // transcribed from it, or one in the box. With neither, rendering used to go
   // ahead and the model wrote its own melody, which is not a cover and sounded
   // like a different song.
   if (!source.has_score && !$('abc').value.trim()) {
-    status.textContent = 'This recording has not been transcribed, so there is no melody to cover. '
+    return 'This recording has not been transcribed, so there is no melody to cover. '
       + 'Press Transcribe first. For a melody YuE2 writes itself, use Song from a prompt.';
-    status.className = 'status bad';
-    return;
   }
-  var seed = parseInt($('seed').value, 10);
-  if (!($('seed-fixed').checked) || isNaN(seed)) {
-    seed = Math.floor(Math.random() * 4294967295);
-    $('seed').value = seed;
-  }
-  var body = {
+  return '';
+}
+
+function coverBody(seed) {
+  var source = currentSource();
+  return withStyleLora({
     source_id: source.id,
     title: $('title').value.trim() || guessTitle($('lyrics').value) || source.title,
     style: $('style').value,
@@ -5121,8 +5209,14 @@ async function doRender() {
     max_duration: parseFloat($('max-duration').value) || 360,
     space_id: State.spaceId,
     realaudio: $('realaudio').checked, normalise: normaliseWanted()
-  };
-  withStyleLora(body);
+  });
+}
+
+async function doRender() {
+  var status = $('render-status');
+  var problem = coverProblem();
+  if (problem) { status.textContent = problem; status.className = 'status bad'; return; }
+  var body = coverBody(pickSeed());
   status.textContent = 'Queued\u2026';
   status.className = 'status';
   try {
@@ -5821,6 +5915,13 @@ function wire() {
   $('write-go').addEventListener('click', doWrite);
   $('write-stop').addEventListener('click', stopWrite);
   $('write-modal').addEventListener('click', function (event) { if (backdropClick(event, $('write-modal'))) { closeWrite(); } });
+  $('lora-steps').addEventListener('click', openLoraSteps);
+  $('steps-close').addEventListener('click', closeLoraSteps);
+  $('steps-go').addEventListener('click', runLoraSteps);
+  $('steps-list').addEventListener('change', paintStepsEstimate);
+  $('steps-modal').addEventListener('click', function (event) {
+    if (backdropClick(event, $('steps-modal'))) { closeLoraSteps(); }
+  });
   $('variations-close').addEventListener('click', closeVariations);
   $('variations-go').addEventListener('click', doVariations);
   $('variations-list').addEventListener('change', paintVariationsEstimate);
@@ -6003,10 +6104,6 @@ function wire() {
     if (act === 'variations') {
       var source = takeById(id);
       if (source) { openVariations(source); }
-    }
-    if (act === 'lora-steps') {
-      var stepped = takeById(id);
-      if (stepped) { openLoraSteps(stepped); }
     }
     if (act === 'move') {
       var moving = takeById(id);
@@ -6284,6 +6381,7 @@ function wire() {
     if (event.key === 'Escape' && idModal && !idModal.classList.contains('hidden')) { closeIdentities(); return; }
     if (event.key === 'Escape' && !$('write-modal').classList.contains('hidden')) { closeWrite(); return; }
     if (event.key === 'Escape' && !$('variations-modal').classList.contains('hidden')) { closeVariations(); return; }
+    if (event.key === 'Escape' && !$('steps-modal').classList.contains('hidden')) { closeLoraSteps(); return; }
     if (event.key === 'Escape' && !$('lyrics-modal').classList.contains('hidden')) { closeLyricsEditor(); return; }
     if (event.key === 'Escape' && !$('stems-modal').classList.contains('hidden')) { closeStemsModal(); return; }
     if (event.key === 'Escape' && !$('save-modal').classList.contains('hidden')) { closeSaveModal(); return; }

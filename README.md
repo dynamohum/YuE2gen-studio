@@ -121,9 +121,9 @@ each vocal separated, its key, tempo and sections found and its lyrics drafted â
 training set, and trains a style LoRA from it. Training holds the GPU until it finishes, and the
 LoRA appears in the Style LoRA list, with a style chip for each song it learned from. Training
 also saves a checkpoint every 50 steps, listed under **Training checkpoints**. Each gives its own
-take on the style. A take made with the LoRA has a **Checkpoints** button that renders its score
-and seed on the others, each as a new take, so you can compare them by ear. To save the space,
-**Training checkpoints** in Settings can delete them when training ends. To share a LoRA, press **Download** under the picker: the zip carries
+take on the style. With the LoRA chosen, **Checkpoints** beside **Delete LoRA** makes what the
+panel would make once on each of them, with one seed, so you can compare them by ear. To save the
+space, **Training checkpoints** in Settings can delete them when training ends. To share a LoRA, press **Download** under the picker: the zip carries
 its chips, and the other person adds it with **Install**.
 
 It does most in a song from a prompt, where the LoRA writes the tune: Planner and Sound up to

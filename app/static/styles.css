@@ -466,6 +466,7 @@ button.icon { width: 42px; padding: 8px 0; text-align: center; }
 }
 .chip.action:hover { background: rgba(255, 255, 255, 0.17); border-color: rgba(255, 255, 255, 0.28); color: #fff; }
 .chip.action:disabled { opacity: 0.45; cursor: not-allowed; }
+.chip.action:disabled:hover { background: rgba(255, 255, 255, 0.10); border-color: rgba(255, 255, 255, 0.14); color: #f4f4f8; }
 .chip.action.hidden { display: none; }
 .chip.compact { font-size: 11.5px; padding: 2px 9px; }
 

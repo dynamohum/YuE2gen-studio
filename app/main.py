@@ -563,9 +563,7 @@ class RenderIn(BaseModel):
 
 
 class VariationsIn(BaseModel):
-    # One or the other: other interpretations, or other checkpoints of the style LoRA.
-    interpretations: list[str] | None = Field(None, min_length=1, max_length=len(INTERPRETATIONS))
-    style_loras: list[str] | None = Field(None, min_length=1, max_length=100)
+    interpretations: list[str] = Field(min_length=1, max_length=len(INTERPRETATIONS))
     # For these takes only; omitted, each keeps the original's.
     max_duration: float | None = Field(None, ge=10, le=900)
     realaudio: bool | None = None
@@ -1458,14 +1456,7 @@ async def replan_take(take_id: str, body: ReplanIn | None = None) -> dict:
 def _base_title(title: str) -> str:
     """'Night drive · Tight' -> 'Night drive', so a variation of a variation is not 'X · Tight · Loose'."""
     head, sep, tail = title.rpartition(" \u00b7 ")
-    named = tail in INTERPRETATION_NAMES.values() or tail in ("new voice", "sung again", "finished")
-    return head if sep and (named or re.fullmatch(r"step \d+", tail)) else title
-
-
-def _lora_step(name: str) -> str:
-    """'fow_lora_step250.safetensors' -> 'step 250'; the LoRA a run finished with -> 'finished'."""
-    found = re.search(r"_step0*(\d+)\.safetensors$", name)
-    return f"step {found.group(1)}" if found else "finished"
+    return head if sep and (tail in INTERPRETATION_NAMES.values() or tail in ("new voice", "sung again")) else title
 
 
 # What Sing again leaves behind: the copy is a new take with its own audio and state.
@@ -1504,9 +1495,8 @@ async def revoice(take_id: str) -> dict:
 @app.post("/api/takes/{take_id}/variations")
 async def variations(take_id: str, body: VariationsIn) -> dict:
     _gpu_free_for_rendering()
-    """Render the same score and seed once in each chosen interpretation, or on each
-    chosen checkpoint of its style LoRA.  Each is a new take beside the original,
-    titled with its interpretation or its step."""
+    """Render the same score and seed once in each chosen interpretation.  Each is a
+    new take beside the original, titled with its interpretation."""
     take = one("SELECT * FROM takes WHERE id = ?", (take_id,))
     if not take:
         raise HTTPException(404, "no such take")
@@ -1514,17 +1504,7 @@ async def variations(take_id: str, body: VariationsIn) -> dict:
         raise HTTPException(400, "this take has no score to render again. Write a plan first.")
     _check_score(take["abc"], take["kind"])
     _checkpoint()
-    if (body.interpretations is None) == (body.style_loras is None):
-        raise HTTPException(400, "ask for interpretations or style LoRAs, not both")
-    if body.interpretations is not None:
-        wanted = [(name, take.get("style_lora"), INTERPRETATION_NAMES[name])
-                  for name in dict.fromkeys(_interpretation(name) for name in body.interpretations)]
-    else:
-        known = ENGINE.options.get("loras") or []
-        missing = [name for name in body.style_loras if name not in known]
-        if missing:
-            raise HTTPException(400, f"no such LoRA: {missing[0]}")
-        wanted = [(take["interpretation"], name, _lora_step(name)) for name in dict.fromkeys(body.style_loras)]
+    wanted = list(dict.fromkeys(_interpretation(name) for name in body.interpretations))
     base = _base_title(take["title"])
     now = time.time()
     created = []
@@ -1533,10 +1513,10 @@ async def variations(take_id: str, body: VariationsIn) -> dict:
     identity_val = (body.identity_id or body.persona_id) if (body.identity_id is not None or body.persona_id is not None) else (take.get("identity_id") or take.get("persona_id"))
     voice_lora = take.get("voice_lora") if body.voice_lora is None else (body.voice_lora or None)
     voice_lora_strength = take.get("voice_lora_strength", 1.0) if body.voice_lora_strength is None else body.voice_lora_strength
-    for offset, (name, style_lora, label) in enumerate(wanted):
+    for offset, name in enumerate(wanted):
         record = {
             "id": uuid.uuid4().hex[:12], "kind": take["kind"], "source_id": take["source_id"],
-            "title": f"{base} \u00b7 {label}", "style": take["style"], "lyrics": take["lyrics"],
+            "title": f"{base} \u00b7 {INTERPRETATION_NAMES[name]}", "style": take["style"], "lyrics": take["lyrics"],
             "abc": take["abc"], "mode": take["mode"], "seed": take["seed"], "checkpoint": config.CHECKPOINT,
             "max_duration": body.max_duration or take["max_duration"], "created_at": now + offset * 0.001,
             "variety": take["variety"],
@@ -1544,7 +1524,7 @@ async def variations(take_id: str, body: VariationsIn) -> dict:
             "realaudio": realaudio, "normalise": normalise, "identity_id": identity_val, "persona_id": identity_val,
             "voice_lora": voice_lora, "voice_lora_strength": voice_lora_strength,
             "voice_lora_clip": take.get("voice_lora_clip", 0.0),
-            "style_lora": style_lora,
+            "style_lora": take.get("style_lora"),
             "style_lora_model": take.get("style_lora_model", 1.0),
             "style_lora_clip": take.get("style_lora_clip", 1.0),
             "sound_seed": take.get("sound_seed"),
@@ -1561,7 +1541,7 @@ async def variations(take_id: str, body: VariationsIn) -> dict:
             record,
         )
         await QUEUE.put({"kind": "render", "id": record["id"]})
-        created.append({"id": record["id"], "title": record["title"], "interpretation": name, "style_lora": style_lora})
+        created.append({"id": record["id"], "title": record["title"], "interpretation": name})
     log.info("Queued %d variations for take '%s' (%s)", len(created), take.get("title") or take_id, take_id)
     return {"created": created}
 

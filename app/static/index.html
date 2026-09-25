@@ -274,6 +274,7 @@
         <button id="lora-install" type="button" class="chip action" title="Add a LoRA someone shared: the zip from their Download, or a .safetensors file">Install</button>
         <button id="lora-strengths" type="button" class="chip action hidden" title="Remember the current Planner and Sound for this LoRA: it starts at them whenever you choose it. Kept in its note, so they travel when you share it">Save strengths</button>
         <button id="lora-delete" type="button" class="chip action hidden" title="Remove this LoRA, its note and its group line from models/loras">Delete LoRA</button>
+        <button id="lora-steps" type="button" class="chip action hidden">Checkpoints</button>
         <input id="lora-install-file" type="file" accept=".zip,.safetensors" class="hidden">
         <span id="lora-install-status" class="status"></span>
       </div>
@@ -490,13 +491,33 @@
   </div>
 </div>
 
+<div id="steps-modal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Checkpoints">
+  <div class="modal-box narrow">
+    <div class="modal-head">
+      <strong id="steps-heading">Checkpoints</strong>
+      <button id="steps-close" class="ghost">Cancel</button>
+    </div>
+    <p id="steps-hint" class="hint"></p>
+    <div class="field">
+      <label for="steps-cap">Length cap <span class="muted">(seconds, for these takes only)</span></label>
+      <input id="steps-cap" type="number" step="10" min="10" max="900">
+    </div>
+    <div id="steps-list" class="variations-list"></div>
+    <div class="row">
+      <button id="steps-go" class="primary">Render</button>
+      <span id="steps-estimate" class="muted"></span>
+    </div>
+    <div id="steps-status" class="status"></div>
+  </div>
+</div>
+
 <div id="variations-modal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Variations">
   <div class="modal-box narrow">
     <div class="modal-head">
       <strong id="variations-heading">Variations</strong>
       <button id="variations-close" class="ghost">Cancel</button>
     </div>
-    <p id="variations-hint" class="hint"></p>
+    <p class="hint">The same score and seed, rendered in other interpretations. Each lands as its own take beside this one, named after its interpretation.</p>
     <div class="field">
       <label for="variations-cap">Length cap <span class="muted">(seconds, for these takes only)</span></label>
       <input id="variations-cap" type="number" step="10" min="10" max="900">

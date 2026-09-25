@@ -2,7 +2,7 @@
 import asyncio
 
 from app import config, jobs, lyrics
-from app.db import conn, execute, one
+from app.db import conn, one
 from app.jobs import LYRICS, QUEUE
 
 from conftest import make_take
@@ -79,28 +79,6 @@ def test_variations_copy_the_score_and_seed_in_each_interpretation(client):
     no_score = make_take(abc="")
     assert client.post(f"/api/takes/{no_score['id']}/variations", json={"interpretations": ["tight"]}).status_code == 400
     assert client.post(f"/api/takes/{take['id']}/variations", json={"interpretations": []}).status_code == 422
-
-
-def test_variations_on_other_checkpoints_of_the_style_lora(client, monkeypatch):
-    from app import jobs
-    names = ["fow_lora.safetensors", "fow_lora_step50.safetensors", "fow_lora_step250.safetensors"]
-    monkeypatch.setitem(jobs.ENGINE.options, "loras", names)
-    take = make_take(title="Night drive · step 50", abc=SCORE, seed=77)
-    execute("UPDATE takes SET style_lora = 'fow_lora_step50.safetensors', interpretation = 'loose' WHERE id = ?",
-            (take["id"],))
-    reply = client.post(f"/api/takes/{take['id']}/variations",
-                        json={"style_loras": ["fow_lora_step250.safetensors", "fow_lora.safetensors"]})
-    made = reply.json()["created"]
-    assert [m["title"] for m in made] == ["Night drive · step 250", "Night drive · finished"]
-    for item, lora in zip(made, ["fow_lora_step250.safetensors", "fow_lora.safetensors"]):
-        row = one("SELECT * FROM takes WHERE id = ?", (item["id"],))
-        assert (row["abc"], row["seed"], row["style_lora"], row["interpretation"]) == (SCORE, 77, lora, "loose")
-    for _ in made:
-        QUEUE.get_nowait()
-    url = f"/api/takes/{take['id']}/variations"
-    assert client.post(url, json={"style_loras": ["gone.safetensors"]}).status_code == 400
-    assert client.post(url, json={}).status_code == 400
-    assert client.post(url, json={"interpretations": ["wide"], "style_loras": names}).status_code == 400
 
 
 # ------------------------------------------------------------------------ lyrics
