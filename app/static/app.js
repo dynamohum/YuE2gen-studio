@@ -3488,7 +3488,8 @@ async function stopWrite() {
 }
 
 /* ---------------------------------------------------------------- identities
-   One singer's songs, prepared for training a voice.  The folder is only read;
+   A folder of songs (an artist, a genre, a few similar artists), prepared for
+   training a style LoRA.  The folder is only read;
    the app keeps its own copies, and the review happens here, song by song. */
 var IDENTITY = { view: 'list', id: null, data: null, open: {}, timer: null, browse: null };
 var PERSONA = IDENTITY;
