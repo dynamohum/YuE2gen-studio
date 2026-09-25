@@ -1,0 +1,57 @@
+<!doctype html>
+<!-- The README screenshots, one scene per #hash, over the demo library
+     (tools/demo-library.py).  Copied into app/static for the run, since it drives the
+     app in a same-origin frame, and removed afterwards.  Headless Chrome shoots it:
+
+       chrome --headless --hide-scrollbars --force-device-scale-factor=2 \
+         --window-size=1900,1500 --virtual-time-budget=9000 \
+         --screenshot=cover.png http://<app>/static/readme-shots.html#cover
+
+     Scenes: cover, comfy (Wide + Comfy), song, instrumental, lora, corpora, corpus. -->
+<html><body style="margin:0;background:#08080b">
+<iframe id="f" src="/" style="width:100vw;height:100vh;border:0;display:block"></iframe>
+<script>
+var scene = location.hash.slice(1);
+var f = document.getElementById('f');
+try {   // the app reads these on load: every scene starts from the same place
+  localStorage.setItem('yue2.space', 'demo00000001');
+  localStorage.setItem('yue2.layout', scene === 'comfy' ? 'comfy' : 'compact');
+  localStorage.setItem('yue2.width', 'wide');
+  localStorage.setItem('yue2.filter', 'all');
+} catch (e) {}
+f.onload = function () {
+  var w = f.contentWindow, d = w.document;
+  var calm = d.createElement('style');
+  calm.textContent = '*{animation:none!important;transition:none!important;caret-color:transparent!important}';
+  d.head.appendChild(calm);
+  function take(id) { return w.State.takes.filter(function (t) { return t.id === id; })[0]; }
+  function when(test, then, n) { n = n || 0; if (test() || n > 80) { then(); } else { setTimeout(function () { when(test, then, n + 1); }, 100); } }
+  when(function () { return w.State && w.State.takes && w.State.takes.length; }, function () {
+    function closed() { setTimeout(function () { d.getElementById('score-box').open = false; }, 300); }
+    if (scene === 'cover') {
+      w.setMode('cover'); w.selectTake(take('paperboats00'));
+      setTimeout(function () { d.getElementById('score-box').open = true;
+        var chart = d.getElementById('chord-chart'); if (chart && chart.textContent !== 'Hide chart') { chart.click(); } }, 400);
+    } else if (scene === 'comfy') {
+      w.setMode('song'); w.selectTake(take('glasshouse00')); closed();
+    } else if (scene === 'song') {
+      w.setMode('song'); w.selectTake(take('glasshousewi')); closed();
+    } else if (scene === 'instrumental') {
+      // A new one being set up, so the section builder shows rather than a plan.
+      w.setMode('inst'); w.confirm = function () { return true; }; d.getElementById('start-fresh').click(); closed();
+      setTimeout(function () {
+        d.getElementById('title').value = 'Copper Wire';
+        d.getElementById('style').value = 'downtempo, electric piano, upright bass, brushed drums, 88 BPM';
+        var harmony = d.getElementById('harmony'); harmony.value = 2; harmony.dispatchEvent(new w.Event('input', { bubbles: true }));
+        w.STRUCTURE.kind = 'sections'; w.paintStructure();
+      }, 400);
+    } else if (scene === 'lora') {
+      w.setMode('song'); w.selectTake(take('glasshouse00')); closed();
+      setTimeout(function () { var lora = d.getElementById('style-lora-field'); if (lora) { lora.scrollIntoView({ block: 'center' }); } }, 400);
+    } else if (scene === 'corpora' || scene === 'corpus') {
+      w.State.options.training_available = true;   // the trainer is in the engine; say so without waiting on it
+      w.openIdentities(); if (scene === 'corpus') { w.showIdentity('glassorchard'); }
+    }
+  });
+};
+</script></body></html>

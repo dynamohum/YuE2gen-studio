@@ -255,6 +255,9 @@ def main() -> int:
             feel=spec.get("feel", "steady"), realaudio=1 if spec["kind"] == "song" else 0,
             identity_id=IDENTITY["id"] if spec["kind"] == "song" else None,
             style_lora=spec.get("style_lora"),
+            # A healthy level: the borrowed audio may be a quiet render, which the
+            # cards would flag as weak.
+            loudness=-14.0,
         )
         cols = ",".join(row)
         con.execute(f"INSERT INTO takes ({cols}) VALUES ({','.join('?' * len(row))})",

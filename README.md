@@ -31,8 +31,8 @@ Covering a recording, with the score editor open:
 
 [![Cover a recording](docs/screenshots/cover-a-recording.png)](https://raw.githubusercontent.com/dynamohum/YuE2gen-studio/master/docs/screenshots/full/cover-a-recording.png)
 
-The same library in comfy cards, which trade a column for the whole prompt and every setting
-a take was made with. Compact, three across, is what you start with:
+The same library with **Wide** and **Comfy** on: the page fills the window, and each card shows
+the whole prompt and every setting the take was made with. Compact cards are what you start with:
 
 [![Comfy layout](docs/screenshots/comfy-layout.png)](https://raw.githubusercontent.com/dynamohum/YuE2gen-studio/master/docs/screenshots/full/comfy-layout.png)
 
