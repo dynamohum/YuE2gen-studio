@@ -888,8 +888,11 @@ label .lora-value:disabled { opacity: 0.6; }
 .job-next { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
 .job-next.hidden { display: none; }
 .job-next-head { font-size: 12px; margin-bottom: 6px; }
-.job-queue { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 5px; counter-reset: q; }
-.job-queue li { display: flex; gap: 8px; align-items: baseline; font-size: 12.5px; min-width: 0; counter-increment: q; }
+/* Five rows show; a longer queue scrolls rather than pushing the library off the screen. */
+.job-queue { margin: 0; padding: 0 4px 0 0; list-style: none; display: flex; flex-direction: column; gap: 5px; counter-reset: q;
+  max-height: calc(5 * 18px + 4 * 5px); overflow-y: auto; }
+.job-queue li { display: flex; gap: 8px; align-items: baseline; font-size: 12.5px; line-height: 18px; min-width: 0;
+  flex: 0 0 auto; counter-increment: q; }
 .job-queue li::before { content: counter(q) "."; color: var(--muted); min-width: 1.4em; }
 .job-queue .q-what { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .job-queue .q-kind { font-weight: 600; }
