@@ -237,7 +237,9 @@ def test_an_engine_error_names_the_node_and_its_exception_not_its_inputs():
                                        "cannot be represented on the decoded subbeat grid")
 
 
-def test_a_failed_transcription_is_tried_again_on_the_first_four_minutes(tmp_path, monkeypatch):
+def test_a_failed_transcription_is_tried_again_with_a_clean_ending(tmp_path, monkeypatch):
+    """Faded and padded with silence, so no note is sounding when the audio ends;
+    then melody-only, then the first four minutes, each ended the same way."""
     folder = tmp_path / "song"
     original = tone(folder / "original.flac", 250)
     execute("""INSERT INTO identity_songs(id, identity_id, file, title, sha256, duration, include, score_state, stored_path, position)
@@ -250,14 +252,14 @@ def test_a_failed_transcription_is_tried_again_on_the_first_four_minutes(tmp_pat
     async def engine(kind, ref_id, graph):
         mode, sent = graph["3"]["inputs"]["mode"], Path(graph["1"]["inputs"]["audio"])
         tried.append((mode, round(identities.probe(sent)["duration"])))
-        if len(tried) < 3:
+        if len(tried) < 4:
             raise RuntimeError("engine error: SheetSage2AudioToABC: MelodyVoiceError: cannot be represented")
         return {"outputs": {"4": {"text": ["X:1\nK:E\nQ:1/4=80\n|E|F|G|A|B|"]}}}
     monkeypatch.setattr(jobs, "_upload", upload)
     monkeypatch.setattr(jobs, "_run_graph", engine)
     monkeypatch.setattr(jobs, "extract_text_output", lambda job, *types: job["outputs"]["4"]["text"][0])
     asyncio.run(jobs.run_identity_job("identity_score", "s1"))
-    assert tried == [("full", 250), ("melody", 250), ("full", 240)]
+    assert tried == [("full", 250), ("full", 255), ("melody", 255), ("full", 245)]     # four minutes and five of silence
     row = one("SELECT score_state, key FROM identity_songs WHERE id = 's1'")
     assert (row["score_state"], row["key"]) == ("done", "E major")
 

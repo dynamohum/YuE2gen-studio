@@ -960,25 +960,35 @@ def _engine_error(job: dict) -> str:
     return json.dumps(messages)[-300:]
 
 
-# A corpus song's transcription, and what to try when it fails.  The transcriber can
-# refuse a whole song over one note it cannot place on its beat grid -- a 20 ms note
-# in the run-out groove at the end of a vinyl rip of A Day in the Life -- so, as the
-# trainer does, it is tried again melody-only, then on the first four minutes.
-TRANSCRIBE_TRIES = (("full", None), ("melody", None), ("full", 240), ("melody", 240))
+# A corpus song's transcription, and what to try when it fails.  The transcriber
+# refuses a whole song when a note is still sounding at the very end of the audio:
+# its beat grid stops short of the end, and a note there fits no cell.  A Day in the
+# Life failed on its final chord, at 315.51 s of 315.53, and cut at four minutes it
+# failed again at 239.94 s of 240.  So the retries end the audio cleanly -- a short
+# fade and a few seconds of silence -- then try melody-only, then the first four
+# minutes, as the trainer does.
+TRANSCRIBE_TRIES = (("full", None, False), ("full", None, True), ("melody", None, True),
+                    ("full", 240, True), ("melody", 240, True))
+FADE_SECONDS = 2
+PAD_SECONDS = 5
 
 
 async def _transcribe_corpus_song(kind: str, song_id: str, staged: Path, folder: Path) -> tuple[str, str]:
     """The score, and how it was got: "" the first way, else what it took."""
     failed: Exception | None = None
-    for mode, seconds in TRANSCRIBE_TRIES:
+    length = 0.0
+    for mode, seconds, ended in TRANSCRIBE_TRIES:
         path = staged
-        if seconds:
-            # Encoded again rather than copied: a copied FLAC keeps the whole song's
-            # length in its header.
-            path = folder / f"engine-copy-{seconds}s.flac"
-            await asyncio.to_thread(subprocess.run, ["ffmpeg", "-v", "error", "-y", "-i", str(staged), "-t", str(seconds),
+        if ended:
+            if not length:
+                length = (await asyncio.to_thread(identities.probe, staged)).get("duration") or 0.0
+            end = min(length, seconds) if seconds else length
+            path = folder / f"engine-copy-ended{f'-{seconds}s' if seconds else ''}.flac"
+            chain = (f"atrim=0:{end:.3f},afade=t=out:st={max(0.0, end - FADE_SECONDS):.3f}:d={FADE_SECONDS},"
+                     f"apad=pad_dur={PAD_SECONDS}")
+            await asyncio.to_thread(subprocess.run, ["ffmpeg", "-v", "error", "-y", "-i", str(staged), "-af", chain,
                                                      "-c:a", "flac", str(path)], check=True, capture_output=True, timeout=300)
-        name = await _upload(path, f"identity-{song_id}{f'-{seconds}s' if seconds else ''}{path.suffix}")
+        name = await _upload(path, f"identity-{song_id}-{path.stem}{path.suffix}")
         graph = build_transcribe_graph(name)
         graph["3"]["inputs"]["mode"] = mode
         try:
@@ -988,14 +998,18 @@ async def _transcribe_corpus_song(kind: str, song_id: str, staged: Path, folder:
             if not str(exc).startswith("engine error") or song_id in STOPPED_SONGS:
                 raise
             failed = exc
-            log.info("Transcription of corpus song %s failed (%s%s), trying another way: %s", song_id, mode,
-                     f", first {seconds}s" if seconds else "", str(exc)[:160])
+            log.info("Transcription of corpus song %s failed (%s%s%s), trying another way: %s", song_id, mode,
+                     ", ended cleanly" if ended else "", f", first {seconds}s" if seconds else "", str(exc)[:160])
             continue
         abc = extract_text_output(job, "SheetSage2AudioToABC", "PreviewAny") or ""
         if abc.count("|") >= 4:
-            how = "" if (mode, seconds) == TRANSCRIBE_TRIES[0] else \
-                f"{'melody only' if mode == 'melody' else 'melody and chords'}{f', first {seconds // 60} minutes' if seconds else ''}"
-            return abc, how
+            if (mode, seconds, ended) == TRANSCRIBE_TRIES[0]:
+                return abc, ""
+            parts = ["with its ending faded"] if ended else []
+            parts.append("melody only" if mode == "melody" else "melody and chords")
+            if seconds:
+                parts.append(f"first {seconds // 60} minutes")
+            return abc, ", ".join(parts)
     raise failed or RuntimeError("the transcription came back empty")
 
 
