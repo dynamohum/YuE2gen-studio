@@ -6,7 +6,7 @@ provider (e.g. OpenAI, Anthropic, Gemini, Groq, OpenRouter, Ollama, LM Studio).
 
 When enabled in Settings, the external LLM takes over:
 1. Lyrics generation (brief, style, structure -> parsed lyrics)
-2. Musical style tag description for corpus songs (title, artist, lyrics -> comma-separated tags)
+2. Musical style tag description for corpus songs (title, lyrics -> comma-separated tags)
 
 All significant actions (requests, completions, token usage, errors, test connections)
 are logged to the centralized logging system.
@@ -262,16 +262,14 @@ def clean_style_tags(raw: str, title: str = "") -> str:
     return ", ".join(cleaned_tags)[:300]
 
 
-async def describe_song_style(title: str, artist: str = "", lyrics_text: str = "") -> str:
+async def describe_song_style(title: str, lyrics_text: str = "") -> str:
     """Describe a corpus song's musical style as comma-separated tags using external LLM."""
-    log.info("Starting external LLM style description for '%s' (artist: '%s')", title, artist or "unknown")
+    log.info("Starting external LLM style description for '%s'", title)
 
     user_content = [
         "Describe the musical style of the following song for a music generator as one line of comma-separated tags: genre, lead instruments, drums and mood. Output only the tags.",
         f"\nSong: {title}",
     ]
-    if artist:
-        user_content.append(f"Artist: {artist}")
     if lyrics_text and lyrics_text.strip():
         user_content.append(f"Lyrics excerpt:\n{lyrics_text.strip()[:600]}")
 

@@ -573,7 +573,9 @@ def split_album(audio: Path, tracks: list[dict], dest: Path) -> list[dict]:
         cmd = ["ffmpeg", "-v", "error", "-y", "-ss", f"{track['start']:.3f}", "-i", str(audio)]
         if end is not None:
             cmd += ["-t", f"{end - track['start']:.3f}"]
+        # The performer the sheet names goes with it, so the file says who it is.
         cmd += ["-map", "0:a:0", "-map_metadata", "-1", "-metadata", f"title={title}",
+                *(["-metadata", f"artist={track['performer']}"] if track.get("performer") else []),
                 "-c:a", "flac", str(out)]
         subprocess.run(cmd, capture_output=True, check=True, timeout=900)
         made.append({**track, "title": title, "path": out})

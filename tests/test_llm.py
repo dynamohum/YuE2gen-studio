@@ -158,8 +158,10 @@ async def test_generate_lyrics_external_llm():
 async def test_describe_song_style_external_llm():
     with patch("app.llm.chat_complete", new_callable=AsyncMock) as mock_chat:
         mock_chat.return_value = "Like a Rolling Stone - folk rock, Hammond organ, electric guitar, loose driving backbeat, defiant"
-        tags = await llm.describe_song_style(title="Like a Rolling Stone", artist="Bob Dylan", lyrics_text="Once upon a time...")
+        tags = await llm.describe_song_style(title="Like a Rolling Stone", lyrics_text="Once upon a time...")
         assert tags == "folk rock, hammond organ, electric guitar, loose driving backbeat, defiant"
+        prompt = mock_chat.call_args[0][0][-1]["content"]
+        assert "Song: Like a Rolling Stone" in prompt and "Artist" not in prompt     # never an artist
 
 
 @pytest.mark.anyio
@@ -394,7 +396,7 @@ async def test_style_tags_have_room_for_a_thinking_model():
     """A thinking model spends max_tokens on its thought too; 150 left it one token."""
     with patch("app.llm.chat_complete", new_callable=AsyncMock) as mock_chat:
         mock_chat.return_value = "celtic folk, a cappella, ethereal"
-        await llm.describe_song_style(title="My Lagan Love", artist="Kate Bush")
+        await llm.describe_song_style(title="My Lagan Love")
         assert mock_chat.call_args.kwargs["max_tokens"] >= 2048
 
 
@@ -404,7 +406,7 @@ async def test_a_style_reply_with_no_words_is_a_failure_not_a_style():
         with patch("app.llm.chat_complete", new_callable=AsyncMock) as mock_chat:
             mock_chat.return_value = junk
             with pytest.raises(RuntimeError):
-                await llm.describe_song_style(title="My Lagan Love", artist="Kate Bush")
+                await llm.describe_song_style(title="My Lagan Love")
 
 
 @pytest.mark.anyio

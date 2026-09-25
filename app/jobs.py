@@ -1025,13 +1025,14 @@ async def run_identity_job(kind: str, song_id: str) -> None:
             maybe_draft(song_id)
         elif kind in ("identity_style", "persona_style"):
             if llm.is_external_enabled():
-                identity = one("SELECT * FROM identities WHERE id = ?", (song.get("identity_id"),)) if song.get("identity_id") else None
-                artist = (identity.get("name") if identity else None) or song.get("artist") or ""
+                # The title and the words only.  No artist: the corpus's name is whatever
+                # the user called the folder, and a model reads it as a band -- a corpus
+                # called "pepper" had Sgt. Pepper described as reggae rock, after the band
+                # Pepper.  A file's artist tag can be as wrong, or missing.
                 title = song.get("title") or song_title
                 lyrics_text = song.get("lyrics") or ""
-                log.info("Starting external LLM style analysis for corpus song '%s' by '%s' (%s)",
-                         title, artist, song_id)
-                hint = await llm.describe_song_style(title=title, artist=artist, lyrics_text=lyrics_text)
+                log.info("Starting external LLM style analysis for corpus song '%s' (%s)", title, song_id)
+                hint = await llm.describe_song_style(title=title, lyrics_text=lyrics_text)
                 set_song(song_id, style_hint=hint, style_state="done")
                 log.info("Finished external LLM style analysis for corpus song '%s': %s", song_title, hint[:60] + "..." if len(hint) > 60 else hint)
             else:

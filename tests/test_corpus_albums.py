@@ -84,6 +84,8 @@ def test_an_album_is_split_into_songs_in_its_place(client, tmp_path, monkeypatch
     for track in tracks:
         path = Path(track["file"])
         assert identities.is_track(path) and path.is_file()
+    # Each track names its performer, from the sheet.
+    assert [identities.probe(Path(t["file"]))["artist"] for t in tracks] == ["The Band", "Someone Else", "The Band"]
     assert sorted(p.name for p in folder.iterdir()) == ["A Single.flac", "Album.cue", "Album.flac"]   # only read
     assert one("SELECT id FROM identity_songs WHERE id = ?", (album["id"],)) is None
     assert client.post(url + "/split").status_code == 404
@@ -198,3 +200,28 @@ def test_a_track_is_linked_into_its_song_not_copied(tmp_path):
     kept.parent.mkdir(parents=True)
     jobs._store_original(own, kept)
     assert kept.stat().st_ino != own.stat().st_ino and own.stat().st_nlink == 1
+
+
+def test_style_analysis_sends_the_title_and_words_never_an_artist(tmp_path, monkeypatch):
+    """The corpus name is whatever the folder was called: 'pepper' had Sgt. Pepper
+    described as reggae rock, after the band Pepper.  A file's artist tag is not sent
+    either."""
+    import subprocess
+    from app import llm
+    song = tmp_path / "song.flac"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "sine=duration=2", "-metadata", "artist=Pepper",
+                    str(song)], check=True)
+    execute("INSERT INTO identities(id, name, trigger_word, folder, consent, created_at) VALUES('c1', 'pepper', 'pepper', '/x', 1, 0)")
+    execute("""INSERT INTO identity_songs(id, identity_id, file, title, sha256, duration, include, style_state, stored_path,
+                                          lyrics, position)
+               VALUES('s1', 'c1', 'a.flac', 'Lovely Rita', 'x', 100, 1, 'queued', ?, 'Lovely Rita, meter maid', 0)""", (str(song),))
+    asked = {}
+
+    async def describe(**kwargs):
+        asked.update(kwargs)
+        return "music hall, piano"
+    monkeypatch.setattr(llm, "is_external_enabled", lambda: True)
+    monkeypatch.setattr(llm, "describe_song_style", describe)
+    asyncio.run(jobs.run_identity_job("identity_style", "s1"))
+    assert asked == {"title": "Lovely Rita", "lyrics_text": "Lovely Rita, meter maid"}
+    assert one("SELECT style_state FROM identity_songs WHERE id = 's1'")["style_state"] == "done"
