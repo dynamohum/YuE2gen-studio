@@ -309,3 +309,60 @@ def test_checkpoints_are_deleted_when_training_ends_if_settings_says_so(client, 
     client.put("/api/settings", json={"key": "training.checkpoints", "value": "keep"})
     listed = {item["key"]: item for item in client.get("/api/settings").json()["settings"]}
     assert listed["training.checkpoints"]["value"] == "keep"
+
+
+def test_a_previous_run_is_kept_under_a_dated_name_or_deleted(tmp_path):
+    """Training again under a name that has a LoRA would replace it, and leave any
+    checkpoints past the new run's end looking like its own."""
+    import os
+    from app import loras
+    root = tmp_path / "loras"
+    root.mkdir()
+    for stem in ("pepper_lora", "pepper_lora_step50", "pepper_lora_step600", "other_lora"):
+        (root / f"{stem}.safetensors").write_bytes(b"x")
+        loras.write_note(root / f"{stem}.safetensors", "pepper", "pepper", title=stem)
+    (root / "pepper_lora.txt").write_text("pepper\nTrigger: pepper\nStyle: 60s rock\n", encoding="utf-8")
+    (root / "pepper_lora_log.json").write_text("[]", encoding="utf-8")
+    when = 1790337600          # 25 Sep 2026
+    for path in root.glob("pepper_lora*.safetensors"):
+        os.utime(path, (when, when))
+
+    found = loras.previous_run("pepper_lora", root)
+    assert found["files"] == 3 and found["day"].endswith("Sep")
+    new = loras.set_aside("pepper_lora", root, "pepper")
+    assert new.startswith("pepper_lora_2026")
+    assert sorted(p.name for p in root.glob("pepper_lora*.safetensors")) == [
+        f"{new}.safetensors", f"{new}_step50.safetensors", f"{new}_step600.safetensors"]
+    note = (root / f"{new}.txt").read_text(encoding="utf-8").split("\n")
+    assert note[0].startswith("pepper · ") and note[0].endswith("(previous)") and "Style: 60s rock" in note
+    assert (root / f"{new}_step50.txt").read_text(encoding="utf-8").startswith("pepper · ")
+    assert loras.families(root)[new.lower()] == loras.PREVIOUS_FAMILY
+    assert (root / f"{new}_log.json").is_file() and loras.previous_run("pepper_lora", root) is None
+    assert (root / "other_lora.safetensors").is_file()                         # nothing else touched
+
+    for stem in ("pepper_lora", "pepper_lora_step50"):
+        (root / f"{stem}.safetensors").write_bytes(b"x")
+    assert loras.delete_run("pepper_lora", root) == 2
+    assert loras.previous_run("pepper_lora", root) is None and (root / f"{new}.safetensors").is_file()
+
+
+def test_training_again_asks_what_to_do_with_the_last_run(client, tmp_path, monkeypatch):
+    from app import loras, main
+    root = tmp_path / "loras"
+    root.mkdir()
+    monkeypatch.setattr(loras, "folder", lambda: root)
+    a_corpus()
+    ident = one("SELECT * FROM identities WHERE id = 'corpus1'")
+    base = main._lora_base(ident)
+    (root / f"{base}.safetensors").write_bytes(b"x")
+    view = client.get("/api/identities/corpus1").json()
+    assert view["previous_lora"]["name"] == base and view["previous_lora"]["keep_as"].endswith("(previous)")
+    monkeypatch.setattr(main, "_engine_free_for_training", lambda: None)
+    monkeypatch.setattr(config, "ENGINE_INPUT_DIR", tmp_path / "engine-input")
+    assert client.post("/api/identities/corpus1/train", json={}).status_code == 409      # must choose
+    made = client.post("/api/identities/corpus1/train", json={"previous": "keep"})
+    assert made.status_code == 200
+    assert not (root / f"{base}.safetensors").exists() and list(root.glob(f"{base}_2*.safetensors"))
+    from app import jobs
+    while not jobs.QUEUE.empty():
+        jobs.QUEUE.get_nowait()

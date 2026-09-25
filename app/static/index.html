@@ -464,6 +464,23 @@
   </div>
 </div>
 
+<div id="train-modal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Train a LoRA">
+  <div class="modal-box narrow">
+    <div class="modal-head">
+      <strong id="train-heading">Train a LoRA</strong>
+      <button id="train-close" class="ghost">Cancel</button>
+    </div>
+    <p id="train-about" class="hint"></p>
+    <div id="train-previous" class="field hidden">
+      <label id="train-previous-label"></label>
+      <label class="check"><input type="radio" name="train-previous" value="keep" checked> <span id="train-keep-text"></span></label>
+      <label class="check"><input type="radio" name="train-previous" value="delete"> Delete it, with its checkpoints</label>
+    </div>
+    <button id="train-go" class="primary">Train</button>
+    <div id="train-status" class="status"></div>
+  </div>
+</div>
+
 <div id="write-modal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Write lyrics">
   <div class="modal-box narrow">
     <div class="modal-head">

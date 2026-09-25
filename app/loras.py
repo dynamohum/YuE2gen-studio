@@ -219,6 +219,93 @@ def remove(name: str, root: Path | None = None) -> list[str]:
     return gone
 
 
+# ------------------------------------------------------------ a previous run
+# Training again under a name that already has a LoRA would replace it, and leave
+# behind any checkpoints past the new run's last step, looking like its own.  So
+# before a run starts, the last one's files are set aside under a dated name, or
+# deleted, as the user chooses.
+PREVIOUS_FAMILY = "Previous runs"
+
+
+def run_files(base: str, root: Path) -> list[Path]:
+    """The LoRA files a training run left under this name: the LoRA, its trainer's
+    best copy and its checkpoints.  Notes and the log travel with them."""
+    found = [root / f"{base}.safetensors", root / f"{base}_best.safetensors",
+             *sorted(root.glob(f"{base}_step*.safetensors"))]
+    return [path for path in found if path.is_file() and re.fullmatch(rf"{re.escape(base)}(_best|_step\d+)?", path.stem)]
+
+
+def previous_run(base: str, root: Path | None) -> dict | None:
+    """What is already there under this run name, if anything: how many files, and
+    the day it was trained."""
+    files = run_files(base, root) if root else []
+    if not files:
+        return None
+    trained = max(path.stat().st_mtime for path in files)
+    when = time.localtime(trained)          # "%-d" is not on Windows, where this also runs
+    return {"files": len(files), "trained": trained, "day": f"{when.tm_mday} {time.strftime('%b', when)}"}
+
+
+def _drop_family(stem: str, root: Path) -> None:
+    listing = root / "families.txt"
+    if not listing.is_file():
+        return
+    lines = listing.read_text(encoding="utf-8").split("\n")
+    kept = [line for line in lines if line.strip().startswith("#") or line.partition("=")[0].strip().lower() != stem.lower()]
+    if len(kept) != len(lines):
+        listing.write_text("\n".join(kept), encoding="utf-8")
+
+
+def _add_family(stem: str, family: str, root: Path) -> None:
+    listing = root / "families.txt"
+    existing = listing.read_text(encoding="utf-8") if listing.is_file() else ""
+    joiner = "" if not existing or existing.endswith("\n") else "\n"
+    listing.write_text(existing + joiner + f"{stem.lower()} = {family}\n", encoding="utf-8")
+
+
+def set_aside(base: str, root: Path, title: str) -> str:
+    """Rename a previous run's files to a dated name, retitled "<title> · <day>
+    (previous)", in a group of their own.  Returns the new name."""
+    info = previous_run(base, root)
+    if not info:
+        return base
+    stamp = time.strftime("%Y%m%d", time.localtime(info["trained"]))
+    new = f"{base}_{stamp}"
+    if any(root.glob(f"{new}*.safetensors")):
+        new = f"{base}_{time.strftime('%Y%m%d_%H%M', time.localtime(info['trained']))}"
+    label = f"{title} · {info['day']} (previous)"
+    for path in run_files(base, root):
+        old_stem = path.stem
+        if old_stem.endswith("_best"):
+            path.unlink()              # the trainer's copy of the LoRA itself
+            continue
+        suffix = old_stem[len(base):]
+        new_stem = new + suffix
+        path.rename(root / f"{new_stem}.safetensors")
+        note = root / f"{old_stem}.txt"
+        lines = note.read_text(encoding="utf-8").split("\n") if note.is_file() else [""]
+        lines[0] = label + (f" · step {suffix[5:].lstrip('0') or '0'}" if suffix.startswith("_step") else "")
+        (root / f"{new_stem}.txt").write_text("\n".join(lines).rstrip("\n") + "\n", encoding="utf-8")
+        note.unlink(missing_ok=True)
+        _drop_family(old_stem, root)
+        _add_family(new_stem, PREVIOUS_FAMILY, root)
+    log_file = root / f"{base}_log.json"
+    if log_file.is_file():
+        log_file.rename(root / f"{new}_log.json")
+    log.info("set the previous %s aside as %s", base, new)
+    return new
+
+
+def delete_run(base: str, root: Path) -> int:
+    """Delete a previous run's LoRA, its checkpoints, their notes and its log."""
+    files = run_files(base, root)
+    for path in files:
+        remove(path.name, root)
+    (root / f"{base}_log.json").unlink(missing_ok=True)
+    log.info("deleted the previous %s: %d files", base, len(files))
+    return len(files)
+
+
 # The group a LoRA installed from someone else's bundle goes in.
 INSTALLED_FAMILY = "Installed"
 

@@ -207,6 +207,7 @@ async function pollState() {
     var engine = data.engine;
     State.options = data.options || {};
     State.training = data.training || null;
+    State.currentJob = data.current || null;
     // No way in to a workflow that is switched off. Here rather than at
     // wiring time, because the options this reads arrive with the state, not before it.
     // Hidden rather than disabled: a greyed-out row invites a hunt for how to enable it.
@@ -3744,7 +3745,66 @@ function renderIdentityActions(data) {
     '<span id="identity-status" class="status"></span>' +
     (isAnalysing ? '<div class="identity-working">' + identityWorking(data) + '</div>' : '') +
     (isExporting ? '<div class="identity-working">' + identityExporting(data.exporting) + '</div>' : '') +
+    (isTraining ? '<div class="identity-working">' + identityTraining(State.training) + '</div>' : '') +
   '</div>';
+}
+
+/* Training, from the corpus window: what it will do, and what happens to a LoRA an
+   earlier run left under the same name -- kept under a dated name, or deleted. */
+function openTrain() {
+  var data = IDENTITY.data || {};
+  var included = (data.songs || []).filter(function (song) { return song.include; }).length;
+  $('train-heading').textContent = 'Train a LoRA from ' + (data.name || 'this corpus');
+  $('train-about').textContent = 'From ' + included + ' song' + (included === 1 ? '' : 's') + '. It can take a long time, and the GPU ' +
+    'is not available to the app until it finishes. Progress shows here and on the main screen, where you can stop it.';
+  var previous = data.previous_lora;
+  $('train-previous').classList.toggle('hidden', !previous);
+  if (previous) {
+    $('train-previous-label').textContent = 'This corpus already has a LoRA, trained ' + previous.day + '.';
+    $('train-keep-text').textContent = 'Keep it, as \u201c' + previous.keep_as + '\u201d';
+    document.querySelector('input[name="train-previous"][value="keep"]').checked = true;
+  }
+  $('train-status').textContent = '';
+  $('train-go').disabled = false;
+  $('train-modal').classList.remove('hidden');
+}
+
+function closeTrain() { $('train-modal').classList.add('hidden'); }
+
+async function runTrain() {
+  var data = IDENTITY.data || {};
+  var body = {};
+  if (data.previous_lora) { body.previous = document.querySelector('input[name="train-previous"]:checked').value; }
+  $('train-go').disabled = true;
+  try {
+    var started = await api('/api/identities/' + IDENTITY.id + '/train', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+    });
+    closeTrain();
+    await pollState();
+    pollIdentity();
+    var note = $('identity-status');
+    if (note) {
+      note.textContent = 'Training ' + started.lora_name + ' from ' + started.songs + ' songs, ' + started.steps + ' steps.';
+      note.className = 'status good';
+    }
+  } catch (err) {
+    $('train-status').textContent = err.message;
+    $('train-status').className = 'status bad';
+    $('train-go').disabled = false;
+  }
+}
+
+/* How far the training of this corpus's LoRA has got. */
+function identityTraining(run) {
+  var job = State.currentJob && State.currentJob.kind === 'train' ? State.currentJob : null;
+  var what = (job && (job.label || job.stage)) || run.stage || (run.state === 'queued' ? 'Waiting for the engine' : 'Starting');
+  var steps = job && job.value && job.max ? ' \u00b7 ' + job.value + ' of ' + job.max : '';
+  var progress = job && job.progress ? job.progress : run.progress;
+  var pct = progress > 0 ? ', ' + Math.round(progress * 100) + '%' : '';
+  var elapsed = (job && job.elapsed) || run.elapsed;
+  var since = elapsed ? ' \u00b7 ' + clock(elapsed) : '';
+  return 'Training ' + esc(run.lora_name || 'the LoRA') + ': ' + esc(what) + steps + pct + since;
 }
 
 /* How far writing the training set has got. */
@@ -3833,7 +3893,8 @@ async function pollIdentity() {
       if (cap) { cap.textContent = song.caption; }
     });
   }
-  IDENTITY.timer = setTimeout(pollIdentity, data && (data.busy || data.exporting) ? 2000 : 8000);
+  var trainingHere = State.training && data && State.training.identity_id === data.id;
+  IDENTITY.timer = setTimeout(pollIdentity, data && (data.busy || data.exporting || trainingHere) ? 2000 : 8000);
 }
 var pollPersona = pollIdentity;
 
@@ -4051,19 +4112,7 @@ async function identityClick(event) {
     return;
   }
   if (target.closest('#identity-train') || target.closest('#persona-train')) {
-    var included = (IDENTITY.data.songs || []).filter(function (song) { return song.include; }).length;
-    if (!confirm('Train a LoRA from ' + included + ' song' + (included === 1 ? '' : 's') + '?\n\n' +
-        'Note that this can take a long time (maybe hours) and the GPU will not be available to the app for the duration of the training. ' +
-        'Progress is visible on the main screen, where you can monitor or stop it.')) { return; }
-    try {
-      var started = await api('/api/identities/' + IDENTITY.id + '/train', { method: 'POST' });
-      closeIdentities();
-      statusLine('Training ' + started.lora_name + ' from ' + started.songs + ' songs. ' +
-                 'The GPU is busy until it finishes.', 'good');
-    } catch (err) {
-      var trainStatus = $('identity-status');
-      if (trainStatus) { trainStatus.textContent = err.message; trainStatus.className = 'status bad'; }
-    }
+    openTrain();
     return;
   }
   if (target.closest('#identity-install') || target.closest('#persona-install')) {
@@ -6020,6 +6069,16 @@ function wire() {
   $('steps-modal').addEventListener('click', function (event) {
     if (backdropClick(event, $('steps-modal'))) { closeLoraSteps(); }
   });
+  // Guarded: the page is read once when the app starts and the script on every load,
+  // so a new script can meet an old page until the app restarts.  Missing parts of the
+  // page must not stop the rest of it being wired.
+  if ($('train-modal')) {
+    $('train-close').addEventListener('click', closeTrain);
+    $('train-go').addEventListener('click', runTrain);
+    $('train-modal').addEventListener('click', function (event) {
+      if (backdropClick(event, $('train-modal'))) { closeTrain(); }
+    });
+  }
   $('variations-close').addEventListener('click', closeVariations);
   $('variations-go').addEventListener('click', doVariations);
   $('variations-list').addEventListener('change', paintVariationsEstimate);
@@ -6476,6 +6535,7 @@ function wire() {
     if (event.key === 'Escape' && !$('sung-modal').classList.contains('hidden')) { closeSungWarning(); return; }
     if (event.key === 'Escape' && !$('move-modal').classList.contains('hidden')) { closeMoveModal(); return; }
     var idModal = $('identities-modal') || $('personas-modal');
+    if (event.key === 'Escape' && $('train-modal') && !$('train-modal').classList.contains('hidden')) { closeTrain(); return; }
     if (event.key === 'Escape' && idModal && !idModal.classList.contains('hidden')) { closeIdentities(); return; }
     if (event.key === 'Escape' && !$('write-modal').classList.contains('hidden')) { closeWrite(); return; }
     if (event.key === 'Escape' && !$('variations-modal').classList.contains('hidden')) { closeVariations(); return; }

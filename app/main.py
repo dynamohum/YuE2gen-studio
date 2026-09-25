@@ -27,6 +27,7 @@ import uuid
 import zipfile
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Literal
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
@@ -844,6 +845,8 @@ def state() -> dict:
             "state": training["state"],
             "steps": training["steps"],
             "rank": training["rank"],
+            "stage": training["stage"],
+            "progress": training["progress"],
             "elapsed": round(time.time() - training["started_at"], 1) if training["started_at"] else 0,
         },
         "queue": queue_view(),
@@ -1578,6 +1581,8 @@ def _identity_view(identity: dict) -> dict:
     return {**identity, "songs": songs, "busy": busy,
             "working": jobs.identity_working({s["id"] for s in songs}) if busy else None,
             "exporting": EXPORTING.get(identity["id"]),
+            # A LoRA already trained under this corpus's name, for the Train window to ask about.
+            "previous_lora": _previous_lora(identity),
             # Redraft marks the sections from the words, which needs the external LLM.
             "external_llm": llm.is_external_enabled(),
             "summary": {"songs": len(songs), "included": len(chosen),
@@ -1587,6 +1592,12 @@ def _identity_view(identity: dict) -> dict:
 
 
 _persona_view = _identity_view
+
+
+def _previous_lora(identity: dict) -> dict | None:
+    base = _lora_base(identity)
+    found = loras.previous_run(base, loras.folder())
+    return {**found, "name": base, "keep_as": f"{identity['name']} · {found['day']} (previous)"} if found else None
 
 
 def _song_source(identity: dict, song: dict) -> Path:
@@ -2022,6 +2033,14 @@ def _gpu_free_for_rendering() -> None:
 class TrainIn(BaseModel):
     steps: int | None = Field(None, ge=50, le=50000)
     rank: int | None = Field(None, ge=4, le=128)
+    # What to do with the LoRA a previous run left under the same name.
+    previous: Literal["keep", "delete"] | None = None
+
+
+def _lora_base(identity: dict) -> str:
+    """The name a corpus's LoRA is trained under: the corpus name, made safe."""
+    name = re.sub(r"[^a-z0-9]+", "_", (identity["name"] or "corpus").lower()).strip("_")[:40] or "corpus"
+    return f"{name}_lora"
 
 
 def _training_built_in() -> None:
@@ -2055,12 +2074,26 @@ async def train_identity(identity_id: str, body: TrainIn | None = None) -> dict:
     if not config.ENGINE_INPUT_DIR:
         raise HTTPException(503, "The app cannot see the engine's input folder, so it cannot hand it the set.")
 
+    base = _lora_base(identity)
+    root = loras.folder()
+    if loras.previous_run(base, root):
+        choice = body.previous if body else None
+        if choice not in ("keep", "delete"):
+            raise HTTPException(409, f"{base} already exists: say whether to keep it or delete it")
+        if choice == "keep":
+            kept = await asyncio.to_thread(loras.set_aside, base, root, identity["name"])
+            log.info("Kept the previous LoRA of corpus '%s' as %s", identity["name"], kept)
+        else:
+            await asyncio.to_thread(loras.delete_run, base, root)
+            log.info("Deleted the previous LoRA of corpus '%s' before training again", identity["name"])
+        with contextlib.suppress(Exception):
+            await ENGINE.refresh_options()
+
     run_id = uuid.uuid4().hex[:12]
-    name = re.sub(r"[^a-z0-9]+", "_", (identity["name"] or "corpus").lower()).strip("_")[:40] or "corpus"
     run = {
         "id": run_id,
         "identity_id": identity_id,
-        "lora_name": f"{name}_lora",
+        "lora_name": base,
         "steps": (body.steps if body and body.steps else config.train_steps(len(songs))),
         "rank": (body.rank if body and body.rank else config.TRAIN_RANK),
     }
