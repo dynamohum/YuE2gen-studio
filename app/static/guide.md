@@ -258,7 +258,8 @@ The **Vocal** chips set the singer's sex and character by writing into the style
 
 ## Corpora and training a LoRA
 
-A **corpus** is a folder of one artist's songs, prepared as a training set for a style LoRA.
+A **corpus** is a folder of songs, prepared as a training set for a style LoRA: typically one
+artist, one genre, or a few similar artists.
 Open **Corpora** from the menu. It is on by default; `TRAINING_ENABLED=0` for the app, or an
 engine built with `WITH_TRAINER=0`, takes it out.
 

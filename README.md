@@ -7,7 +7,7 @@ then pull the stems out of the result.
 - **Song from a prompt:** write a score plan from a style and lyrics, edit it, render it.
 - **Cover a recording:** transcribe your song, change its melody and chords, render a new version.
 - **Instrumentals:** build the structure section by section.
-- **Style LoRAs:** use published ones, or train your own from a folder of one artist's songs.
+- **Style LoRAs:** use published ones, or train your own from a folder of songs.
 - **Lyrics:** draft them from a sentence, or extract them from a recording.
 - **Stems:** split any take into vocals, drums, bass and more.
 - **A library:** spaces, stars, and every take's settings kept so it can be made again.
@@ -69,8 +69,8 @@ Writing an instrumental, with the structure built section by section:
   **Variations** renders one take in the others, so you can compare them by ear.
 - **Choose the voice.** Chips set female, male or duet and a voice character. YuE2 has no vocal
   parameter, so the chips write into the style text, and the take keeps the choice.
-- **Train a LoRA from your own songs.** Prepare a corpus from a folder of one artist's songs and
-  train a style LoRA from it. It shows most in a song from a prompt, where the LoRA writes the
+- **Train a LoRA from your own songs.** Prepare a corpus from a folder of songs, by one artist,
+  in one genre or by a few similar artists, and train a style LoRA from it. It shows most in a song from a prompt, where the LoRA writes the
   tune. See Training a LoRA below.
 - **Lean on a style LoRA.** Drop other people's trained files into `models/loras/` and pick one
   from a list, with separate strengths for the score and the sound. See Style LoRAs below.
@@ -116,9 +116,10 @@ will not end.
 
 ## Training a LoRA
 
-Open **Corpora** from the menu. The app prepares a **corpus** — a folder of one artist's songs,
-each vocal separated, its key, tempo and sections found and its lyrics drafted — exports it as a
-training set, and trains a style LoRA from it. Training holds the GPU until it finishes, and the
+Open **Corpora** from the menu. The app prepares a **corpus**: a folder of songs. Typically this
+would be of an artist or genre to use when training your LoRA. Each track gets its vocal
+separated, its key, tempo and sections found and its lyrics drafted. You then export it as a
+training set, and train a style LoRA from it. Training holds the GPU until it finishes, and the
 LoRA appears in the Style LoRA list, with a style chip for each song it learned from. Training
 also saves a checkpoint every 50 steps, listed under **Training checkpoints**. Each gives its own
 take on the style. With the LoRA chosen, **Checkpoints** beside **Delete LoRA** makes what the
