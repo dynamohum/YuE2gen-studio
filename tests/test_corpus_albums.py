@@ -184,3 +184,17 @@ def test_a_stopped_gpu_step_goes_back_to_not_started(monkeypatch):
     asyncio.run(run())
     row = one("SELECT score_state, error FROM identity_songs WHERE id = 's1'")
     assert (row["score_state"], row["error"]) == ("none", "stopped")
+
+
+def test_a_track_is_linked_into_its_song_not_copied(tmp_path):
+    track = tone(identities.tracks_dir("c1") / "album-a1" / "01 First.flac", 3)
+    stored = tmp_path / "songs" / "first" / "original.flac"
+    stored.parent.mkdir(parents=True)
+    jobs._store_original(track, stored)
+    assert stored.stat().st_ino == track.stat().st_ino and track.stat().st_nlink == 2
+    # A song from the user's own folder is still copied: that folder may change.
+    own = tone(tmp_path / "import" / "Song.flac", 3)
+    kept = tmp_path / "songs" / "song" / "original.flac"
+    kept.parent.mkdir(parents=True)
+    jobs._store_original(own, kept)
+    assert kept.stat().st_ino != own.stat().st_ino and own.stat().st_nlink == 1

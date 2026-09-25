@@ -789,6 +789,19 @@ def identity_working(song_ids: set[str]) -> dict | None:
 persona_worker = identity_worker
 
 
+def _store_original(source: Path, stored: Path) -> None:
+    """The song's own copy, so the corpus survives its folder changing.  A track the
+    app cut from an album already lives in the corpus's own folder, so it is linked
+    instead: the same file under a second name, taking no more space."""
+    if identities.is_track(source):
+        try:
+            os.link(source, stored)
+            return
+        except OSError:
+            pass    # a filesystem without links: copy after all
+    shutil.copy2(source, stored)
+
+
 async def prepare_song(song_id: str) -> None:
     """Copy in, separate the vocal, and transcribe it with Whisper, skipping whatever
     is already done.  Key and tempo, and the style hint, go to the GPU lane."""
@@ -814,7 +827,7 @@ async def prepare_song(song_id: str) -> None:
     folder.mkdir(parents=True, exist_ok=True)
     stored = folder / f"original{source.suffix.lower()}"
     if not stored.exists():
-        await asyncio.to_thread(shutil.copy2, source, stored)
+        await asyncio.to_thread(_store_original, source, stored)
     set_song(song_id, stored_path=str(stored))
     song_title = song.get("title") or song.get("file")
     log.info("Preparing corpus song '%s' for '%s' (separating vocals, transcribing)", song_title, identity["name"])
