@@ -231,7 +231,10 @@ Function .onInit
       SectionSetText ${SecLyrics} "Gemma 4 (installed)"
       StrCpy $LyricsText "Gemma 4 is already on this PC, so nothing is downloaded for it. Leave it ticked to keep using it for lyric drafts and song analysis. Unticking it does not remove it."
     ${ElseIf} $1 != 1
+      ; Left out when installing, most likely for an external LLM: it stays out
+      ; unless ticked now, and the page says why it is not ticked.
       !insertmacro UnselectSection ${SecLyrics}
+      StrCpy $LyricsText "Gemma 4 was left out when ${APPNAME} was installed, so lyric drafts and song analysis use the external LLM set in Settings. It stays out unless you tick it; ticking it downloads about 8 GB."
     ${EndIf}
   ${Else}
     StrCpy $WelcomeTitle "Install ${APPNAME}"
