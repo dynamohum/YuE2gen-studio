@@ -1788,11 +1788,13 @@ function paintCorporaBadge() {
     if (item.total && item.done < item.total && !unfinished) { unfinished = item; }
     if (item.started && !started) { started = item; }
   });
+  // A corpus whose LoRA is training is the one to show, and it is busy until it ends.
+  var training = State.training ? progress[State.training.identity_id] : null;
   var savedActive = null;
   try { savedActive = localStorage.getItem('yue2_active_corpus'); } catch (e) {}
-  // Active corpus takes precedence: open in view, busy working, unfinished,
+  // Active corpus takes precedence: training, open in view, busy working, unfinished,
   // recently active/opened, saved in storage, or most recent.
-  var active = (IDENTITY.id && progress[IDENTITY.id]) ||
+  var active = training || (IDENTITY.id && progress[IDENTITY.id]) ||
                busy ||
                unfinished ||
                (State.activeCorpus && progress[State.activeCorpus]) ||
@@ -1805,20 +1807,26 @@ function paintCorporaBadge() {
   State.activeCorpus = shown ? shown.id : null;
   button.classList.remove('hidden');
   button.classList.add('shown');
-  button.classList.toggle('busy', Boolean(busy));
+  button.classList.toggle('busy', Boolean(busy || training));
   var failed = 0;
   ids.forEach(function (id) { failed += Number(progress[id].failed) || 0; });
   // A settled failure is not work in progress, so it gets its own mark rather than
   // a pulse: the count alone would read as a corpus that never finished.
-  button.classList.toggle('trouble', failed > 0 && !busy);
+  button.classList.toggle('trouble', failed > 0 && !busy && !training);
   var name = shown ? shown.name : 'Corpora';
   var text = esc(name || 'Corpora');
-  if (shown && (shown.started || shown.total)) {
+  var job = training && State.currentJob && State.currentJob.kind === 'train' ? State.currentJob : null;
+  var trainPct = job && job.progress ? ' ' + Math.round(job.progress * 100) + '%' : '';
+  if (training) {
+    text += ' <span class="count">training' + trainPct + '</span>';
+  } else if (shown && (shown.started || shown.total)) {
     text += ' <span class="count">' + shown.done + ' of ' + shown.total + '</span>';
   }
   if ($('corpora-text').innerHTML !== text) { $('corpora-text').innerHTML = text; }
   var trouble = failed ? ' ' + failed + (failed === 1 ? ' song did not analyse.' : ' songs did not analyse.') : '';
-  button.title = busy
+  button.title = training
+    ? training.name + ': training its LoRA' + (job && job.value && job.max ? ', step ' + job.value + ' of ' + job.max : '') + '. Click to open it.'
+    : busy
     ? busy.name + ': ' + busy.done + ' of ' + busy.total + ' songs settled, still working. Click to open it.'
     : (shown ? shown.name + ': ' + shown.done + ' of ' + shown.total + ' settled.' + trouble + ' Click to open it.'
              : 'Your corpora. Click to open them.');
