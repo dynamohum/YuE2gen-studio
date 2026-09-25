@@ -535,6 +535,24 @@
   </div>
 </div>
 
+<div id="save-modal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Save take">
+  <div class="modal-box narrow">
+    <div class="modal-head">
+      <strong id="save-heading">Save</strong>
+      <button id="save-close" class="ghost">Cancel</button>
+    </div>
+    <div class="field">
+      <label>Format</label>
+      <div class="seg" id="save-format" role="radiogroup">
+        <button type="button" data-format="flac" role="radio">FLAC</button>
+        <button type="button" data-format="wav" role="radio">WAV</button>
+        <button type="button" data-format="mp3" role="radio">MP3, 320 kbps</button>
+      </div>
+    </div>
+    <button id="save-run" class="primary">Save</button>
+  </div>
+</div>
+
 <div id="lyrics-modal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Lyrics editor">
   <div class="modal-box">
     <div class="modal-head">

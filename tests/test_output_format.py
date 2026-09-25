@@ -57,3 +57,15 @@ def test_save_hands_over_a_take_in_the_chosen_format(client, tmp_path):
 
     # Playing is always the FLAC as kept, whatever the setting.
     assert client.get(f"/api/takes/{take['id']}/audio").headers["content-type"] == "audio/flac"
+
+
+def test_save_can_ask_for_a_format_over_the_setting(client, tmp_path):
+    take = make_take(title="Pick", audio_path=str(tone(tmp_path / "take.flac", 1.0)))
+    url = f"/api/takes/{take['id']}/audio?download=1"
+    set_setting("stems.format", "mp3")
+
+    got = client.get(url + "&format=wav")
+    assert got.headers["content-type"] == "audio/wav" and "Pick.wav" in got.headers["content-disposition"]
+    got = client.get(url + "&format=flac")
+    assert got.headers["content-type"] == "audio/flac" and probe(got.content, tmp_path) == "flac"
+    assert client.get(url + "&format=ogg").status_code == 400

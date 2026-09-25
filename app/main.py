@@ -2093,12 +2093,15 @@ SAVE_FORMATS = {
 
 
 @app.get("/api/takes/{take_id}/audio")
-def take_audio(take_id: str, download: bool = False) -> FileResponse:
+def take_audio(take_id: str, download: bool = False, format: str | None = None) -> FileResponse:
+    if format and format not in SAVE_FORMATS:
+        raise HTTPException(400, "the format must be flac, wav or mp3")
     take = one("SELECT audio_path, title FROM takes WHERE id = ?", (take_id,))
     if not take or not take["audio_path"] or not Path(take["audio_path"]).exists():
         raise HTTPException(404, "no audio for this take")
     safe = "".join(ch for ch in (take["title"] or "take") if ch.isalnum() or ch in " -_")[:60].strip() or "take"
-    fmt = setting_value("stems.format") if download else "flac"
+    # A download is in the format asked for, else the one set in Settings.
+    fmt = (format or setting_value("stems.format")) if download else "flac"
     media, codec = SAVE_FORMATS.get(fmt, SAVE_FORMATS["flac"])
     if not codec:
         return FileResponse(take["audio_path"], media_type=media, filename=f"{safe}.flac")

@@ -2413,6 +2413,43 @@ function playStem(setId, file) {
   loadWave(audio.src, '/api/stem-sets/' + setId + '/' + encodeURIComponent(file) + '/peaks');
 }
 
+/* ---------------------------------------------------------------- save */
+/* Asks for the format, starting from the one set in Settings; the server converts
+   as it hands the file over. */
+function openSaveModal(take) {
+  State.saveTakeId = take.id;
+  $('save-heading').textContent = 'Save \u201c' + take.title + '\u201d';
+  pickSaveFormat(setting('stems.format', 'flac'));
+  $('save-modal').classList.remove('hidden');
+  $('save-run').focus();
+}
+
+function pickSaveFormat(format) {
+  Array.prototype.forEach.call($('save-format').querySelectorAll('button'), function (b) {
+    var on = b.dataset.format === format;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-checked', on ? 'true' : 'false');
+  });
+}
+
+function closeSaveModal() {
+  State.saveTakeId = null;
+  $('save-modal').classList.add('hidden');
+}
+
+function runSave() {
+  var id = State.saveTakeId;
+  var chosen = $('save-format').querySelector('button.active');
+  if (!id || !chosen) { return; }
+  var link = document.createElement('a');
+  link.href = '/api/takes/' + id + '/audio?download=1&format=' + chosen.dataset.format;
+  link.download = '';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  closeSaveModal();
+}
+
 /* ------------------------------------------------------ song mode and plans */
 function statusLine(message, kind) {
   var node = $('render-status');
@@ -3944,10 +3981,7 @@ function tile(kind, iconName, label, attrs, title) {
 }
 
 function downloadTile(take) {
-  // In the output format chosen in Settings; the server converts as it hands it over.
-  return '<a class="act save" href="/api/takes/' + take.id + '/audio?download=1" download' +
-    ' title="Download the audio, in the output format set in Settings" aria-label="Download the audio file">' +
-    icon('save') + '<span>Save</span></a>';
+  return tile('save', 'save', 'Save', 'data-act="save" data-id="' + take.id + '"', 'Download the audio file');
 }
 
 function stemsBlock(take) {
@@ -5595,11 +5629,6 @@ function wire() {
     paintBulk();
   });
   $('bulk-delete').addEventListener('click', function () { bulkDelete(); });
-  $('takes').addEventListener('click', function (event) {
-    // Save is an anchor, not a button, so the tile handler below never sees it.
-    var link = event.target.closest('a.save[href^="/api/takes/"]');
-    if (link) { selectTake(takeById(link.getAttribute('href').split('/')[3])); }
-  });
 
   var lastTitleClick = { time: 0, id: null };
   $('takes').addEventListener('click', function (event) {
@@ -5803,6 +5832,13 @@ function wire() {
       selectTake(opened);
       statusLine('Showing the score for ' + opened.title + '.', 'good');
       $('score-box').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    if (act === 'save') {
+      var saveTake = takeById(id);
+      if (saveTake) {
+        selectTake(saveTake);
+        openSaveModal(saveTake);
+      }
     }
     if (act === 'stems') {
       var stemTake = takeById(id);
@@ -6119,6 +6155,15 @@ function wire() {
   $('lora-install-file').addEventListener('change', installSharedLora);
   var btnTestLLM = $('btn-test-llm');
   if (btnTestLLM) { btnTestLLM.addEventListener('click', testLLMConnection); }
+  $('save-close').addEventListener('click', closeSaveModal);
+  $('save-run').addEventListener('click', runSave);
+  $('save-format').addEventListener('click', function (event) {
+    var b = event.target.closest('button[data-format]');
+    if (b) { pickSaveFormat(b.dataset.format); }
+  });
+  $('save-modal').addEventListener('click', function (event) {
+    if (backdropClick(event, $('save-modal'))) { closeSaveModal(); }
+  });
   $('stems-close').addEventListener('click', closeStemsModal);
   $('stems-run').addEventListener('click', runStems);
   $('stems-model').addEventListener('change', paintStemChoices);
@@ -6181,6 +6226,7 @@ function wire() {
     if (event.key === 'Escape' && !$('variations-modal').classList.contains('hidden')) { closeVariations(); return; }
     if (event.key === 'Escape' && !$('lyrics-modal').classList.contains('hidden')) { closeLyricsEditor(); return; }
     if (event.key === 'Escape' && !$('stems-modal').classList.contains('hidden')) { closeStemsModal(); return; }
+    if (event.key === 'Escape' && !$('save-modal').classList.contains('hidden')) { closeSaveModal(); return; }
     if (event.key === 'Escape' && !$('settings-modal').classList.contains('hidden')) { closeSettings(); return; }
     if (event.key === 'Escape' && $('logs-panel') && !$('logs-panel').classList.contains('hidden')) { closeLogsModal(); return; }
     if (event.key === 'Escape' && !$('score-modal').classList.contains('hidden')) { closeScoreEditor(); return; }
