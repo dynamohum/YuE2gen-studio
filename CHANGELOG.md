@@ -23,9 +23,20 @@ Release notes live in two places and neither is a file in this repository: this 
 history, and each GitHub release holds its published notes. `RELEASE-NOTES-*.md` is ignored so it
 cannot creep back in.
 
-## Unreleased
+## 0.0.35 - 2026-09-25
 
 ### What's new
+
+- **A logo.** One line forking in two, as YuE2 writes a plan and then sings it. It is in the
+  header, the browser tab, the Windows shortcuts and the installer.
+- **The Windows installer knows an update from a first install.** It says which version it is
+  updating from, skips the folder page, and downloads only what has changed. Gemma 4 is offered
+  as you chose it last time: already installed and not downloaded again, or left out.
+  `YuE2Studio-Setup-0.0.35.exe` is attached to this release.
+- **Uninstalling on Windows asks two things.** Keep your library (songs, takes, corpora and
+  LoRAs)? Yes unless you say no. Keep the downloaded models? It shows their size, and No unless
+  you say yes, so nothing large is left behind by accident. Whatever you keep is picked up by
+  the next install, even in a folder other than the default.
 
 - **Checkpoints: hear each training step of a LoRA side by side.** Beside **Delete LoRA**, it
   renders what the panel would make once on each checkpoint a training run kept, all with one
@@ -55,6 +66,8 @@ cannot creep back in.
 - **Cancelling a corpus song's analysis on the main page stopped only its GPU step.** The vocal
   separation and lyrics carried on unseen, and the corpus said **Analysing…** with no way to stop
   it. Cancelling now stops every step of that song.
+- **A reinstall on Windows after keeping the models could miss them**, when YuE2 Studio had been
+  installed somewhere other than the default folder. The kept files stayed behind in the old one.
 
 ## 0.0.34 - 2026-09-24
 
