@@ -330,7 +330,7 @@ sequenceDiagram
     participant U as You
     participant A as app
     participant E as engine
-    U->>A: New corpus (folder of one artist's songs)
+    U->>A: New corpus (a folder of songs: an artist, a genre)
     A->>A: Analyse: demucs vocals, lyrics (Whisper),<br/>key and tempo, style tags (LLM)
     A->>E: SheetSage scores (upload + transcribe graph)
     U->>A: Export training set

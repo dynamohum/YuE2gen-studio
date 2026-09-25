@@ -144,6 +144,9 @@ about 0.70, with Plan variety Calm or Normal. In a cover your recording sets the
 Sound near 0.50. The [user guide](app/static/guide.md#corpora-and-training-a-lora) walks
 through it.
 
+How many steps a run trains for, and how much it can learn, can be changed: see
+[Environment variables](#training).
+
 It is on by default. `TRAINING_ENABLED: "0"` on the app takes it out, and `WITH_TRAINER=0` leaves
 the trainer out of the engine image.
 
@@ -429,18 +432,53 @@ have to sit on the same machine. `ENGINE_URL` is the only setting that matters.
 Whichever you choose, the app checks the engine every two seconds, and starts without it. A
 missing node or model shows in the header instead of failing a render.
 
-### Environment
+## Environment variables
+
+Settings that are not in the app's Settings panel. With Docker, add them under the **app**
+service's `environment:` in `compose.override.yml`, which updates never overwrite, and restart:
+
+```yaml
+services:
+  app:
+    environment:
+      TRAIN_MIN_STEPS: "600"
+```
+
+On the Windows install, set them as Windows environment variables for your account, then start
+YuE2 Studio again. Values are read once, at start.
+
+### The app
 
 | Variable | Default | What it does |
 |---|---|---|
-| `ENGINE_URL` | `http://127.0.0.1:8188` | where ComfyUI answers |
+| `IMPORT_ROOTS` | `/import` | folders a corpus may be built from, comma-separated, as paths inside the container. Each needs a read-only volume mount; `compose.yml` has an example. `./data/corpus` is always offered |
 | `ALLOWED_HOSTS` | `localhost,127.0.0.1,::1` | host names the page may be reached by. Add a LAN name or address when you publish the port; `*` turns the check off |
+| `ENGINE_URL` | `http://127.0.0.1:8188` | where ComfyUI answers. Change it when the engine runs on another machine |
 | `ENGINE_OUTPUT_DIR` | unset | the engine's output folder, mounted into the app. Renders are removed from it once the app has its copy |
 | `MAX_UPLOAD_MB` | `2048` | the largest recording you can upload, in megabytes. The engine has its own ceiling, `ENGINE_MAX_UPLOAD_MB` on the engine service, set to the same figure: raise both together |
 | `STEMS_THREADS` | half the CPUs | torch threads for the separation |
 | `STEMS_JOBS` | 4, or a quarter of the CPUs | demucs segments applied at once. One uses about 1.8 GB and 2.5x realtime, four uses 3.7 GB and 3.6x. The split setup's 2 GB cap needs this at 1, or the cap raised |
+| `WEAK_RENDER_DB` | `-24` | the average level, in dB, below which a take is marked *Weak render* |
 | `TRAINING_ENABLED` | `1` | corpora and LoRA training; `0` takes them out of the app. Training also needs `WITH_TRAINER` on the engine. See Training a LoRA |
-| `DATA_DIR` | `/data` | the library |
+| `DATA_DIR` | `/data` | the library. Only needed when running without the containers |
+
+### Training
+
+How long a run trains and how much it can learn. A **step** trains on two songs; a **pass** has
+seen every song in the corpus once. Longer runs fit the corpus more closely, and past a point
+copy it rather than its style. The checkpoints are kept, so a run that went too far can be
+heard back to an earlier step with **Checkpoints**.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `TRAIN_MIN_STEPS` | `500` | the fewest steps a run gets. Small corpora need the floor: ten passes over 14 songs is only 150 steps |
+| `TRAIN_PASSES` | `10` | passes over each song. A corpus big enough for more steps than the floor gets these: 60 songs gives 600 |
+| `TRAIN_STEPS` | unset | a fixed step count for every run, in place of the two above |
+| `TRAIN_CHECKPOINT_EVERY` | `50` | steps between the checkpoints a run saves |
+| `TRAIN_MAX_MINUTES` | `3.5` | how much of each song is trained on, from its start, in minutes. Longer does not fit the model's memory |
+| `TRAIN_RANK_PLANNER` | `64` | how much the Planner half, which shapes the melody and structure, can hold. Higher can capture more, and makes a bigger file that overfits more easily |
+| `TRAIN_RANK_DECODER` | `32` | the same for the Sound half |
+| `TRAIN_DECODER_STEPS` | `1000` | steps for the Sound half, whatever the corpus size |
 
 ## Troubleshooting
 
