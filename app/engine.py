@@ -396,6 +396,17 @@ class Engine:
         except Exception as exc:  # noqa: BLE001
             log.warning("could not cancel %s on the engine: %s", prompt_id, exc)
 
+    async def free(self) -> None:
+        """Unload every model the engine holds, so a job that needs the whole card, such
+        as training, starts with it.  Best effort: the job runs whether this worked or not."""
+        if not self.client:
+            return
+        try:
+            await self.client.post("/free", json={"unload_models": True, "free_memory": True}, timeout=10.0)
+            log.info("asked the engine to unload its models")
+        except Exception as exc:  # noqa: BLE001
+            log.warning("could not ask the engine to unload its models: %s", exc)
+
     async def interrupt(self) -> None:
         assert self.client
         await self.client.post("/interrupt")

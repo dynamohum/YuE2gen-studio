@@ -1273,6 +1273,9 @@ async def run_lora_train(run_id: str) -> None:
         rank_decoder = config.TRAIN_RANK_DECODER
         log.info("Starting LoRA training run %s for corpus '%s' (%d steps, rank=%d, name=%s)",
                  run_id, identity["name"], steps, rank_planner, run["lora_name"])
+        # Whatever analysis or renders left loaded would share the card with the trainer,
+        # and preparing long songs already takes most of a 16 GB card.
+        await ENGINE.free()
         graph = train_graph(f"lora-{run_id}", f"dataset_{run_id}",
                             run["lora_name"], steps, rank_planner, rank_decoder,
                             config.TRAIN_MAX_MINUTES)

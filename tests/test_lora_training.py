@@ -365,3 +365,30 @@ def test_training_again_asks_what_to_do_with_the_last_run(client, tmp_path, monk
     from app import jobs
     while not jobs.QUEUE.empty():
         jobs.QUEUE.get_nowait()
+
+
+def test_training_asks_the_engine_to_unload_its_models_first(client, monkeypatch, tmp_path):
+    """Models left loaded by analysis or renders would share the card with the trainer."""
+    import asyncio
+    from app import jobs, loras
+
+    root = tmp_path / "loras"
+    root.mkdir()
+    monkeypatch.setattr(config, "ENGINE_INPUT_DIR", tmp_path / "engine-input")
+    monkeypatch.setattr(loras, "folder", lambda: root)
+    order = []
+
+    async def freed():
+        order.append("free")
+    monkeypatch.setattr(jobs.ENGINE, "free", freed)
+
+    async def trained(kind, run_id, graph):
+        order.append("train")
+        (root / "alicia_lora_best.safetensors").write_bytes(b"x")
+    monkeypatch.setattr(jobs, "_run_graph", trained)
+
+    a_corpus()
+    execute("""INSERT INTO lora_runs(id, identity_id, lora_name, steps, rank, state)
+               VALUES('run1', 'corpus1', 'alicia_lora', 100, 16, 'queued')""")
+    asyncio.run(jobs.run_lora_train("run1"))
+    assert order == ["free", "train"]

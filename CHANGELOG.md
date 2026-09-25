@@ -42,6 +42,9 @@ cannot creep back in.
   comes back without it. The app went on waiting until the job's time limit, which for
   training is hours, so the job looked frozen on "Waiting for the engine". It now notices
   within seconds and says the engine lost the job.
+- **Training starts with the whole card.** The engine is asked to unload every model
+  before a run, so nothing left loaded by analysis or renders shares the GPU with the
+  trainer while it prepares the songs.
 - **A corpus can include Opus files** (`.opus`), and AIFF (`.aif`, `.aiff`) and WMA as
   well. They were left out of the folder scan, although every later step reads through
   ffmpeg and the engine is only ever sent a FLAC. The title tag of an Opus or Ogg file is
