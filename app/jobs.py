@@ -945,6 +945,60 @@ def _gemma_graph(prompt: str, audio_files: list[str], max_length: int) -> dict:
     return graph
 
 
+def _engine_error(job: dict) -> str:
+    """What went wrong, from the engine's own report: the node and its exception.
+    The report also carries the node's inputs, which for audio is the waveform as
+    numbers, so its tail says nothing useful."""
+    messages = (job or {}).get("status", {}).get("messages") or []
+    for item in messages:
+        if isinstance(item, (list, tuple)) and len(item) == 2 and item[0] == "execution_error" and isinstance(item[1], dict):
+            data = item[1]
+            kind = str(data.get("exception_type") or "error").rsplit(".", 1)[-1]
+            text = " ".join(str(data.get("exception_message") or "").split())
+            node = data.get("node_type") or ""
+            return (f"{node}: " if node else "") + f"{kind}: {text}"[:300]
+    return json.dumps(messages)[-300:]
+
+
+# A corpus song's transcription, and what to try when it fails.  The transcriber can
+# refuse a whole song over one note it cannot place on its beat grid -- a 20 ms note
+# in the run-out groove at the end of a vinyl rip of A Day in the Life -- so, as the
+# trainer does, it is tried again melody-only, then on the first four minutes.
+TRANSCRIBE_TRIES = (("full", None), ("melody", None), ("full", 240), ("melody", 240))
+
+
+async def _transcribe_corpus_song(kind: str, song_id: str, staged: Path, folder: Path) -> tuple[str, str]:
+    """The score, and how it was got: "" the first way, else what it took."""
+    failed: Exception | None = None
+    for mode, seconds in TRANSCRIBE_TRIES:
+        path = staged
+        if seconds:
+            # Encoded again rather than copied: a copied FLAC keeps the whole song's
+            # length in its header.
+            path = folder / f"engine-copy-{seconds}s.flac"
+            await asyncio.to_thread(subprocess.run, ["ffmpeg", "-v", "error", "-y", "-i", str(staged), "-t", str(seconds),
+                                                     "-c:a", "flac", str(path)], check=True, capture_output=True, timeout=300)
+        name = await _upload(path, f"identity-{song_id}{f'-{seconds}s' if seconds else ''}{path.suffix}")
+        graph = build_transcribe_graph(name)
+        graph["3"]["inputs"]["mode"] = mode
+        try:
+            job = await _run_graph(kind, song_id, graph)
+        except RuntimeError as exc:
+            # A stop, a timeout or a lost engine is not the song's fault: no retry.
+            if not str(exc).startswith("engine error") or song_id in STOPPED_SONGS:
+                raise
+            failed = exc
+            log.info("Transcription of corpus song %s failed (%s%s), trying another way: %s", song_id, mode,
+                     f", first {seconds}s" if seconds else "", str(exc)[:160])
+            continue
+        abc = extract_text_output(job, "SheetSage2AudioToABC", "PreviewAny") or ""
+        if abc.count("|") >= 4:
+            how = "" if (mode, seconds) == TRANSCRIBE_TRIES[0] else \
+                f"{'melody only' if mode == 'melody' else 'melody and chords'}{f', first {seconds // 60} minutes' if seconds else ''}"
+            return abc, how
+    raise failed or RuntimeError("the transcription came back empty")
+
+
 def _texts_in_order(job: dict) -> list[str]:
     outputs = (job or {}).get("outputs") or {}
     return [outputs[nid]["text"][0] for nid in sorted(outputs, key=int) if outputs[nid].get("text")]
@@ -961,7 +1015,7 @@ async def _run_graph(kind: str, ref_id: str, graph: dict) -> dict:
                 await ENGINE.cancel(prompt_id)
             raise RuntimeError({"cancelled": "cancelled", "timeout": "timed out"}.get(outcome, "the engine lost the job"))
         if job.get("status", {}).get("status_str") != "success":
-            raise RuntimeError("engine error: " + json.dumps(job.get("status", {}).get("messages") or [])[-300:])
+            raise RuntimeError("engine error: " + _engine_error(job))
         return job
     finally:
         ENGINE.forget(prompt_id)
@@ -1015,13 +1069,12 @@ async def run_identity_job(kind: str, song_id: str) -> None:
         if kind in ("identity_score", "persona_score"):
             source = Path(song["stored_path"])
             staged = await asyncio.to_thread(_without_tags, source, folder)
-            name = await _upload(staged, f"identity-{song_id}{source.suffix}")
-            job = await _run_graph(kind, song_id, build_transcribe_graph(name))
-            abc = extract_text_output(job, "SheetSage2AudioToABC", "PreviewAny") or ""
+            abc, how = await _transcribe_corpus_song(kind, song_id, staged, folder)
             (folder / "score.abc").write_text(abc, encoding="utf-8")
             key, tempo = identities.key_and_tempo(abc)
             set_song(song_id, key=key, tempo=tempo, score_state="done")
-            log.info("Finished score analysis for corpus song '%s' (key=%s, tempo=%s)", song_title, key or "unknown", tempo or "unknown")
+            log.info("Finished score analysis for corpus song '%s' (key=%s, tempo=%s%s)", song_title, key or "unknown",
+                     tempo or "unknown", f"; transcribed {how}, after the full transcription failed" if how else "")
             maybe_draft(song_id)
         elif kind in ("identity_style", "persona_style"):
             if llm.is_external_enabled():

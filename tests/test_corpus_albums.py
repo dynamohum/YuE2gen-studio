@@ -225,3 +225,58 @@ def test_style_analysis_sends_the_title_and_words_never_an_artist(tmp_path, monk
     asyncio.run(jobs.run_identity_job("identity_style", "s1"))
     assert asked == {"title": "Lovely Rita", "lyrics_text": "Lovely Rita, meter maid"}
     assert one("SELECT style_state FROM identity_songs WHERE id = 's1'")["style_state"] == "done"
+
+
+def test_an_engine_error_names_the_node_and_its_exception_not_its_inputs():
+    job = {"status": {"status_str": "error", "messages": [
+        ["execution_start", {"prompt_id": "p"}],
+        ["execution_error", {"node_type": "SheetSage2AudioToABC", "exception_type": "comfy.audio_encoders.sheetsage2_abc.MelodyVoiceError",
+                             "exception_message": "Vocal: note pitch=71 at 315.513000-315.533000 cannot be represented\non the decoded subbeat grid",
+                             "current_inputs": {"audio": ["0.0010, 0.0006, " * 500]}}]]}}
+    assert jobs._engine_error(job) == ("SheetSage2AudioToABC: MelodyVoiceError: Vocal: note pitch=71 at 315.513000-315.533000 "
+                                       "cannot be represented on the decoded subbeat grid")
+
+
+def test_a_failed_transcription_is_tried_again_on_the_first_four_minutes(tmp_path, monkeypatch):
+    folder = tmp_path / "song"
+    original = tone(folder / "original.flac", 250)
+    execute("""INSERT INTO identity_songs(id, identity_id, file, title, sha256, duration, include, score_state, stored_path, position)
+               VALUES('s1', 'c1', 'a.flac', 'A Day In The Life', 'x', 250, 1, 'queued', ?, 0)""", (str(original),))
+    tried = []
+
+    async def upload(path, name):
+        return str(path)
+
+    async def engine(kind, ref_id, graph):
+        mode, sent = graph["3"]["inputs"]["mode"], Path(graph["1"]["inputs"]["audio"])
+        tried.append((mode, round(identities.probe(sent)["duration"])))
+        if len(tried) < 3:
+            raise RuntimeError("engine error: SheetSage2AudioToABC: MelodyVoiceError: cannot be represented")
+        return {"outputs": {"4": {"text": ["X:1\nK:E\nQ:1/4=80\n|E|F|G|A|B|"]}}}
+    monkeypatch.setattr(jobs, "_upload", upload)
+    monkeypatch.setattr(jobs, "_run_graph", engine)
+    monkeypatch.setattr(jobs, "extract_text_output", lambda job, *types: job["outputs"]["4"]["text"][0])
+    asyncio.run(jobs.run_identity_job("identity_score", "s1"))
+    assert tried == [("full", 250), ("melody", 250), ("full", 240)]
+    row = one("SELECT score_state, key FROM identity_songs WHERE id = 's1'")
+    assert (row["score_state"], row["key"]) == ("done", "E major")
+
+
+def test_a_stopped_transcription_is_not_tried_again(tmp_path, monkeypatch):
+    folder = tmp_path / "song"
+    original = tone(folder / "original.flac", 5)
+    execute("""INSERT INTO identity_songs(id, identity_id, file, title, sha256, duration, include, score_state, stored_path, position)
+               VALUES('s1', 'c1', 'a.flac', 'A', 'x', 5, 1, 'queued', ?, 0)""", (str(original),))
+    calls = []
+
+    async def upload(path, name):
+        return str(path)
+
+    async def engine(kind, ref_id, graph):
+        calls.append(1)
+        raise RuntimeError("cancelled")
+    monkeypatch.setattr(jobs, "_upload", upload)
+    monkeypatch.setattr(jobs, "_run_graph", engine)
+    asyncio.run(jobs.run_identity_job("identity_score", "s1"))
+    assert calls == [1]
+    assert one("SELECT score_state FROM identity_songs WHERE id = 's1'")["score_state"] == "failed"
