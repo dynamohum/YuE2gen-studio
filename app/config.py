@@ -100,7 +100,15 @@ TRAINING_ENABLED = os.environ.get("TRAINING_ENABLED", "1").strip().lower() in ("
 #
 # Planner steps come from the corpus size: TRAIN_PASSES over each song, the rule of
 # thumb in the trainer (steps x batch_songs x artist_fraction / songs), rounded up to
-# a checkpoint.  TRAIN_STEPS, when set, overrides it for every run.
+# a checkpoint, and never fewer than TRAIN_MIN_STEPS.  TRAIN_STEPS, when set,
+# overrides it for every run.
+#
+# The floor is there because the passes alone starve a small corpus.  Across seven
+# LoRAs trained here, the planner loss was still falling steeply at step 150 in every
+# one, and went on falling to 600.  The two stopped at 150 (14 and 16 songs) sang in
+# the base model's generic voice, their checkpoints barely told apart, and even at
+# strength 2.0 they did not turn to mush.  The checkpoints are kept, so a run that goes
+# on too long can be heard back to an earlier step with Checkpoints.
 # A take whose average level is below this is flagged as probably spoiled. Across the
 # library the median is about -18 dB; the three renders heard as badly distorted
 # came out at -28 to -34, all of them covers through a corpus LoRA.
@@ -116,6 +124,7 @@ TRAIN_DECODER_STEPS = int(os.environ.get("TRAIN_DECODER_STEPS", "1000"))
 # did; the planner still learns to write a score either way.
 TRAIN_SCORE_FIRST = float(os.environ.get("TRAIN_SCORE_FIRST", "0"))
 TRAIN_CHECKPOINT_EVERY = int(os.environ.get("TRAIN_CHECKPOINT_EVERY", "50"))
+TRAIN_MIN_STEPS = int(os.environ.get("TRAIN_MIN_STEPS", "500"))
 
 
 def train_steps(songs: int) -> int:
@@ -124,7 +133,7 @@ def train_steps(songs: int) -> int:
         return TRAIN_STEPS
     raw = TRAIN_PASSES * max(1, songs) / (TRAIN_BATCH_SONGS * TRAIN_ARTIST_FRACTION)
     every = TRAIN_CHECKPOINT_EVERY
-    return max(2 * every, int(-(-raw // every)) * every)
+    return max(TRAIN_MIN_STEPS, 2 * every, int(-(-raw // every)) * every)
 
 
 TRAIN_RANK_PLANNER = int(os.environ.get("TRAIN_RANK_PLANNER", "64"))

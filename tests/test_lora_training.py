@@ -102,14 +102,17 @@ def test_a_finished_run_is_named_after_the_corpus_and_keeps_its_snapshots(client
     assert one("SELECT lora FROM identities WHERE id = 'corpus1'")["lora"] == "alicia_lora.safetensors"
 
 
-def test_steps_follow_the_size_of_the_corpus(monkeypatch):
+def test_steps_follow_the_size_of_the_corpus_above_a_floor(monkeypatch):
     """About ten passes over each song, the trainer's rule of thumb, rounded up to a
-    checkpoint.  600 for every corpus was 18 passes for 17 songs and 30 for 10."""
+    checkpoint, and never fewer than 500.  Ten passes alone gave a 14-song corpus 150
+    steps, where every LoRA trained here was still learning fast; the checkpoints are
+    kept, so a run that goes on too long can be heard back to an earlier step."""
     monkeypatch.setattr(config, "TRAIN_STEPS", None)
-    assert config.train_steps(17) == 200
-    assert config.train_steps(10) == 100
-    assert config.train_steps(1) == 100, "never fewer than two checkpoints"
-    assert config.train_steps(40) == 400
+    assert config.train_steps(14) == 500
+    assert config.train_steps(1) == 500
+    assert config.train_steps(43) == 500
+    assert config.train_steps(60) == 600, "a large corpus still gets its ten passes"
+    assert config.train_steps(63) == 650
     monkeypatch.setattr(config, "TRAIN_STEPS", 600)
     assert config.train_steps(17) == 600, "an explicit setting wins"
 
