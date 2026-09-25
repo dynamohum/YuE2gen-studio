@@ -566,6 +566,8 @@ class VariationsIn(BaseModel):
     # One or the other: other interpretations, or other checkpoints of the style LoRA.
     interpretations: list[str] | None = Field(None, min_length=1, max_length=len(INTERPRETATIONS))
     style_loras: list[str] | None = Field(None, min_length=1, max_length=100)
+    # For these takes only; omitted, each keeps the original's.
+    max_duration: float | None = Field(None, ge=10, le=900)
     realaudio: bool | None = None
     normalise: bool | None = None
     identity_id: str | None = Field(None, max_length=64)
@@ -1536,7 +1538,8 @@ async def variations(take_id: str, body: VariationsIn) -> dict:
             "id": uuid.uuid4().hex[:12], "kind": take["kind"], "source_id": take["source_id"],
             "title": f"{base} \u00b7 {label}", "style": take["style"], "lyrics": take["lyrics"],
             "abc": take["abc"], "mode": take["mode"], "seed": take["seed"], "checkpoint": config.CHECKPOINT,
-            "max_duration": take["max_duration"], "created_at": now + offset * 0.001, "variety": take["variety"],
+            "max_duration": body.max_duration or take["max_duration"], "created_at": now + offset * 0.001,
+            "variety": take["variety"],
             "harmony": take["harmony"], "space_id": take["space_id"], "interpretation": name, "feel": take["feel"],
             "realaudio": realaudio, "normalise": normalise, "identity_id": identity_val, "persona_id": identity_val,
             "voice_lora": voice_lora, "voice_lora_strength": voice_lora_strength,

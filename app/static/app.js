@@ -3220,6 +3220,8 @@ function openVariations(take) {
         '</strong><span class="muted">' + esc(INTERPRETATIONS[key].hint) + '</span></label>';
     }).join('');
   $('variations-status').textContent = '';
+  // Starts from the left panel's cap; a change here is for these takes only.
+  $('variations-cap').value = parseFloat($('max-duration').value) || 360;
   paintVariationsEstimate();
   $('variations-modal').classList.remove('hidden');
 }
@@ -3256,6 +3258,8 @@ function openLoraSteps(take) {
         (s.step === null ? 'The LoRA the training run kept' : '') + '</span></label>';
     }).join('');
   $('variations-status').textContent = '';
+  // Starts from the left panel's cap; a change here is for these takes only.
+  $('variations-cap').value = parseFloat($('max-duration').value) || 360;
   paintVariationsEstimate();
   $('variations-modal').classList.remove('hidden');
 }
@@ -3281,10 +3285,18 @@ async function doVariations() {
   var take = VARIATIONS.take;
   var chosen = chosenVariations();
   if (!take || !chosen.length) { return; }
+  var cap = parseFloat($('variations-cap').value);
+  if (!(cap >= 10 && cap <= 900)) {
+    $('variations-status').textContent = 'The length cap must be between 10 and 900 seconds.';
+    $('variations-status').className = 'status bad';
+    return;
+  }
+  var body = VARIATIONS.by === 'lora' ? { style_loras: chosen } : { interpretations: chosen };
+  body.max_duration = cap;
   try {
     var reply = await api('/api/takes/' + take.id + '/variations', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(VARIATIONS.by === 'lora' ? { style_loras: chosen } : { interpretations: chosen })
+      body: JSON.stringify(body)
     });
     closeVariations();
     statusLine('Queued ' + reply.created.length + ' variation' + (reply.created.length === 1 ? '' : 's') + ' of ' + take.title +

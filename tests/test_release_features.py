@@ -68,6 +68,14 @@ def test_variations_copy_the_score_and_seed_in_each_interpretation(client):
         row = one("SELECT * FROM takes WHERE id = ?", (item["id"],))
         assert (row["abc"], row["seed"], row["status"], row["interpretation"]) == (SCORE, 77, "queued", item["interpretation"])
     assert [QUEUE.get_nowait()["id"] for _ in made] == [m["id"] for m in made]
+    # A length cap asked for here is for the new takes only.
+    capped = client.post(f"/api/takes/{take['id']}/variations",
+                         json={"interpretations": ["wide"], "max_duration": 200}).json()["created"][0]
+    assert one("SELECT max_duration FROM takes WHERE id = ?", (capped["id"],))["max_duration"] == 200
+    assert one("SELECT max_duration FROM takes WHERE id = ?", (take["id"],))["max_duration"] == 60
+    QUEUE.get_nowait()
+    assert client.post(f"/api/takes/{take['id']}/variations",
+                       json={"interpretations": ["wide"], "max_duration": 5}).status_code == 422
     no_score = make_take(abc="")
     assert client.post(f"/api/takes/{no_score['id']}/variations", json={"interpretations": ["tight"]}).status_code == 400
     assert client.post(f"/api/takes/{take['id']}/variations", json={"interpretations": []}).status_code == 422
