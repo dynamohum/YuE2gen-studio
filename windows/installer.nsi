@@ -60,6 +60,7 @@ Var WelcomeText
 Var InstHeader
 Var InstSubtext
 Var FinishText
+Var LyricsText      ; the Gemma option's description, which says when it is already here
 
 !define MUI_WELCOMEPAGE_TITLE "$WelcomeTitle"
 !define MUI_WELCOMEPAGE_TEXT "$WelcomeText"
@@ -166,6 +167,10 @@ Section "-Setup"
   DetailPrint "Setting up. Its progress is in a separate window, which may be behind this one."
   ${If} $Updating == 1
     DetailPrint "Updating from $OldVersion to ${VERSION}: only what has changed is downloaded."
+    ${If} ${SectionIsSelected} ${SecLyrics}
+    ${AndIf} ${FileExists} "$INSTDIR\engine\ComfyUI\models\text_encoders\gemma4_e4b_it_int8_convrot.safetensors"
+      DetailPrint "Gemma 4 is already here, so it is not downloaded again."
+    ${EndIf}
   ${Else}
     DetailPrint "This takes a while: about 24 GB to download."
   ${EndIf}
@@ -186,7 +191,7 @@ LangString DESC_Core ${LANG_ENGLISH} "The app, the engine (ComfyUI), and the YuE
 LangString DESC_Lyrics ${LANG_ENGLISH} "Gemma 4, for lyric drafts and song analysis on this PC. Leave it out if you intend to configure an external LLM. This will save an 8 GB download."
 !insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
   !insertmacro MUI_DESCRIPTION_TEXT ${SecCore} $(DESC_Core)
-  !insertmacro MUI_DESCRIPTION_TEXT ${SecLyrics} $(DESC_Lyrics)
+  !insertmacro MUI_DESCRIPTION_TEXT ${SecLyrics} $LyricsText
 !insertmacro MUI_FUNCTION_DESCRIPTION_END
 
 ; After the sections, so their names can be used here.
@@ -215,17 +220,22 @@ Function .onInit
       StrCpy $FinishText "${APPNAME} has been updated from $OldVersion to ${VERSION}.$\r$\n$\r$\nYour library and settings are as you left them."
     ${EndIf}
     StrCpy $InstSubtext "Only what has changed is downloaded. The setup window may be behind this one."
+    StrCpy $LyricsText "$(DESC_Lyrics)"
     ; Only the app itself is new: the engine and the models are already here.
     SectionSetSize ${SecCore} 100000
     ; Gemma as chosen last time: kept if it is here, left out if it was left out.
     ReadRegDWORD $1 HKCU "Software\${REGNAME}" "Lyrics"
     ${If} ${FileExists} "$INSTDIR\engine\ComfyUI\models\text_encoders\gemma4_e4b_it_int8_convrot.safetensors"
+      ; Already downloaded: said plainly, so nobody fears another 8 GB.
       SectionSetSize ${SecLyrics} 0
+      SectionSetText ${SecLyrics} "Gemma 4 (installed)"
+      StrCpy $LyricsText "Gemma 4 is already on this PC, so nothing is downloaded for it. Leave it ticked to keep using it for lyric drafts and song analysis. Unticking it does not remove it."
     ${ElseIf} $1 != 1
       !insertmacro UnselectSection ${SecLyrics}
     ${EndIf}
   ${Else}
     StrCpy $WelcomeTitle "Install ${APPNAME}"
+    StrCpy $LyricsText "$(DESC_Lyrics)"
     StrCpy $WelcomeText "${APPNAME} writes and covers songs with the YuE2 music model, on this PC.$\r$\n$\r$\nThis installer is small. It checks that this PC can run YuE2 (an NVIDIA RTX 30-series card or newer), then downloads the rest from each part's publisher: about 24 GB, most of it the models. A download that breaks off carries on where it stopped when you run the installer again.$\r$\n$\r$\nA separate window shows the setup's progress; it may open behind this one.$\r$\n$\r$\nYou need about 40 GB of free space."
     StrCpy $InstHeader "Installing ${APPNAME}"
     StrCpy $InstSubtext "The setup window shows its progress, and may be behind this one."
