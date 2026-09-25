@@ -365,6 +365,7 @@ server-side change only.
 
 ```
 compose.yml            engine + app, the one machine setup
+compose.override.yml.example   your own settings and music mounts: copy it to compose.override.yml
 engine/Dockerfile      ComfyUI pinned to the commit this was built against, and the
                        WITH_TRAINER build arg, on, that builds the trainer in
 engine/custom_nodes/   yue2_harmony, the node behind the Harmony slider
@@ -451,7 +452,15 @@ missing node or model shows in the header instead of failing a render.
 ## Environment variables
 
 Settings that are not in the app's Settings panel. With Docker, add them under the **app**
-service's `environment:` in `compose.override.yml`, which updates never overwrite, and restart:
+service's `environment:` in `compose.override.yml`, which updates never overwrite, and restart.
+The easiest start is the example, which has every setting below commented out, with a line on
+each, and examples of mounting your music:
+
+```sh
+cp compose.override.yml.example compose.override.yml
+```
+
+Then uncomment what you need. A setting on its own looks like this:
 
 ```yaml
 services:
@@ -480,7 +489,7 @@ built from, and the ports itself: change those in its `settings.ini` instead (se
 
 | Variable | Default | What it does |
 |---|---|---|
-| `IMPORT_ROOTS` | `/import` | folders a corpus may be built from, comma-separated, as paths inside the container. Each needs a read-only volume mount; `compose.yml` has an example. `./data/corpus` is always offered |
+| `IMPORT_ROOTS` | `/import` | folders a corpus may be built from, comma-separated, as paths inside the container. Each needs a read-only volume mount; `compose.override.yml.example` has examples. `./data/corpus` is always offered |
 | `ALLOWED_HOSTS` | `localhost,127.0.0.1,::1` | host names the page may be reached by. Add a LAN name or address when you publish the port; `*` turns the check off |
 | `ENGINE_URL` | `http://127.0.0.1:8188` | where ComfyUI answers. Change it when the engine runs on another machine |
 | `ENGINE_OUTPUT_DIR` | unset | the engine's output folder, mounted into the app. Renders are removed from it once the app has its copy |

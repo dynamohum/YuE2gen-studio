@@ -80,9 +80,10 @@ services:
       # Host names the page may be reached by.  Add a LAN name or address here if
       # you publish the port beyond localhost.
       ALLOWED_HOSTS: localhost,127.0.0.1,::1
-      # Optional: Uncomment and adjust to let the corpus picker browse your own music
-      # library alongside the built-in ./data/corpus/ folder. Comma-separated
-      # container paths; each needs a matching read-only volume mount below.
+      # Optional: let the corpus picker browse your own music library alongside the
+      # built-in ./data/corpus/ folder. Comma-separated container paths; each needs a
+      # matching read-only volume mount. Set it in compose.override.yml rather than
+      # here, so an update does not overwrite it: compose.override.yml.example has it.
       # IMPORT_ROOTS: /import
       # Corpora and training a LoRA from one. "0" takes them out of the app. Training
       # also needs the engine built with WITH_TRAINER=1, as it is above.
@@ -101,7 +102,8 @@ services:
       - ./engine-state/input:/engine-input
       - ./data/models/whisper:/data/models/whisper
       # Optional: mount a local music library or external drive for corpus building.
-      # The app only reads from it; nothing in it is changed.
+      # The app only reads from it; nothing in it is changed. Best done in
+      # compose.override.yml too: see compose.override.yml.example.
       # - /path/to/your/music:/import:ro
     logging:
       driver: json-file
