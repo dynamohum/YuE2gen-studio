@@ -85,21 +85,22 @@ a, .link {
   border: 1px solid var(--line); color: var(--muted); background: var(--panel);
 }
 .version { font-size: 12px; color: var(--muted); margin-right: 12px; letter-spacing: 0.02em; }
-/* The status badges stack on the right, and the version and Logs sit under the last
-   one. Grid order does it without touching the markup: the pills span both columns,
-   the version and Logs come last and share one right-aligned row. */
+/* One row, level with the name: engine, corpus, version, Logs.  It wraps only when
+   the window is too narrow for it. */
 .topbar-right {
-  display: grid; grid-template-columns: 1fr auto; gap: 6px 10px; align-items: center;
+  display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px 10px;
+  min-height: 31px;
 }
-.topbar-right > .pill:not(.logs-btn) { grid-column: 1 / -1; order: 0; }
-.topbar-right > .version { order: 1; margin-right: 0; justify-self: end; }
-.topbar-right > .logs-btn { order: 1; }
+.topbar-right > #engine-pill { order: 0; }
+.topbar-right > .corpora { order: 1; }
+.topbar-right > .version { order: 2; margin-right: 0; }
+.topbar-right > .logs-btn { order: 3; }
 .pill-on { color: var(--good); border-color: rgba(52, 211, 153, 0.35); }
 
 /* The main page says what the app is doing. A corpus being prepared works on the CPU
    lane, so the engine pill knows nothing about it and its own screen has to be open
    to see any progress. This is the one place that says so from anywhere. */
-.corpora { cursor: pointer; font: inherit; display: none; align-items: center; gap: 7px; }
+.corpora { cursor: pointer; font: inherit; font-size: 12.5px; display: none; align-items: center; gap: 7px; }
 .corpora.shown { display: inline-flex; }
 .corpora .corpora-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex: 0 0 auto; }
 .corpora.busy { color: var(--good); border-color: rgba(52, 211, 153, 0.35); }
