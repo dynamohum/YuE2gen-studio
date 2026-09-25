@@ -45,6 +45,29 @@ def test_scan_flags_copies_versions_other_singers_and_short_files(tmp_path, monk
     assert [s["file"] for s in found.values() if s["include"]] == ["01 Modern Girl.wav", "02 Falling.wav"]
 
 
+def test_scan_reads_opus_and_other_formats_ffmpeg_decodes(tmp_path, monkeypatch):
+    """Everything after the scan reads through ffmpeg, so any format it decodes can
+    join a corpus; the engine is only ever sent a FLAC made from it."""
+    import subprocess
+    root = tmp_path / "import"
+    songs = root / "Mixed"
+    songs.mkdir(parents=True)
+    monkeypatch.setattr(config, "IMPORT_ROOTS", [str(root)])
+    tone(songs / "source.wav", 100)
+    for name in ("Harbour Lights.opus", "Glass Orchard.aiff"):
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(songs / "source.wav"),
+                        "-metadata", f"title={name.split('.')[0]} (tagged)", str(songs / name)], check=True)
+    (songs / "source.wav").unlink()
+
+    found = {s["file"]: s for s in identities.scan(songs)}
+    assert set(found) == {"Harbour Lights.opus", "Glass Orchard.aiff"}
+    assert found["Harbour Lights.opus"]["duration"] > 90
+    # An Opus file's title tag is on its stream, not the file, and is still found.
+    assert found["Harbour Lights.opus"]["title"] == "Harbour Lights (tagged)"
+    assert found["Glass Orchard.aiff"]["title"] == "Glass Orchard (tagged)"
+    assert identities.read_mono(songs / "Harbour Lights.opus").size > 0
+
+
 def test_folders_outside_the_import_roots_are_refused(tmp_path, monkeypatch):
     make_folder(tmp_path, monkeypatch)
     assert not identities.allowed(tmp_path)

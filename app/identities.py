@@ -24,7 +24,7 @@ from .library import slugify
 
 log = logging.getLogger("yue2.identities")
 
-AUDIO_TYPES = {".mp3", ".wav", ".flac", ".m4a", ".ogg", ".aac"}
+AUDIO_TYPES = {".mp3", ".wav", ".flac", ".m4a", ".ogg", ".opus", ".aac", ".aif", ".aiff", ".wma"}
 MIN_SECONDS = 90
 # Longer than any song: most likely a whole album or a side in one file.  Analysing one
 # takes a very long time and a great deal of memory, and it would train as one song.
@@ -72,11 +72,17 @@ def browse(path: str | None) -> dict:
 
 
 def probe(path: Path) -> dict:
-    """Duration, bit rate and the title tag, from ffprobe."""
-    out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration,bit_rate:format_tags=title,artist",
-                          "-of", "json", str(path)], capture_output=True, text=True, timeout=60)
-    data = json.loads(out.stdout or "{}").get("format", {})
-    tags = {k.lower(): v for k, v in (data.get("tags") or {}).items()}
+    """Duration, bit rate and the title tag, from ffprobe.  Ogg and Opus files keep
+    their tags on the audio stream rather than the file, so both are read."""
+    out = subprocess.run(["ffprobe", "-v", "error", "-show_entries",
+                          "format=duration,bit_rate:format_tags=title,artist:stream_tags=title,artist",
+                          "-select_streams", "a:0", "-of", "json", str(path)],
+                         capture_output=True, text=True, timeout=60)
+    parsed = json.loads(out.stdout or "{}")
+    data = parsed.get("format", {})
+    stream = (parsed.get("streams") or [{}])[0]
+    tags = {k.lower(): v for k, v in (stream.get("tags") or {}).items()}
+    tags.update({k.lower(): v for k, v in (data.get("tags") or {}).items()})
     return {"duration": float(data.get("duration") or 0), "bit_rate": int(data.get("bit_rate") or 0),
             "title": tags.get("title"), "artist": tags.get("artist")}
 

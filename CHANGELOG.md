@@ -23,6 +23,15 @@ Release notes live in two places and neither is a file in this repository: this 
 history, and each GitHub release holds its published notes. `RELEASE-NOTES-*.md` is ignored so it
 cannot creep back in.
 
+## Unreleased
+
+### Fixed
+
+- **A corpus can include Opus files** (`.opus`), and AIFF (`.aif`, `.aiff`) and WMA as
+  well. They were left out of the folder scan, although every later step reads through
+  ffmpeg and the engine is only ever sent a FLAC. The title tag of an Opus or Ogg file is
+  now read too: those formats keep it on the audio stream, not the file.
+
 ## 0.0.36 - 2026-09-25
 
 Mostly usability: the corpus window says what it is doing at each step, and the page
