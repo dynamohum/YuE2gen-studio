@@ -102,6 +102,19 @@ SETTINGS_SPEC: list[dict] = [
         "help": f"Where stems are written. It must sit inside {config.DATA_DIR}.",
     },
     {
+        "key": "training.checkpoints",
+        "label": "Training checkpoints",
+        "type": "select",
+        # Each is as big as the LoRA itself, and most people never try one.
+        "default": "delete",
+        "options": [
+            {"value": "delete", "label": "Delete when training ends"},
+            {"value": "keep", "label": "Keep them"},
+        ],
+        "help": "A training run saves a checkpoint every 50 steps. Kept, they are listed under "
+                "Training checkpoints, and an earlier one sometimes sounds better than the finished LoRA.",
+    },
+    {
         "key": "llm.provider",
         "label": "LLM for writing lyrics & style tags",
         "type": "select",

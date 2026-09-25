@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from app import config
-from app.db import execute, one
+from app.db import execute, one, set_setting
 
 
 @pytest.fixture(autouse=True)
@@ -86,6 +86,7 @@ def test_a_finished_run_is_named_after_the_corpus_and_keeps_its_snapshots(client
     monkeypatch.setattr(jobs, "_run_graph", trained)
 
     a_corpus()
+    set_setting("training.checkpoints", "keep")
     execute("""INSERT INTO lora_runs(id, identity_id, lora_name, steps, rank, state)
                VALUES('run1', 'corpus1', 'alicia_lora', 100, 16, 'queued')""")
     asyncio.run(jobs.run_lora_train("run1"))
@@ -276,3 +277,29 @@ def test_a_lora_this_app_cannot_read_fails_the_run_with_the_fix(client, monkeypa
     asyncio.run(jobs.run_lora_train("run1"))
     run = one("SELECT state, error FROM lora_runs WHERE id = 'run1'")
     assert run["state"] == "failed" and "readable by root only" in run["error"] and "chmod" in run["error"]
+
+
+def test_checkpoints_are_deleted_when_training_ends_unless_kept(client, monkeypatch, tmp_path):
+    """Each checkpoint is as big as the LoRA; they are kept only when Settings says so."""
+    import asyncio
+    from app import jobs, loras
+
+    root = tmp_path / "loras"
+    root.mkdir()
+    monkeypatch.setattr(config, "ENGINE_INPUT_DIR", tmp_path / "engine-input")
+    monkeypatch.setattr(loras, "folder", lambda: root)
+
+    async def trained(kind, run_id, graph):
+        for name in ("alicia_lora_best", "alicia_lora_step50", "alicia_lora_step100"):
+            (root / f"{name}.safetensors").write_bytes(name.encode())
+    monkeypatch.setattr(jobs, "_run_graph", trained)
+
+    a_corpus()
+    execute("""INSERT INTO lora_runs(id, identity_id, lora_name, steps, rank, state)
+               VALUES('run1', 'corpus1', 'alicia_lora', 100, 16, 'queued')""")
+    asyncio.run(jobs.run_lora_train("run1"))
+    assert one("SELECT state FROM lora_runs WHERE id = 'run1'")["state"] == "done"
+    assert sorted(p.name for p in root.glob("*.safetensors")) == ["alicia_lora.safetensors"]
+    assert "alicia_lora_step50" not in loras.families(root)
+    listed = {item["key"]: item for item in client.get("/api/settings").json()["settings"]}
+    assert listed["training.checkpoints"]["value"] == "delete"

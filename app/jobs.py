@@ -1078,10 +1078,10 @@ async def run_lora_train(run_id: str) -> None:
                 with contextlib.suppress(OSError):
                     os.chmod(canonical, 0o644)
                 produced = canonical
-        # The best is now the file above, so its copy goes.  The snapshots stay, in a
-        # group of their own: the published LoRAs were each a checkpoint picked by ear,
-        # often well before the last, and the trainer's own "best" only follows the
-        # planner's loss.
+        # The best is now the file above, so its copy goes.  The snapshots go too unless
+        # Settings keeps them, in a group of their own: the published LoRAs were each a
+        # checkpoint picked by ear, often well before the last, and the trainer's own
+        # "best" only follows the planner's loss.
         if produced == canonical:
             with contextlib.suppress(OSError):
                 (root / f"{run['lora_name']}_best.safetensors").unlink(missing_ok=True)
@@ -1105,6 +1105,12 @@ async def run_lora_train(run_id: str) -> None:
         # Name it, group it, and remember it on the corpus.
         await asyncio.to_thread(loras.write_note, produced, identity["trigger_word"], identity["name"],
                                 title=identity["name"])
+        # Kept only when asked for in Settings: each is as big as the LoRA itself.
+        if get_setting("training.checkpoints", "delete") != "keep":
+            for snapshot in snapshots:
+                with contextlib.suppress(OSError, ValueError):
+                    loras.remove(snapshot.name, root)
+            snapshots = []
         for snapshot in snapshots:
             step = snapshot.stem.rsplit("_step", 1)[1].lstrip("0") or "0"
             await asyncio.to_thread(loras.write_note, snapshot, identity["trigger_word"], identity["name"],
