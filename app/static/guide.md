@@ -280,9 +280,13 @@ engine built with `WITH_TRAINER=0`, takes it out.
    **Stop** ends it. Finished steps are kept, so **Analyse** carries on from where it stopped.
 4. **Review.** Open a song to check its lyrics and tick **checked**, and to describe its sound
    where it differs from the rest. The style caption shows what the trainer will read.
-5. **Export training set.** Writes the audio, lyrics and caption for each song.
+5. **Export training set.** Writes the audio, lyrics and caption for each song. A line under the
+   buttons shows how far it has got.
 6. **Train a LoRA.** This takes a long time, and the GPU is not available to the app until it
-   finishes. Progress shows on the main screen, where you can stop it.
+   finishes. Progress shows under the buttons and on the main screen, where you can stop it,
+   and the corpus's badge at the top of the page pulses while it trains. Training again keeps
+   the LoRA from the last run under a dated name, in **Previous runs**, or deletes it, as you
+   choose.
 
 When training finishes, the LoRA appears in the **Style LoRA** list with its trigger word. See
 **Balancing Planner and Sound** below for starting strengths. To share it, press **Download** under
