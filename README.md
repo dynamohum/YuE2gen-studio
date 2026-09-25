@@ -70,8 +70,12 @@ Writing an instrumental, with the structure built section by section:
 - **Choose the voice.** Chips set female, male or duet and a voice character. YuE2 has no vocal
   parameter, so the chips write into the style text, and the take keeps the choice.
 - **Train a LoRA from your own songs.** Prepare a corpus from a folder of songs, by one artist,
-  in one genre or by a few similar artists, and train a style LoRA from it. It shows most in a song from a prompt, where the LoRA writes the
-  tune. See Training a LoRA below.
+  in one genre or by a few similar artists, and train a style LoRA from it. It shows most in a
+  song from a prompt, where the LoRA writes the tune. See Training a LoRA below.
+- **Hear every step of a LoRA's training.** A training run keeps a checkpoint every 50 steps.
+  **Checkpoints** renders the same song once on each of them, with one seed, as takes named after
+  their step. Each has its own taste in melody and structure, while keeping the style and sound
+  the LoRA was trained on.
 - **Lean on a style LoRA.** Drop other people's trained files into `models/loras/` and pick one
   from a list, with separate strengths for the score and the sound. See Style LoRAs below.
 - **Read the score three ways.** Expand opens a full size editor, with the chord find and replace

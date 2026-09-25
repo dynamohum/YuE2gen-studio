@@ -27,6 +27,10 @@ cannot creep back in.
 
 ### What's new
 
+- **Checkpoints: hear each training step of a LoRA side by side.** Beside **Delete LoRA**, it
+  renders what the panel would make once on each checkpoint a training run kept, all with one
+  seed, each take named after its step. Each weighting has its own taste while keeping the style
+  the LoRA was trained on. Greyed out for a LoRA without checkpoints.
 - **A logo.** One line forking in two, as YuE2 writes a plan and then sings it. It is in the
   header, the browser tab, the Windows shortcuts and the installer.
 - **The Windows installer knows an update from a first install.** It says which version it is
@@ -38,10 +42,6 @@ cannot creep back in.
   you say yes, so nothing large is left behind by accident. Whatever you keep is picked up by
   the next install, even in a folder other than the default.
 
-- **Checkpoints: hear each training step of a LoRA side by side.** Beside **Delete LoRA**, it
-  renders what the panel would make once on each checkpoint a training run kept, all with one
-  seed, each take named after its step. Each weighting has its own taste while keeping the style
-  the LoRA was trained on. Greyed out for a LoRA without checkpoints.
 - **Training checkpoints are kept**, listed under **Training checkpoints** in the picker. Settings
   can delete them when training ends instead.
 - **Save asks which format:** FLAC, WAV or MP3, starting with the one set in Settings, now called
