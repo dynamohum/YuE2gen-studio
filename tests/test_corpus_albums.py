@@ -177,6 +177,7 @@ def test_a_stopped_gpu_step_goes_back_to_not_started(monkeypatch):
             raise RuntimeError("cancelled")
         monkeypatch.setattr(jobs, "_run_graph", engine_job)
         monkeypatch.setattr(jobs, "_without_tags", lambda source, folder: source)
+        monkeypatch.setattr(jobs, "_ended_copy", lambda src, dest, seconds=None: src)
         async def upload(path, name):
             return name
         monkeypatch.setattr(jobs, "_upload", upload)
@@ -237,9 +238,9 @@ def test_an_engine_error_names_the_node_and_its_exception_not_its_inputs():
                                        "cannot be represented on the decoded subbeat grid")
 
 
-def test_a_failed_transcription_is_tried_again_with_a_clean_ending(tmp_path, monkeypatch):
-    """Faded and padded with silence, so no note is sounding when the audio ends;
-    then melody-only, then the first four minutes, each ended the same way."""
+def test_a_corpus_song_is_transcribed_with_a_clean_ending_and_retried(tmp_path, monkeypatch):
+    """Always faded and padded with silence, so no note is sounding when the audio
+    ends; on a failure, melody-only, then the first four minutes, ended the same way."""
     folder = tmp_path / "song"
     original = tone(folder / "original.flac", 250)
     execute("""INSERT INTO identity_songs(id, identity_id, file, title, sha256, duration, include, score_state, stored_path, position)
@@ -252,14 +253,14 @@ def test_a_failed_transcription_is_tried_again_with_a_clean_ending(tmp_path, mon
     async def engine(kind, ref_id, graph):
         mode, sent = graph["3"]["inputs"]["mode"], Path(graph["1"]["inputs"]["audio"])
         tried.append((mode, round(identities.probe(sent)["duration"])))
-        if len(tried) < 4:
+        if len(tried) < 3:
             raise RuntimeError("engine error: SheetSage2AudioToABC: MelodyVoiceError: cannot be represented")
         return {"outputs": {"4": {"text": ["X:1\nK:E\nQ:1/4=80\n|E|F|G|A|B|"]}}}
     monkeypatch.setattr(jobs, "_upload", upload)
     monkeypatch.setattr(jobs, "_run_graph", engine)
     monkeypatch.setattr(jobs, "extract_text_output", lambda job, *types: job["outputs"]["4"]["text"][0])
     asyncio.run(jobs.run_identity_job("identity_score", "s1"))
-    assert tried == [("full", 250), ("full", 255), ("melody", 255), ("full", 245)]     # four minutes and five of silence
+    assert tried == [("full", 255), ("melody", 255), ("full", 245)]     # five seconds of silence after each
     row = one("SELECT score_state, key FROM identity_songs WHERE id = 's1'")
     assert (row["score_state"], row["key"]) == ("done", "E major")
 
@@ -282,3 +283,22 @@ def test_a_stopped_transcription_is_not_tried_again(tmp_path, monkeypatch):
     asyncio.run(jobs.run_identity_job("identity_score", "s1"))
     assert calls == [1]
     assert one("SELECT score_state FROM identity_songs WHERE id = 's1'")["score_state"] == "failed"
+
+
+def test_a_cover_is_sent_for_transcription_with_a_clean_ending(tmp_path, monkeypatch):
+    original = tone(tmp_path / "song.wav", 12)
+    before = original.read_bytes()
+    sent = {}
+
+    async def upload(name, data):
+        (tmp_path / "sent.flac").write_bytes(data)
+        sent["name"] = name
+        return {"name": name}
+    monkeypatch.setattr(jobs.ENGINE, "upload", upload)
+    execute("INSERT INTO sources(id, title, filename, stored_path, sha256, created_at) VALUES('src1', 'A', 'song.wav', ?, 'x', 0)",
+            (str(original),))
+    name = asyncio.run(jobs._ensure_engine_file(one("SELECT * FROM sources WHERE id = 'src1'")))
+    assert name == sent["name"] == "src1.flac"
+    assert round(identities.probe(tmp_path / "sent.flac")["duration"]) == 17        # twelve seconds and five of silence
+    assert original.read_bytes() == before                                          # only the copy is changed
+    assert not list(config.WORK_DIR.glob("transcribe-*"))                          # and it is cleaned up

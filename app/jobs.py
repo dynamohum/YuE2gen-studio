@@ -343,8 +343,16 @@ async def _ensure_engine_file(source: dict) -> str:
     means a failed or lost upload is simply retried, and an engine that was
     replaced or wiped still gets the file."""
     path = Path(source["stored_path"])
-    data = await asyncio.to_thread(path.read_bytes)
-    result = await ENGINE.upload(f"{source['id']}{path.suffix}", data)
+    # Ended cleanly (see _ended_copy): a song whose last chord is still ringing as the
+    # file ends is otherwise refused whole.  This copy is only ever transcribed.
+    config.WORK_DIR.mkdir(parents=True, exist_ok=True)
+    ended = config.WORK_DIR / f"transcribe-{source['id']}.flac"
+    try:
+        await asyncio.to_thread(_ended_copy, path, ended)
+        data = await asyncio.to_thread(ended.read_bytes)
+    finally:
+        ended.unlink(missing_ok=True)
+    result = await ENGINE.upload(f"{source['id']}.flac", data)
     name = result.get("name")
     if not name:
         raise RuntimeError("the engine did not accept the recording")
@@ -960,34 +968,37 @@ def _engine_error(job: dict) -> str:
     return json.dumps(messages)[-300:]
 
 
-# A corpus song's transcription, and what to try when it fails.  The transcriber
-# refuses a whole song when a note is still sounding at the very end of the audio:
-# its beat grid stops short of the end, and a note there fits no cell.  A Day in the
-# Life failed on its final chord, at 315.51 s of 315.53, and cut at four minutes it
-# failed again at 239.94 s of 240.  So the retries end the audio cleanly -- a short
-# fade and a few seconds of silence -- then try melody-only, then the first four
-# minutes, as the trainer does.
-TRANSCRIBE_TRIES = (("full", None, False), ("full", None, True), ("melody", None, True),
-                    ("full", 240, True), ("melody", 240, True))
+# The transcriber refuses a whole song when a note is still sounding at the very end
+# of the audio: its beat grid stops short of the end, and a note there fits no cell.
+# A Day in the Life failed on its final chord, at 315.51 s of 315.53, and cut at four
+# minutes, at 239.94 s of 240.  So what it is given always ends cleanly -- a short fade
+# and a few seconds of silence -- which costs nothing the score needs.  A corpus song
+# that still fails is tried melody-only, then on its first four minutes, as the
+# trainer does.  (A cover gets the clean ending but no shortening: its score is the
+# whole song.)
 FADE_SECONDS = 2
 PAD_SECONDS = 5
+TRANSCRIBE_TRIES = (("full", None), ("melody", None), ("full", 240), ("melody", 240))
+
+
+def _ended_copy(src: Path, dest: Path, seconds: float | None = None) -> Path:
+    """The recording as the transcriber should hear it: faded over its last seconds
+    and followed by silence, shortened first when asked.  FLAC, with no tags."""
+    length = identities.probe(src).get("duration") or 0.0
+    end = min(length, seconds) if seconds else length
+    chain = (f"atrim=0:{end:.3f},afade=t=out:st={max(0.0, end - FADE_SECONDS):.3f}:d={FADE_SECONDS},"
+             f"apad=pad_dur={PAD_SECONDS}")
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(src), "-map_metadata", "-1", "-af", chain,
+                    "-c:a", "flac", str(dest)], check=True, capture_output=True, timeout=300)
+    return dest
 
 
 async def _transcribe_corpus_song(kind: str, song_id: str, staged: Path, folder: Path) -> tuple[str, str]:
     """The score, and how it was got: "" the first way, else what it took."""
     failed: Exception | None = None
-    length = 0.0
-    for mode, seconds, ended in TRANSCRIBE_TRIES:
-        path = staged
-        if ended:
-            if not length:
-                length = (await asyncio.to_thread(identities.probe, staged)).get("duration") or 0.0
-            end = min(length, seconds) if seconds else length
-            path = folder / f"engine-copy-ended{f'-{seconds}s' if seconds else ''}.flac"
-            chain = (f"atrim=0:{end:.3f},afade=t=out:st={max(0.0, end - FADE_SECONDS):.3f}:d={FADE_SECONDS},"
-                     f"apad=pad_dur={PAD_SECONDS}")
-            await asyncio.to_thread(subprocess.run, ["ffmpeg", "-v", "error", "-y", "-i", str(staged), "-af", chain,
-                                                     "-c:a", "flac", str(path)], check=True, capture_output=True, timeout=300)
+    for mode, seconds in TRANSCRIBE_TRIES:
+        path = await asyncio.to_thread(_ended_copy, staged, folder / f"engine-copy-ended{f'-{seconds}s' if seconds else ''}.flac",
+                                       seconds)
         name = await _upload(path, f"identity-{song_id}-{path.stem}{path.suffix}")
         graph = build_transcribe_graph(name)
         graph["3"]["inputs"]["mode"] = mode
@@ -998,18 +1009,15 @@ async def _transcribe_corpus_song(kind: str, song_id: str, staged: Path, folder:
             if not str(exc).startswith("engine error") or song_id in STOPPED_SONGS:
                 raise
             failed = exc
-            log.info("Transcription of corpus song %s failed (%s%s%s), trying another way: %s", song_id, mode,
-                     ", ended cleanly" if ended else "", f", first {seconds}s" if seconds else "", str(exc)[:160])
+            log.info("Transcription of corpus song %s failed (%s%s), trying another way: %s", song_id, mode,
+                     f", first {seconds}s" if seconds else "", str(exc)[:160])
             continue
         abc = extract_text_output(job, "SheetSage2AudioToABC", "PreviewAny") or ""
         if abc.count("|") >= 4:
-            if (mode, seconds, ended) == TRANSCRIBE_TRIES[0]:
+            if (mode, seconds) == TRANSCRIBE_TRIES[0]:
                 return abc, ""
-            parts = ["with its ending faded"] if ended else []
-            parts.append("melody only" if mode == "melody" else "melody and chords")
-            if seconds:
-                parts.append(f"first {seconds // 60} minutes")
-            return abc, ", ".join(parts)
+            return abc, ("melody only" if mode == "melody" else "melody and chords") + \
+                (f", first {seconds // 60} minutes" if seconds else "")
     raise failed or RuntimeError("the transcription came back empty")
 
 

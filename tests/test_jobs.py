@@ -189,9 +189,10 @@ def test_transcribe_uploads_the_recording_when_it_runs(monkeypatch, data_dir):
     engine = use(monkeypatch, FakeEngine([done({"4": {"text": [ABC]}}, graph)]))
     asyncio.run(jobs.run_job("transcribe", "s1"))
     row = one("SELECT * FROM sources WHERE id = 's1'")
-    assert engine.uploads == ["s1.wav"] and row["engine_file"] == "s1.wav"
+    # Sent as a FLAC with a clean ending, whatever it was uploaded as.
+    assert engine.uploads == ["s1.flac"] and row["engine_file"] == "s1.flac"
     assert row["transcribe_state"] == "done" and row["abc"] == ABC
-    assert engine.submitted[0]["1"]["inputs"]["audio"] == "s1.wav"
+    assert engine.submitted[0]["1"]["inputs"]["audio"] == "s1.flac"
 
 
 def test_cancelling_a_running_stem_job(monkeypatch, data_dir):
