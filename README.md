@@ -354,11 +354,18 @@ server-side change only.
   within about 5 per cent across six takes. The app shows that estimate under the score.
 - **A score writer will happily loop four bars for a whole song.** Use *Harmony* for the chords
   and *Plan variety* for the melody and structure, or fix the harmony by hand.
-- **Plan variety has a ceiling.** Its repetition penalty pushes against every token, bar lines and
-  voice headers included, so too much of it breaks the score: the old *wild* (temperature 1.25,
-  penalty 1.18) broke 6 of 6 test plans. Today's *wild* (1.15, 1.08) kept every test plan readable
-  and still varies more than *bold*. A plan that does come out unreadable is marked failed, with a
-  reason, instead of being stored and rendered.
+- **Plan variety is mostly the repetition penalty.** It pushes against every recently used token,
+  chords and melody notes alike. Temperature matters little between 0.55 and 1.0. Measured on
+  plans alone (8 per step, two invented songs):
+  - **Calm to bold:** the chord vocabulary grows about threefold while the melody stays within two
+    octaves.
+  - **At a penalty of 1.08** (*quirky* and *wild*): the melody spans up to five octaves and jumps
+    register between sections. *Wild* changes key about twice a song.
+  - **Too much breaks the score:** the voice headers are tokens too. An older *wild* (temperature
+    1.25, penalty 1.18) broke 6 of 6 test plans.
+
+  A plan that does come out unreadable is marked failed, with a reason, instead of being stored
+  and rendered.
 - **The models have their own licences**, separate from this code. See License below.
 
 ## Layout

@@ -25,6 +25,19 @@ cannot creep back in.
 
 ## Unreleased
 
+### Changed
+
+- **Plan variety has six steps, evenly spaced.** Calm and normal were nearly alike, and bold jumped
+  straight to constant chord changes and leaps in register. Measured on plans alone, the
+  repetition penalty turned out to be the lever, not the temperature.
+  - **Calm** is now genuinely the steadiest.
+  - **Lively** is new, a step above normal.
+  - **Bold** now gives richer harmony while keeping the tune.
+  - **Quirky** is the old bold, kept for the odd and experimental.
+  - **Wild** is unchanged.
+
+  Takes made before keep their variety name, but a replan uses the new settings.
+
 ### Added
 
 - **The Style box can be dragged taller** by its bottom-right corner, to read a long style

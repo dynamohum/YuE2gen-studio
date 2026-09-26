@@ -132,8 +132,17 @@ style text instead — "jazz harmony", "borrowed chords" — had no measurable e
 
 ### Plan variety
 
-Under *Advanced*, **Plan variety** sets how freely the planner writes: calm, normal, bold or wild.
-Where Harmony acts on the chords, this acts on everything — melody, structure and length.
+Under *Advanced*, **Plan variety** sets how freely the planner writes. Where Harmony acts on the
+chords, this acts on everything: melody, structure and length.
+
+- **Calm:** the steadiest. Few chords, and a melody that stays close to home.
+- **Normal:** the default.
+- **Lively:** a few more chords and turns.
+- **Bold:** richer harmony, about three times normal's chord vocabulary, while the tune stays
+  recognisably the same kind of tune.
+- **Quirky:** restless. Chords keep changing, and the melody leaps between registers from one
+  section to the next. For the odd and experimental.
+- **Wild:** the most restless of all, and it may change key partway through.
 
 ---
 

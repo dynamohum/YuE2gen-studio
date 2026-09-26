@@ -66,10 +66,18 @@ def build_transcribe_graph(engine_file: str) -> dict:
 # The penalty hits every token, bar lines and voice headers included, so too much of
 # it breaks the score: wild used to be 1.25 / 1.18 and broke 6 of 6 test plans.
 # 1.15 / 1.08 kept every test plan readable and still varies more than bold.
+# How freely the planner writes.  The repetition penalty is the lever: it pushes against
+# every recently used token, chords and melody notes alike, so a strong one keeps the plan
+# moving to new chords and new registers.  Temperature matters little between 0.55 and 1.0.
+# Measured on plans alone, 8 per step: from calm to bold the chord vocabulary grows about
+# threefold while the melody stays within two octaves; at 1.08 it spans five and jumps
+# register between sections, and wild changes key.
 PLAN_VARIETY = {
-    "calm": {"temperature": 0.5, "repetition_penalty": 1.02},
+    "calm": {"temperature": 0.55, "repetition_penalty": 1.0},
     "normal": {"temperature": 0.7, "repetition_penalty": 1.005},
-    "bold": {"temperature": 1.0, "repetition_penalty": 1.08},
+    "lively": {"temperature": 0.85, "repetition_penalty": 1.02},
+    "bold": {"temperature": 1.0, "repetition_penalty": 1.03},
+    "quirky": {"temperature": 1.0, "repetition_penalty": 1.08},
     "wild": {"temperature": 1.15, "repetition_penalty": 1.08},
 }
 
@@ -564,7 +572,7 @@ async def _finish(kind: str, ref_id: str, record: dict, job: dict, started: floa
                 advice_parts.append(f"lower style LoRA Planner strength ({clip_val:.2f}) to ~0.50–0.60")
             if harmony_val > 0:
                 advice_parts.append("set Harmony to Familiar")
-            if variety_val in ("bold", "wild"):
+            if variety_val in ("bold", "quirky", "wild"):
                 advice_parts.append("choose a calmer Plan variety")
             advice = f". Try to {', or '.join(advice_parts)}" if advice_parts else ""
             fail(kind, ref_id, f"the plan came out unreadable ({', '.join(issues)}). Write a new plan{advice}.")
