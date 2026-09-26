@@ -98,3 +98,13 @@ sh scripts/check-upstream.sh
 It prints the pin, upstream's latest commit and release, how many commits behind the pin is, and the
 ritual for moving it: build the candidate beside the live engine, render a cover, a song, an
 instrumental and a lyric draft against it, then move the pin in a commit that says what was checked.
+
+It also reports:
+
+- **The trainer:** the commits to FS_Audio Suite since its pin (`ARG FS_AUDIO_REF`). Bump it by
+  moving the pin, rebuilding the engine, and training a short run on a small corpus.
+- **The models:** each Hugging Face repository `scripts/fetch-models.sh` downloads from, and the YuE2
+  authors' own (m-a-p), where a new version appears first. These aren't pinned: a fresh install
+  takes whatever is on `main`. So `scripts/upstream-reviewed.json` records the revision each one was
+  at when last looked at, and the report marks any that have changed since. Read what changed, and
+  when done, record it with `sh scripts/check-upstream.sh --reviewed`.

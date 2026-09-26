@@ -1,0 +1,71 @@
+"""Says which model repositories on Hugging Face have changed since they were last looked at.
+
+Called by scripts/check-upstream.sh. The models are fetched from each repository's
+main branch, not a pinned revision, so a repository that moves changes what a fresh
+install downloads. scripts/upstream-reviewed.json records the revision each one was
+at when last reviewed; `--reviewed` brings it up to date.
+"""
+from __future__ import annotations
+
+import json
+import re
+import sys
+import urllib.request
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+REVIEWED = HERE / "upstream-reviewed.json"
+FETCH = HERE / "fetch-models.sh"
+# The authors' own releases. We download Comfy-Org's repackaging, so a new version
+# shows here first.
+AUTHORS = ["m-a-p/YuE2-3B", "m-a-p/YuE2-Vae", "m-a-p/SheetSage2", "m-a-p/MERT-v2-FullSong"]
+
+
+def repositories() -> list[str]:
+    """Every Hugging Face repository fetch-models.sh downloads from, then the authors'."""
+    found = re.findall(r"huggingface\.co/([\w.-]+/[\w.-]+)/resolve", FETCH.read_text(encoding="utf-8"))
+    return list(dict.fromkeys(found + AUTHORS))
+
+
+def revision(repo: str) -> dict:
+    try:
+        with urllib.request.urlopen(f"https://huggingface.co/api/models/{repo}", timeout=15) as r:
+            data = json.load(r)
+        return {"sha": data.get("sha") or "", "date": (data.get("lastModified") or "")[:10]}
+    except Exception as exc:  # noqa: BLE001
+        return {"error": str(exc)}
+
+
+def main() -> None:
+    mark = "--reviewed" in sys.argv[1:]
+    seen = json.loads(REVIEWED.read_text(encoding="utf-8")) if REVIEWED.exists() else {}
+    changed = []
+    print()
+    print("Model repositories on Hugging Face (fetched from main, not pinned):")
+    for repo in repositories():
+        now = revision(repo)
+        if "error" in now:
+            print(f"  {repo:58} could not read: {now['error']}")
+            continue
+        before = seen.get(repo)
+        if before is None:
+            state = "not reviewed yet"
+        elif before != now["sha"]:
+            state = f"CHANGED since review (was {before[:8]})"
+            changed.append(repo)
+        else:
+            state = "as reviewed"
+        print(f"  {repo:58} {now['sha'][:8]}  {now['date']}  {state}")
+        if mark:
+            seen[repo] = now["sha"]
+    if mark:
+        REVIEWED.write_text(json.dumps(seen, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print(f"\nRecorded as reviewed in {REVIEWED.relative_to(HERE.parent)}.")
+    elif changed:
+        print("\nRead what changed on each repository's page (Files and versions, then History).")
+        print("A new YuE2 checkpoint needs the same four test renders as a ComfyUI bump.")
+        print("When done: sh scripts/check-upstream.sh --reviewed")
+
+
+if __name__ == "__main__":
+    main()

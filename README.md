@@ -385,7 +385,7 @@ app/                   the application
   static/              the page. No build step
 tests/                 pytest: the API, the job lanes against a fake engine, migrations
 scripts/fetch-models.sh
-scripts/check-upstream.sh   how far the engine's ComfyUI pin has drifted
+scripts/check-upstream.sh   how far ComfyUI, the trainer and the model repositories have moved
 models/                bind mounted into the engine (git ignored)
 data/                  your library: sources, takes, stems, SQLite (git ignored)
 engine-state/          ComfyUI's input, output and user folders (git ignored)
