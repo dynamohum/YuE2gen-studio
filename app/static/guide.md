@@ -141,7 +141,7 @@ chords, this acts on everything: melody, structure and length.
 - **Bold:** richer harmony, about three times normal's chord vocabulary, while the tune stays
   recognisably the same kind of tune.
 - **Quirky:** restless. Chords keep changing, and the melody leaps between registers from one
-  section to the next. For the odd and experimental.
+  section to the next. For odd, off-the-wall songs.
 - **Wild:** the most restless of all, and it may change key partway through.
 
 ---
