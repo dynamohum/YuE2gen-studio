@@ -108,3 +108,9 @@ It also reports:
   takes whatever is on `main`. So `scripts/upstream-reviewed.json` records the revision each one was
   at when last looked at, and the report marks any that have changed since. Read what changed, and
   when done, record it with `sh scripts/check-upstream.sh --reviewed`.
+
+`--show-details` lists every commit with its description and author:
+- **ComfyUI:** those touching the code this app renders through are marked, with a link to their
+  pull request, where most of ComfyUI's descriptions live.
+- **The trainer:** every commit since its pin.
+- **The models:** each repository's commits since it was last reviewed.

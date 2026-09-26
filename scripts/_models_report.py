@@ -3,7 +3,8 @@
 Called by scripts/check-upstream.sh. The models are fetched from each repository's
 main branch, not a pinned revision, so a repository that moves changes what a fresh
 install downloads. scripts/upstream-reviewed.json records the revision each one was
-at when last reviewed; `--reviewed` brings it up to date.
+at when last reviewed; `--reviewed` brings it up to date. `--show-details` lists
+each repository's commits since its review (the latest few, if never reviewed).
 """
 from __future__ import annotations
 
@@ -36,8 +37,34 @@ def revision(repo: str) -> dict:
         return {"error": str(exc)}
 
 
+def commits_since(repo: str, reviewed: str | None, limit: int = 3) -> list[dict]:
+    """Newest first, stopping at the reviewed revision; the latest few if there is none."""
+    try:
+        with urllib.request.urlopen(f"https://huggingface.co/api/models/{repo}/commits/main", timeout=15) as r:
+            commits = json.load(r)
+    except Exception:  # noqa: BLE001
+        return []
+    if not reviewed:
+        return commits[:limit]
+    since = []
+    for commit in commits:
+        if commit["id"].startswith(reviewed):
+            break
+        since.append(commit)
+    return since
+
+
+def show(commits: list[dict]) -> None:
+    for commit in commits:
+        who = ", ".join(a.get("user", "") for a in commit.get("authors") or []) or "?"
+        print(f"      {commit['date'][:10]}  {commit['id'][:8]}  {commit['title'][:90]}  ({who})")
+        for line in [line for line in (commit.get("message") or "").splitlines() if line.strip()][:8]:
+            print(f"                              {line.rstrip()[:100]}")
+
+
 def main() -> None:
     mark = "--reviewed" in sys.argv[1:]
+    details = "--show-details" in sys.argv[1:]
     seen = json.loads(REVIEWED.read_text(encoding="utf-8")) if REVIEWED.exists() else {}
     changed = []
     print()
@@ -56,6 +83,8 @@ def main() -> None:
         else:
             state = "as reviewed"
         print(f"  {repo:58} {now['sha'][:8]}  {now['date']}  {state}")
+        if details and before != now["sha"]:
+            show(commits_since(repo, before))
         if mark:
             seen[repo] = now["sha"]
     if mark:

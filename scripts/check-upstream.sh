@@ -12,13 +12,25 @@
 # is a little old. But a pin nobody looks at quietly becomes a fork. Run this
 # before cutting a release.
 #
-#   sh scripts/check-upstream.sh              report
-#   sh scripts/check-upstream.sh --reviewed   also record the model repositories
-#                                             as reviewed at their current revision
+#   sh scripts/check-upstream.sh                  report
+#   sh scripts/check-upstream.sh --show-details   also list each commit with its
+#                                                 description (ComfyUI's in full only
+#                                                 where they touch our code)
+#   sh scripts/check-upstream.sh --reviewed       also record the model repositories
+#                                                 as reviewed at their current revision
 #
 # Needs the GitHub CLI (gh) to compare the pins; without it, it prints each pin and
 # its comparison URL so it can be read by hand.
 set -eu
+
+DETAILS=
+for arg in "$@"; do
+  case "$arg" in
+    --show-details) DETAILS=--show-details ;;
+    --reviewed) ;;
+    *) echo "unknown option: $arg (use --show-details or --reviewed)" >&2; exit 2 ;;
+  esac
+done
 
 REPO=comfyanonymous/ComfyUI
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
@@ -50,7 +62,7 @@ if ! gh api "repos/$REPO/compare/$PIN...master" > "$tmp" 2>/dev/null; then
 fi
 
 # Only the files this app renders through are worth reading about.
-python3 "$HERE/scripts/_upstream_report.py" "$tmp" "$PIN" "$REPO"
+python3 "$HERE/scripts/_upstream_report.py" comfy "$tmp" "$PIN" "$REPO" $DETAILS
 
 # The trainer: every change matters, since the whole repository is the trainer.
 FS_REPO=KytraScript/ComfyUI-FS_Audio_Suite
@@ -58,17 +70,7 @@ FS_PIN=$(sed -n 's/^ARG FS_AUDIO_REF=\(.*\)$/\1/p' "$HERE/engine/Dockerfile")
 echo
 echo "trainer pinned to $FS_REPO @ $(printf %.8s "$FS_PIN")"
 if gh api "repos/$FS_REPO/compare/$FS_PIN...HEAD" > "$tmp" 2>/dev/null; then
-  python3 - "$tmp" "$FS_REPO" "$FS_PIN" <<'PY'
-import json, sys
-data = json.load(open(sys.argv[1], encoding="utf-8"))
-commits = data.get("commits") or []
-print(f"{data.get('total_commits', 0)} commits since the pin.")
-for c in commits[-15:]:
-    print(f"  {c['sha'][:8]}  {c['commit']['author']['date'][:10]}  {c['commit']['message'].splitlines()[0][:90]}")
-if commits:
-    print(f"\n  https://github.com/{sys.argv[2]}/compare/{sys.argv[3][:8]}...HEAD")
-    print("  To bump: move ARG FS_AUDIO_REF, rebuild the engine, and train a short run on a small corpus.")
-PY
+  python3 "$HERE/scripts/_upstream_report.py" trainer "$tmp" "$FS_PIN" "$FS_REPO" $DETAILS
 else
   echo "Could not compare the trainer; check the network or the pin." >&2
 fi
