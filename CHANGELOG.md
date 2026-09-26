@@ -23,7 +23,10 @@ Release notes live in two places and neither is a file in this repository: this 
 history, and each GitHub release holds its published notes. `RELEASE-NOTES-*.md` is ignored so it
 cannot creep back in.
 
-## Unreleased
+## 0.0.37 - 2026-09-26
+
+Plan variety in even steps, a Style box that can be dragged taller, and training that copes
+better with long songs and with an engine that restarts.
 
 ### Changed
 
@@ -67,6 +70,14 @@ cannot creep back in.
   well. They were left out of the folder scan, although every later step reads through
   ffmpeg and the engine is only ever sent a FLAC. The title tag of an Opus or Ogg file is
   now read too: those formats keep it on the audio stream, not the file.
+
+### For developers
+
+- **`scripts/check-upstream.sh` covers the whole engine,** not only ComfyUI:
+  - the trainer's commits since its pin
+  - every Hugging Face repository the models come from, marking those changed since last reviewed
+    (`scripts/upstream-reviewed.json`, updated with `--reviewed`)
+  - `--show-details`, which lists each commit with its description
 
 ## 0.0.36 - 2026-09-25
 
