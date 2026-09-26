@@ -5610,6 +5610,47 @@ function closeLogsModal() {
   }
 }
 
+/* The style box is a textarea so its corner can be dragged to show more of a long
+   style. At one row it behaves as the text input it replaced: one line that scrolls
+   sideways. Taller, it wraps. A style still goes to the model as one line of tags, so
+   Enter adds no line and pasted line breaks become spaces. The height is kept per browser. */
+var STYLE_HEIGHT_KEY = 'yue2.styleHeight';
+function wireStyleBox() {
+  var box = $('style');
+  if (!box || box.tagName !== 'TEXTAREA') { return; }   // an index.html from before the change
+  function fit() {
+    var line = parseFloat(window.getComputedStyle(box).lineHeight) || 20;
+    // Hidden (another mode's form) it measures 0 and is left as it is.
+    if (box.clientHeight) { box.wrap = box.clientHeight < line * 1.8 + 20 ? 'off' : 'soft'; }
+  }
+  function keep() {
+    fit();
+    if (!box.offsetHeight) { return; }
+    try { localStorage.setItem(STYLE_HEIGHT_KEY, String(box.offsetHeight)); } catch (err) { /* not kept */ }
+  }
+  try {
+    var kept = parseInt(localStorage.getItem(STYLE_HEIGHT_KEY), 10);
+    if (kept > 0) { box.style.height = kept + 'px'; }
+  } catch (err) { /* storage unavailable: one row */ }
+  fit();
+  box.addEventListener('keydown', function (event) {
+    if (event.key === 'Enter') { event.preventDefault(); }
+  });
+  box.addEventListener('input', function () {
+    if (box.value.indexOf('\n') === -1) { return; }
+    var at = box.selectionStart;
+    var before = box.value.length;
+    box.value = box.value.replace(/[ \t]*[\r\n]+[ \t]*/g, ' ');
+    box.selectionStart = box.selectionEnd = Math.max(0, at - (before - box.value.length));
+  });
+  // A drag of the corner ends with the button let go over the box.
+  box.addEventListener('mouseup', keep);
+  if (window.ResizeObserver) {
+    var timer = null;
+    new ResizeObserver(function () { clearTimeout(timer); timer = setTimeout(keep, 300); }).observe(box);
+  }
+}
+
 async function fetchLogs() {
   if (!LogsState.open) { return; }
   try {
@@ -6336,6 +6377,7 @@ function wire() {
   paintVocals();
   loadVocalIdentities();
 
+  wireStyleBox();
   FORM_FIELDS.forEach(function (id) {
     $(id).addEventListener('input', function () {
       if (id === 'style') { $('style').dataset.touched = '1'; }

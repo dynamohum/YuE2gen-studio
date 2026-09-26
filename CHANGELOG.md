@@ -27,6 +27,11 @@ cannot creep back in.
 
 ### Added
 
+- **The Style box can be dragged taller** by its bottom-right corner, to read a long style
+  whole. At one row it's the single line it was; taller, it wraps. The height is kept in
+  the browser. A style still goes to the model as one line: Enter adds no line, and
+  pasted line breaks become spaces.
+
 - **`TRAIN_MAX_TOKENS`: the Planner's context for training** (default 8192, as before).
   The Planner learns each song whole and leaves out any song too long for its context.
   With a longer `TRAIN_MAX_MINUTES`, a larger context keeps those songs in. It costs little
